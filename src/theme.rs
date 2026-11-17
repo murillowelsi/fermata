@@ -327,9 +327,25 @@ fn key_glyph(k: egui::Key) -> String {
     }
 }
 
-/// One key combination in the macOS order ⌃⌥⇧⌘ ("⌃⇧T", "⌥⇧N", "⌘Q").
+/// One key combination: the macOS symbols in the order ⌃⌥⇧⌘ on the Mac ("⌃⇧T", "⌥⇧N", "⌘Q"); words elsewhere
+/// ("Ctrl+Shift+T", "Alt+Shift+N"), as Windows menus show them.
 pub fn combo_glyphs(s: &egui::KeyboardShortcut) -> String {
     let m = s.modifiers;
+    if !cfg!(target_os = "macos") {
+        let mut t = String::new();
+        for (on, w) in [(m.ctrl || (m.command && !m.mac_cmd), "Ctrl+"), (m.alt, "Alt+"), (m.shift, "Shift+")] {
+            if on {
+                t.push_str(w);
+            }
+        }
+        let k = match s.logical_key {
+            egui::Key::Backspace => "Backspace".to_string(),
+            egui::Key::Delete => "Del".to_string(),
+            egui::Key::Enter => "Enter".to_string(),
+            k => key_glyph(k),
+        };
+        return t + &k;
+    }
     let mut t = String::new();
     if m.ctrl {
         t.push('⌃');
@@ -346,8 +362,11 @@ pub fn combo_glyphs(s: &egui::KeyboardShortcut) -> String {
     t + &key_glyph(s.logical_key)
 }
 
-/// Plain-key shortcuts ("Space", "Shift+Z") written with the same symbols ("Space", "⇧Z").
+/// Plain-key shortcuts ("Space", "Shift+Z") written with the same symbols ("Space", "⇧Z"); as words off the Mac.
 fn plain_glyphs(s: &str) -> String {
+    if !cfg!(target_os = "macos") {
+        return s.to_string();
+    }
     match s {
         "Enter" => "↩".into(),
         _ => s.replace("Shift+", "⇧").replace("Alt+", "⌥"),
@@ -367,9 +386,11 @@ pub fn shortcut_glyphs(c: crate::commands::Cmd) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
     use crate::commands::{self, Cmd};
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn spec_examples() {
         // §3 of the spec: Ctrl+T / Cmd+T -> ⌃T; Ctrl+Shift+T -> ⌃⇧T; Ctrl+Alt+X -> ⌃⌥X; Alt+Shift+N -> ⌥⇧N
         assert_eq!(shortcut_glyphs(Cmd::Tie), "⌃T");
@@ -382,6 +403,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn ctrl_commands_never_show_cmd() {
         for c in commands::all_shortcut_cmds() {
             let Some(s) = commands::shortcut(c) else { continue };
@@ -394,6 +416,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn modifier_order_is_macos() {
         let s = egui::KeyboardShortcut::new(egui::Modifiers::CTRL | egui::Modifiers::ALT | egui::Modifiers::SHIFT | egui::Modifiers::MAC_CMD, egui::Key::M);
         assert_eq!(combo_glyphs(&s), "⌃⌥⇧⌘M");

@@ -1,3 +1,5 @@
+// Windows: a window app, without a console window behind it (debug builds keep the console for messages)
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
 mod audio;
 mod commands;
@@ -550,6 +552,7 @@ fn main() -> eframe::Result<()> {
             vp = vp.with_window_level(egui::WindowLevel::AlwaysOnTop);
         }
     }
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut options = eframe::NativeOptions { viewport: vp, ..Default::default() };
     if shot.is_some() {
         #[cfg(target_os = "macos")]
