@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "values": [
+    {
+      "name": "ticks per quarter (files)",
+      "group": "timing",
+      "value": 240,
+      "source": "score header +0x2c; sub_463850 @0x463ba5 writes <divisions>"
+    },
+    {
+      "name": "beam stem length",
+      "group": "engraving",
+      "value": 7,
+      "unit": "half spaces",
+      "source": "sub_41ca60, default 0x4f7080"
+    },
+    {
+      "name": "beam thickness",
+      "group": "engraving",
+      "value": 100,
+      "unit": "% of half space",
+      "source": "sub_41ca60, default 0x4f7082"
+    },
+    {
+      "name": "horizontal tie offset",
+      "group": "engraving",
+      "value": 0,
+      "unit": "quarter spaces",
+      "source": "0x4f7084"
+    },
+    {
+      "name": "vertical tie offset",
+      "group": "engraving",
+      "value": 3,
+      "unit": "quarter spaces",
+      "source": "0x4f7086"
+    },
+    {
+      "name": "measure spacing",
+      "group": "engraving",
+      "value": 2,
+      "unit": "half spaces",
+      "source": "0x4f708c-0x4f7092"
+    },
+    {
+      "name": "dynamic marks",
+      "group": "notation",
+      "value": 23,
+      "source": "table 0x4eb8a0 read by sub_491ef0"
+    },
+    {
+      "name": "dynamic velocity rule",
+      "group": "playback",
+      "value": "middle of range; random in range with Humanize",
+      "source": "Encore.exe help string rsrc 0x1716530"
+    },
+    {
+      "name": "swing range",
+      "group": "playback",
+      "value": "50.0-75.0 %",
+      "source": "dialog resource 2010"
+    },
+    {
+      "name": "swing note types",
+      "group": "playback",
+      "value": "whole, half, quarter, eighth, 16th, 32nd",
+      "source": "dialog resource 2010"
+    },
+    {
+      "name": "beam group shortcut",
+      "group": "controls",
+      "value": "Ctrl+M (Cmd+Shift+B on Mac)",
+      "source": "accelerator table THEACCEL"
+    },
+    {
+      "name": "add mark shortcut",
+      "group": "controls",
+      "value": "Ctrl+9",
+      "source": "accelerator table THEACCEL"
+    },
+    {
+      "name": "voices per staff",
+      "group": "notes",
+      "value": 8,
+      "source": "menu THEMENU Notes > Voice (ids 402-409)"
+    },
+    {
+      "name": "palettes",
+      "group": "ui",
+      "value": 11,
+      "source": "menu THEMENU Windows > Palette (ids 240-250)"
+    },
+    {
+      "name": "new score defaults",
+      "group": "new score",
+      "value": "2 staves, 5 systems, 3 measures",
+      "source": "Quick Start QS-2 / dialog 1330"
+    },
+    {
+      "name": "default swing note",
+      "group": "playback",
+      "value": "eighth",
+      "estimated": true
+    },
+    {
+      "name": "dynamic velocity ranges",
+      "group": "playback",
+      "value": "see default_dynamic_ranges",
+      "estimated": true
+    },
+    {
+      "name": "default tempo",
+      "group": "playback",
+      "value": 120,
+      "unit": "bpm",
+      "estimated": true
+    },
+    {
+      "name": "default velocity",
+      "group": "playback",
+      "value": 80,
+      "estimated": true
+    },
+    {
+      "name": "QWERTY pitch keys",
+      "group": "controls",
+      "value": "A W S E D F T G Y H U J K",
+      "estimated": true
+    },
+    {
+      "name": "Tuplet (Notes palette 3:2)",
+      "value": "modifier on the current note value; double-click changes the ratio; Beam Group (Ctrl+M) on 3/5/6/7 notes makes n:(power of two) tuplet",
+      "source": "original tooltip 'Tuplet. Double-click tool to change value'; .enc note byte 9 = 0x32"
+    }
+  ]
+}

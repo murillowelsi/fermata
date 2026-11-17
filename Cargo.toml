@@ -1,0 +1,20 @@
+[package]
+name = "fermata"
+version = "0.1.0"
+edition = "2021"
+description = "Fermata - a free music notation editor"
+
+[dependencies]
+egui = "0.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+midir = "0.11"
+rfd = "0.15"
+
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+cpal = "0.18"
+winit = "0.30"
+
+[profile.release]
+opt-level = 2
