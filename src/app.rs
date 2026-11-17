@@ -36,6 +36,17 @@ pub enum Item {
     Guitar(String),
 }
 
+/// Note Attributes with several notes: the playback length, note value and dots as the dialog opened, and
+/// whether they differ among the selected notes. Only fields the person changed are applied to every note.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AttrInit {
+    pub play_len: u32,
+    pub value: u8,
+    pub dots: u8,
+    /// play length, note value, dots: different among the selected notes
+    pub mixed: [bool; 3],
+}
+
 #[derive(Clone, Debug)]
 pub enum Dialog {
     NewScore { staves: usize, systems: usize, mps: usize, c_score: bool, handwritten: bool, template: usize },
@@ -50,7 +61,8 @@ pub enum Dialog {
     MeasuresPerSystem { n: usize },
     SystemsPerPage { n: usize },
     Text(TextElements),
-    NoteAttributes { velocity: u8, play_len: u32, value: u8, dots: u8, voice: u8, hidden: bool, stem: Stem },
+    /// `init`: the length fields as the dialog opened, and which differ among the selected notes ("mixed").
+    NoteAttributes { velocity: u8, play_len: u32, value: u8, dots: u8, voice: u8, hidden: bool, stem: Stem, init: AttrInit },
     Velocity { mode: usize, value: i32, to: i32 },
     SpacingDefaults { stem: u16, beam: u16, tie_h: u16, tie_v: u16, ms: [u16; 4] },
     Duration { percent: u32 },

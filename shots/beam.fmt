@@ -68,7 +68,7 @@
       "num": 4,
       "den": 4,
       "key": 0,
-      "tempo": 120,
+      "tempo": null,
       "barline": "Single",
       "ending": null,
       "coda_phrase": null,

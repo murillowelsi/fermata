@@ -695,7 +695,8 @@ impl Score {
             num: 4,
             den: 4,
             key: 0,
-            tempo: Some(120),
+            // no tempo mark: the first measure plays at MIDI Playback ▸ Default tempo until a mark is entered
+            tempo: None,
             barline: Barline::Single,
             ending: None,
             coda_phrase: None,
@@ -713,7 +714,7 @@ impl Score {
             num: 4,
             den: 4,
             key: 0,
-            tempo: Some(120),
+            tempo: None,
             barline: Barline::Single,
             ending: None,
             coda_phrase: None,

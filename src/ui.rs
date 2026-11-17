@@ -1041,12 +1041,28 @@ impl App {
                     kit::row(ui, "", |ui| kit::checkbox(ui, &mut t.show_page_numbers, "Page numbers"));
                 });
             }
-            Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem } => {
+            Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem, init } => {
+                // a length field that differs among the selected notes says so until it's changed
+                let mixed = |ui: &mut Ui, on: bool| {
+                    if on {
+                        kit::help(ui, "mixed (left as it is)");
+                    }
+                };
+                let (m_len, m_val, m_dots) = (init.mixed[0] && *play_len == init.play_len, init.mixed[1] && *value == init.value, init.mixed[2] && *dots == init.dots);
                 kit::form(ui, "attr", |ui| {
                     kit::row(ui, "Velocity", |ui| kit::slider(ui, velocity, 1..=127, int_fmt));
-                    kit::row(ui, "Playback length (ticks, 480 = quarter)", |ui| kit::num_with(ui, play_len, 1..=TPQ * 16, 96.0, |d| d));
-                    kit::row(ui, "Note value (0 = double whole ... 8 = 128th)", |ui| kit::slider(ui, value, 0..=8, int_fmt));
-                    kit::row(ui, "Dots", |ui| kit::slider(ui, dots, 0..=2, int_fmt));
+                    kit::row(ui, "Playback length (ticks, 480 = quarter)", |ui| {
+                        kit::num_with(ui, play_len, 1..=TPQ * 16, 96.0, |d| d);
+                        mixed(ui, m_len);
+                    });
+                    kit::row(ui, "Note value (0 = double whole ... 8 = 128th)", |ui| {
+                        kit::slider(ui, value, 0..=8, int_fmt);
+                        mixed(ui, m_val);
+                    });
+                    kit::row(ui, "Dots", |ui| {
+                        kit::slider(ui, dots, 0..=2, int_fmt);
+                        mixed(ui, m_dots);
+                    });
                     kit::row(ui, "Voice", |ui| kit::slider(ui, voice, 1..=8, int_fmt));
                     kit::row(ui, "", |ui| {
                         kit::radio_value(ui, stem, Stem::Auto, "Stem normal");
@@ -1720,9 +1736,7 @@ impl App {
                         2 => (bpm as f32 + (to_bpm as f32 - bpm as f32) * (m - a) as f32 / span).round() as i64,
                         _ => cur + bpm as i64,
                     };
-                    if mode == 0 && m > a {
-                        continue;
-                    }
+                    // "Set all Tempos to": every measure of the range gets the new tempo, also those with their own mark
                     self.score.measures[m].tempo = Some(v.clamp(1, 400) as u32);
                 }
             }
@@ -1768,17 +1782,26 @@ impl App {
                 self.checkpoint();
                 self.score.text = t;
             }
-            Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem } => {
-                let one = self.targets().len() == 1;
+            Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem, init } => {
+                // the length fields go to every selected note when they were changed; untouched (or mixed and
+                // untouched) fields leave each note as it is. A length that runs past a bar line is refused whole.
+                let (set_len, set_val, set_dots) = (play_len != init.play_len, value != init.value, dots != init.dots);
                 self.modify(|e| {
                     e.velocity = velocity;
                     e.hidden = hidden;
                     e.stem = stem;
                     e.voice = voice;
-                    if one {
+                    if set_val {
                         e.value = value;
+                    }
+                    if set_dots {
                         e.dots = dots;
-                        e.play_len = if play_len == dur_ticks(value, dots, e.tuplet) { None } else { Some(play_len) };
+                    }
+                    if set_len {
+                        e.play_len = Some(play_len);
+                    }
+                    if e.play_len == Some(dur_ticks(e.value, e.dots, e.tuplet)) {
+                        e.play_len = None;
                     }
                 });
             }
@@ -2267,4 +2290,90 @@ pub fn chord_text(root: &str, kind: &str, bass: &str, custom: &str) -> String {
         t.push_str(bass);
     }
     t
+}
+
+#[cfg(test)]
+mod qa2_tests {
+    use super::*;
+    use crate::score_view::NoteRef;
+
+    /// Quarter notes at the given ticks of measure 1, staff 1, all selected.
+    fn selected_quarters(ticks: &[u32]) -> App {
+        let mut a = App::new(true);
+        for &t in ticks {
+            a.enter(0, 0, t, Some(Pitch::from_midi(60, false)), 3, 0, false);
+        }
+        for i in 0..a.score.events[0][0].len() {
+            a.selected.insert(NoteRef { staff: 0, measure: 0, idx: i });
+        }
+        a
+    }
+
+    fn open_attributes(a: &mut App) -> Dialog {
+        a.exec(Cmd::NoteAttributes);
+        a.dialog.take().expect("Note Attributes opens")
+    }
+
+    #[test]
+    fn note_attributes_value_and_dots_apply_to_every_selected_note() {
+        let mut a = selected_quarters(&[0, 2 * TPQ]);
+        let Dialog::NoteAttributes { velocity, play_len, voice, hidden, stem, init, .. } = open_attributes(&mut a) else { panic!() };
+        a.apply_dialog(Dialog::NoteAttributes { velocity, play_len, value: 4, dots: 1, voice, hidden, stem, init });
+        let got: Vec<(u8, u8)> = a.score.events[0][0].iter().map(|e| (e.value, e.dots)).collect();
+        assert_eq!(got, vec![(4, 1), (4, 1)]);
+    }
+
+    #[test]
+    fn note_attributes_mixed_fields_left_untouched_change_nothing() {
+        let mut a = selected_quarters(&[0, TPQ]);
+        a.score.events[0][0][1].value = 4; // a quarter and an eighth: the note value is mixed
+        let Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem, init } = open_attributes(&mut a) else { panic!() };
+        assert!(init.mixed[1]);
+        a.apply_dialog(Dialog::NoteAttributes { velocity: 33, play_len, value, dots, voice, hidden, stem, init });
+        let got: Vec<(u8, u8)> = a.score.events[0][0].iter().map(|e| (e.value, e.velocity)).collect();
+        assert_eq!(got, vec![(3, 33), (4, 33)], "values stay as they were; the velocity applies to both");
+    }
+
+    #[test]
+    fn note_attributes_length_that_doesnt_fit_is_refused_whole() {
+        let mut a = selected_quarters(&[0, TPQ]);
+        a.score.events[0][0][1].start = 3 * TPQ; // the second quarter on beat 4
+        let before = a.score.clone();
+        let Dialog::NoteAttributes { velocity, play_len, dots, voice, hidden, stem, init, .. } = open_attributes(&mut a) else { panic!() };
+        // half notes: the one on beat 4 would run past the bar line
+        a.apply_dialog(Dialog::NoteAttributes { velocity, play_len, value: 2, dots, voice, hidden, stem, init });
+        assert_eq!(a.score, before);
+        assert!(a.status.starts_with("Doesn't fit"), "{}", a.status);
+    }
+
+    #[test]
+    fn set_all_tempos_covers_measures_with_their_own_mark() {
+        let mut a = App::new(true);
+        a.score.measures[2].tempo = Some(90);
+        a.apply_dialog(Dialog::Tempo { bpm: 100, measure: 0, to_measure: 3, mode: 0, to_bpm: 100 });
+        assert_eq!((0..4).map(|m| a.score.tempo_at(m)).collect::<Vec<_>>(), vec![100, 100, 100, 100]);
+    }
+
+    #[test]
+    fn default_tempo_drives_a_new_score_until_a_mark_is_entered() {
+        let mut a = App::new(true);
+        assert_eq!(a.score.measures[0].tempo, None, "a new score has no fixed ♩=120");
+        a.score.playback.default_tempo = 60;
+        assert_eq!(a.score.tempo_at(0), 60);
+        a.score.measures[0].tempo = Some(132);
+        assert_eq!(a.score.tempo_at(0), 132);
+        // a template from New Score too
+        let t = crate::app::build_template(0, 2, 5, 3, false, false);
+        assert_eq!(t.measures[0].tempo, None);
+    }
+
+    #[test]
+    fn older_scores_keep_their_first_measure_tempo() {
+        let mut sc = Score::default_score();
+        sc.measures[0].tempo = Some(120);
+        sc.playback.default_tempo = 80;
+        let back: Score = serde_json::from_str(&serde_json::to_string(&sc).unwrap()).unwrap();
+        assert_eq!(back.measures[0].tempo, Some(120));
+        assert_eq!(back.tempo_at(0), 120);
+    }
 }

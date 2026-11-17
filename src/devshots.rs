@@ -68,7 +68,7 @@ pub fn open(app: &mut App, name: &str) -> bool {
     if app.dialog.is_none() {
         let r = NoteRef { staff: 0, measure: 0, idx: 0 };
         app.dialog = match name {
-            "NoteAttributes" => Some(Dialog::NoteAttributes { velocity: 80, play_len: TPQ, value: 3, dots: 0, voice: 1, hidden: false, stem: Stem::Auto }),
+            "NoteAttributes" => Some(Dialog::NoteAttributes { velocity: 80, play_len: TPQ, value: 3, dots: 0, voice: 1, hidden: false, stem: Stem::Auto, init: crate::app::AttrInit { play_len: TPQ, value: 3, ..Default::default() } }),
             "Transpose" => Some(Dialog::Transpose { semitones: 2, octave: 0 }),
             "Tuplet" => Some(Dialog::Tuplet { notes: 3, in_time: 2 }),
             "ChordSymbol" => Some(Dialog::ChordSymbol { root: "G".into(), kind: "7".into(), bass: String::new(), custom: String::new(), target: r }),

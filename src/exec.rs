@@ -142,7 +142,15 @@ impl App {
             NoteAttributes => {
                 if let Some(r) = self.targets().first().copied() {
                     let e = self.ev(r).cloned().unwrap();
-                    self.dialog = Some(Dialog::NoteAttributes { velocity: e.velocity, play_len: e.play_len.unwrap_or(e.ticks()), value: e.value, dots: e.dots, voice: e.voice, hidden: e.hidden, stem: e.stem });
+                    let notes: Vec<Event> = self.targets().iter().filter_map(|r| self.ev(*r).cloned()).collect();
+                    let len = |x: &Event| x.play_len.unwrap_or(x.ticks());
+                    let init = crate::app::AttrInit {
+                        play_len: len(&e),
+                        value: e.value,
+                        dots: e.dots,
+                        mixed: [notes.iter().any(|x| len(x) != len(&e)), notes.iter().any(|x| x.value != e.value), notes.iter().any(|x| x.dots != e.dots)],
+                    };
+                    self.dialog = Some(Dialog::NoteAttributes { velocity: e.velocity, play_len: len(&e), value: e.value, dots: e.dots, voice: e.voice, hidden: e.hidden, stem: e.stem, init });
                 } else {
                     self.status = "Select a note first.".into();
                 }
