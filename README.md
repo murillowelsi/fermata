@@ -13,9 +13,11 @@ Fermata recupera o fluxo de trabalho dos editores clássicos de partitura (palet
 
 </div>
 
-![Fermata editando uma peça para piano](docs/screenshot.png)
+![Fermata editando uma peça para piano](docs/screenshot-claro.png)
 
-<sub>Tela atual do app com o "Estudo em Sol", peça criada pelo time. Um visual novo, com modo escuro, já está em desenho.</sub>
+<sub>Fermata 0.2.0 com o "Estudo em Sol", peça criada pelo time. O app segue o modo claro ou escuro do macOS.</sub>
+
+**[Baixar e instalar →](https://murillowelsi.github.io/fermata/)**
 
 ---
 
@@ -51,9 +53,15 @@ Muita gente aprendeu a escrever partitura em programas que já não existem nem 
 
 ## Instalação
 
-1. Baixe o `Fermata-Installer.dmg` na página de [Releases](../../releases).
+O passo a passo completo, com imagens de onde clicar, está na [página do Fermata](https://murillowelsi.github.io/fermata/#instalar). Em resumo:
+
+1. Baixe o `Fermata-Installer.dmg` da [versão mais recente](../../releases/latest).
 2. Abra o `.dmg` e arraste o **Fermata** para a pasta **Aplicativos**.
-3. Na primeira vez, clique com o botão direito no app e escolha **Abrir**. O app ainda não tem notarização da Apple, então o macOS pede essa confirmação uma vez.
+3. Dê dois cliques no Fermata. O macOS avisa que não pode verificar o app: clique em **OK** (não em "Mover para o Lixo").
+4. Abra **Ajustes do Sistema ▸ Privacidade e Segurança**, role até **Segurança** e clique em **Abrir Mesmo Assim**. Confirme com **Abrir Mesmo Assim** e a senha do Mac.
+5. Pronto: daqui em diante ele abre normalmente.
+
+No macOS 14 ou mais antigo, basta clicar com o botão direito no app, escolher **Abrir** e confirmar. O aviso aparece porque o app ainda não tem a notarização paga da Apple.
 
 Requer macOS 10.13 ou mais novo, em Mac Intel ou Apple Silicon.
 
@@ -112,8 +120,8 @@ cargo clippy                 # análise do código
 
 ## Próximos passos
 
-- **Visual novo:** interface limpa, modo claro e escuro, barra de ferramentas enxuta e paletas maiores.
-- **Fonte musical Bravura:** símbolos com qualidade de gravação profissional.
+- **Visual novo, parte 2:** diálogos e menus no estilo novo.
+- **Fonte musical Bravura na partitura:** as paletas já usam a Bravura; falta a página.
 - **Gravação mais precisa:** duas vozes na mesma pauta sem colisões e layout de página melhor.
 - **Impressão e PDF** de verdade.
 - **Abrir MusicXML**, para trocar arquivos com MuseScore, Sibelius, Finale e Dorico.
@@ -123,7 +131,7 @@ cargo clippy                 # análise do código
 
 ## Status
 
-O Fermata está em **pré-lançamento (0.1.0)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
+O Fermata está em **pré-lançamento (0.2.0)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
 
 ## Créditos
 

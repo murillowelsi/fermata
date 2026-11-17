@@ -36,8 +36,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Fermata</string>
   <key>CFBundleIconFile</key><string>Fermata</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSMinimumSystemVersion</key><string>10.13</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDocumentTypes</key>
@@ -66,8 +66,11 @@ cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 cat > "$STAGE/How to install.txt" <<TXT
 1. Drag Fermata onto the Applications folder.
-2. Open Applications, right-click Fermata and choose Open (only the first time).
-3. Click Open in the window that asks for confirmation.
+2. Open Applications and double-click Fermata. macOS says it can't check the app, because it isn't notarized by Apple. Click Done (or Cancel).
+3. Open System Settings > Privacy & Security, scroll down and click "Open Anyway" next to the Fermata message. Confirm with Open and your password.
+   On macOS 14 or older you can instead right-click Fermata, choose Open, then click Open.
+4. From then on Fermata opens normally.
+Full guide: https://murillowelsi.github.io/fermata/
 Works on Macs with Intel or Apple chips, macOS 10.13 or newer.
 TXT
 hdiutil create -volname "Fermata" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
