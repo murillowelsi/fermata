@@ -108,3 +108,15 @@ ol.steps > li.with-fig { grid-template-columns: 44px minmax(0, 1fr) minmax(0, 48
   ol.steps > li.with-fig { grid-template-columns: 44px 1fr }
   ol.steps > li.with-fig .step-fig { grid-column: 2; max-width: 520px }
 }
+
+/* prints reais do passo a passo (0.3.1) */
+.step-fig.real img { border: none; border-radius: 12px; box-shadow: var(--shadow-1) }
+.step-fig.real.dialog img { max-width: 340px; margin: 0 auto; box-shadow: var(--shadow-1); border-radius: 26px }
+.step-fig figcaption { font-size: 12.5px; color: var(--text-3); margin-top: 6px; text-align: center }
+
+/* imagem abaixo do texto em todos os tamanhos de tela (pedido do usuário) */
+ol.steps > li.with-fig { grid-template-columns: 44px minmax(0, 1fr) }
+ol.steps > li.with-fig .step-fig { grid-column: 2; max-width: 760px; margin-top: 16px }
+ol.steps > li.with-fig .step-fig.dialog { max-width: 380px }
+.step-fig.real.dialog img { margin: 0 }
+.step-fig.real.dialog figcaption { text-align: left }
