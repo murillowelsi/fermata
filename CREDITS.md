@@ -1,7 +1,13 @@
 # Credits
 
 Fermata's own code, icons and colours are original work of the Fermata team. The toolbar icons are drawn in code
-(`src/ui.rs`, `paint_icon`); no icon font or image files are used.
+(`src/ui.rs`, `paint_icon`); no icon font is used.
+
+## App icon
+
+The app icon **"Traço"** (a white fermata drawn as a single-weight arch over a dot, on blue #007AFF) is original
+artwork by the Fermata team (Design, F-14). Source: `assets/icone-traco-light.svg`; the sizes in
+`assets/AppIcon.iconset/` are made from it. It is not taken from Encore or any other program.
 
 ## Fonts embedded in the app
 

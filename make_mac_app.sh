@@ -7,7 +7,6 @@ export MACOSX_DEPLOYMENT_TARGET=10.13
 rustup target add x86_64-apple-darwin aarch64-apple-darwin >/dev/null 2>&1 || true
 cargo build --release --target x86_64-apple-darwin
 cargo build --release --target aarch64-apple-darwin
-cargo build
 
 APP=dist/Fermata.app
 rm -rf "$APP"
@@ -15,15 +14,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create -output "$APP/Contents/MacOS/Fermata" \
   target/x86_64-apple-darwin/release/fermata target/aarch64-apple-darwin/release/fermata
 
-# icon
-ICONSET=dist/Fermata.iconset
-rm -rf "$ICONSET"; mkdir -p "$ICONSET"
-for s in 16 32 128 256 512; do
-  ./target/debug/fermata --icon-png "$ICONSET/icon_${s}x${s}.png" $s
-  ./target/debug/fermata --icon-png "$ICONSET/icon_${s}x${s}@2x.png" $((s * 2))
-done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Fermata.icns"
-rm -rf "$ICONSET"
+# icon "Traço" (F-14): the approved PNGs, made from assets/icone-traco-light.svg
+iconutil -c icns assets/AppIcon.iconset -o "$APP/Contents/Resources/Fermata.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
