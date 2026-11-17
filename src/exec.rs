@@ -314,7 +314,7 @@ impl App {
             CompressRests => {
                 self.checkpoint();
                 self.score.layout.compress_rests = !self.score.layout.compress_rests;
-                self.status = format!("Compress rests {}.", if self.score.layout.compress_rests { "on (empty measures are drawn narrow)" } else { "off" });
+                self.status = format!("Compress rests {}.", if self.score.layout.compress_rests { "on (2 or more empty measures in a row are drawn as one multi-measure rest)" } else { "off" });
             }
             AlignSpacing => {
                 // notes go back to their beats, sideways nudges are cleared, and notes sounding together line up

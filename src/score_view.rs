@@ -31,6 +31,15 @@ pub struct MeasGeo {
     pub header_clef: bool,
     pub header_key: bool,
     pub header_time: bool,
+    /// How many measures this one stands for: 1, or the length of a compressed multi-measure rest.
+    pub span: usize,
+}
+
+impl MeasGeo {
+    /// Is measure `m` drawn here (itself, or inside the multi-measure rest it stands for)?
+    pub fn covers(&self, m: usize) -> bool {
+        m >= self.m && m < self.m + self.span
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -236,10 +245,13 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
         for (k, &s) in staves.iter().enumerate() {
             staves_y.push((s, top_mid + k as f32 * (staff_h + gap)));
         }
-        // natural widths
+        // natural widths; a compressed run becomes one measure
+        let runs = score.compressed_runs();
         let mut nat = vec![];
         let mut total = 0.0;
-        for m in m0..m1 {
+        let mut m = m0;
+        while m < m1 {
+            let span = runs.iter().find(|r| r.0 == m).map(|r| r.1.min(m1) - m).unwrap_or(1).max(1);
             let hdr_clef = m == m0;
             let key = score.measures[m].key;
             let prev_key = if m > 0 { score.measures[m - 1].key } else { 0 };
@@ -258,22 +270,23 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
             if hdr_time {
                 h += sp * 2.8;
             }
-            let (slots, w) = measure_slots(score, m, &staves, sp);
+            let (slots, w) = if span > 1 { (vec![], sp * 12.0) } else { measure_slots(score, m, &staves, sp) };
             total += h + w;
-            nat.push((m, h, slots, w, hdr_clef, hdr_key, hdr_time));
+            nat.push((m, h, slots, w, hdr_clef, hdr_key, hdr_time, span));
+            m += span;
         }
         let avail = if linear { total } else { right - left };
         let last_system = si + 1 == system_ranges.len();
         let stretch = if linear || (last_system && total < avail * 0.6) { 1.0 } else { (avail / total.max(1.0)).max(0.3) };
         let mut x = left;
         let mut measures = vec![];
-        for (m, h, slots, w, hc, hk, ht) in nat {
+        for (m, h, slots, w, hc, hk, ht, span) in nat {
             let x0 = x;
             let content_x = x0 + h;
             let k = stretch;
             let slots2: Vec<(u32, f32)> = slots.iter().map(|(t, sx)| (*t, content_x + sx * k)).collect();
             let x1 = content_x + w * k;
-            measures.push(MeasGeo { m, x0, content_x, x1, slots: slots2, header_clef: hc, header_key: hk, header_time: ht });
+            measures.push(MeasGeo { m, x0, content_x, x1, slots: slots2, header_clef: hc, header_key: hk, header_time: ht, span });
             x = x1;
         }
         let right = if linear { x } else { right.min(x).max(x) };
@@ -505,7 +518,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
         // selection of measures
         if let Some((a, b)) = st.sel_measures {
             for mg in &sys.measures {
-                if mg.m >= a && mg.m <= b {
+                if mg.m + mg.span > a && mg.m <= b {
                     let r = Rect::from_min_max(pos2(mg.x0, sys.top(sp) - sp), pos2(mg.x1, sys.bottom(sp) + sp));
                     p.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(80, 130, 255, 40));
                 }
@@ -581,8 +594,20 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     g::time_sig_digit(p, pos2(x + sp * 1.2, mid + sp), sp, &mi.den.to_string(), black);
                 }
             }
-            // barline at end
-            draw_barline(p, score, sys, mg, mi.barline, sp, black);
+            // a multi-measure rest: a thick bar on the middle line, ended by short verticals, and the count
+            // above the staff in the style of a time signature
+            if mg.span > 1 {
+                for &(_, mid) in &sys.staves {
+                    let (xa, xb) = (mg.content_x + sp * 1.2, mg.x1 - sp * 1.6);
+                    p.rect_filled(Rect::from_min_max(pos2(xa, mid - sp * 0.45), pos2(xb, mid + sp * 0.45)), 0.0, black);
+                    for x in [xa, xb] {
+                        p.line_segment([pos2(x, mid - sp), pos2(x, mid + sp)], Stroke::new(sp * 0.16, black));
+                    }
+                    g::time_sig_digit(p, pos2((xa + xb) / 2.0, mid - sp * 3.6), sp, &mg.span.to_string(), black);
+                }
+            }
+            // barline at end (of the last measure a multi-measure rest stands for)
+            draw_barline(p, score, sys, mg, score.measures[mg.m + mg.span - 1].barline, sp, black);
             if m == 0 || mg.m == sys.m0 {
                 if mi.barline == Barline::RepeatStart || mi.barline == Barline::RepeatBoth {
                     // begin repeat drawn at start
@@ -943,8 +968,8 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 }
                 // cursor
                 if let Some((cs, cm, ct)) = st.cursor {
-                    if cs == s && cm == m {
-                        let x = x_for_tick(mg, ct, mt) - sp * 0.9;
+                    if cs == s && mg.covers(cm) {
+                        let x = if mg.span > 1 { mg.content_x + sp * 0.4 } else { x_for_tick(mg, ct, mt) - sp * 0.9 };
                         p.line_segment([pos2(x, mid - 3.5 * sp), pos2(x, mid + 3.5 * sp)], Stroke::new(sp * 0.18, Color32::from_rgb(220, 40, 40)));
                         p.add(egui::Shape::convex_polygon(
                             vec![pos2(x - sp * 0.6, mid - 4.3 * sp), pos2(x + sp * 0.6, mid - 4.3 * sp), pos2(x, mid - 3.4 * sp)],
@@ -955,7 +980,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 }
                 // ghost note for pencil hover
                 if let Some((fs, fm, k)) = st.flash {
-                    if fs == s && fm == m {
+                    if fs == s && mg.covers(fm) {
                         let r = Rect::from_min_max(pos2(mg.x0, mid - 3.0 * sp), pos2(mg.x1, mid + 3.0 * sp));
                         p.rect_filled(r, 2.0, Color32::from_rgba_unmultiplied(230, 40, 40, (70.0 * k) as u8));
                         p.rect_stroke(r, 2.0, Stroke::new(2.0, Color32::from_rgba_unmultiplied(210, 30, 30, (220.0 * k) as u8)), egui::StrokeKind::Inside);
@@ -977,8 +1002,13 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
             }
             // playback position
             if let Some((pm, pt)) = st.play_tick {
-                if pm == m {
-                    let x = x_for_tick(mg, pt, mt);
+                if mg.covers(pm) {
+                    // inside a multi-measure rest the line moves across the whole bar
+                    let x = if mg.span > 1 {
+                        mg.content_x + (mg.x1 - mg.content_x) * (((pm - mg.m) as u32 * mt + pt) as f32 / (mg.span as u32 * mt).max(1) as f32)
+                    } else {
+                        x_for_tick(mg, pt, mt)
+                    };
                     p.rect_filled(
                         Rect::from_min_max(pos2(x - sp * 0.3, sys.top(sp) - sp * 1.5), pos2(x + sp * 0.3, sys.bottom(sp) + sp * 1.5)),
                         0.0,
@@ -1023,12 +1053,12 @@ fn ledger(p: &Painter, x: f32, mid: f32, rel: i32, hw: f32, sp: f32, c: Color32)
 
 fn next_event_x(score: &Score, sys: &SysGeo, s: usize, m: usize, e: &Event, _pp: &Pitch) -> (f32, bool) {
     // next event in the same voice
-    let mg = sys.measures.iter().find(|x| x.m == m).unwrap();
+    let mg = sys.measures.iter().find(|x| x.covers(m)).unwrap();
     if let Some(n) = score.events[s][m].iter().filter(|x| x.voice == e.voice && x.start > e.start && !x.grace).min_by_key(|x| x.start) {
         return (x_for_tick(mg, n.start, score.measures[m].ticks()), true);
     }
     if m + 1 < sys.m1 {
-        let mg2 = sys.measures.iter().find(|x| x.m == m + 1).unwrap();
+        let mg2 = sys.measures.iter().find(|x| x.covers(m + 1)).unwrap();
         if let Some(n) = score.events[s][m + 1].iter().filter(|x| x.voice == e.voice && !x.grace).min_by_key(|x| x.start) {
             return (x_for_tick(mg2, n.start, score.measures[m + 1].ticks()), true);
         }
@@ -1200,7 +1230,7 @@ pub fn dynamic_text(p: &Painter, c: Pos2, sp: f32, t: &str, col: Color32) {
 fn anchor_pos(score: &Score, geo: &Geometry, staff: usize, m: usize, tick: u32) -> Option<(Pos2, usize)> {
     for (si, sys) in geo.systems.iter().enumerate() {
         if m >= sys.m0 && m < sys.m1 {
-            let mg = sys.measures.iter().find(|x| x.m == m)?;
+            let mg = sys.measures.iter().find(|x| x.covers(m))?;
             let y = sys.staff_y(staff).or_else(|| sys.staves.first().map(|x| x.1))? - 2.0 * geo.sp;
             return Some((pos2(x_for_tick(mg, tick, score.measures[m].ticks()), y), si));
         }
@@ -1306,4 +1336,65 @@ pub fn title_block(t: &TextElements) -> (f32, f32, f32, f32) {
     let last = sub_end.max(credits_y + (right.max(left) - 1.0).max(0.0) * 1.8);
     // tempo mark, chord symbols and stems need about seven spaces above the first staff
     (sub_end, credits_y, last, last + 7.5)
+}
+
+#[cfg(test)]
+mod compressed_rests_tests {
+    use super::*;
+
+    /// A one-staff score of `n` empty measures (one system holds them all when compressed).
+    fn empty_score(n: usize) -> Score {
+        let mut sc = Score::new(vec![Staff::new("Piano", Clef::Treble, 0)], n);
+        sc.layout.compress_rests = true;
+        sc
+    }
+
+    #[test]
+    fn eight_empty_measures_are_one_rest_of_8() {
+        let sc = empty_score(8);
+        assert_eq!(sc.compressed_runs(), vec![(0, 8)]);
+        let geo = layout(&sc, Pos2::ZERO, 1.0, false);
+        let bars: Vec<(usize, usize)> = geo.systems.iter().flat_map(|s| s.measures.iter().map(|m| (m.m, m.span))).collect();
+        assert_eq!(bars, vec![(0, 8)], "one measure standing for 8");
+        assert!(geo.systems[0].measures[0].covers(5));
+    }
+
+    #[test]
+    fn a_key_change_splits_the_rest_in_two() {
+        let mut sc = empty_score(8);
+        for m in 4..8 {
+            sc.measures[m].key = 2;
+        }
+        assert_eq!(sc.compressed_runs(), vec![(0, 4), (4, 8)]);
+    }
+
+    #[test]
+    fn marks_and_barlines_break_a_run() {
+        let mut sc = empty_score(12);
+        sc.measures[3].tempo = Some(90); // tempo change at measure 4
+        sc.measures[6].barline = Barline::Double; // double bar after measure 7
+        sc.measures[9].rehearsal = Some("A".into()); // rehearsal at measure 10
+        assert_eq!(sc.compressed_runs(), vec![(0, 3), (3, 7), (7, 9), (9, 12)]);
+    }
+
+    #[test]
+    fn a_note_in_any_visible_staff_or_compressed_rests_off_keep_the_measures() {
+        let mut sc = empty_score(8);
+        sc.events[0][3].push(Event::new(1, 0, 1, vec![])); // a whole rest
+        assert_eq!(sc.compressed_runs(), vec![(0, 3), (4, 8)]);
+        sc.layout.compress_rests = false;
+        assert!(sc.compressed_runs().is_empty());
+        let geo = layout(&sc, Pos2::ZERO, 1.0, false);
+        assert_eq!(geo.systems.iter().map(|s| s.measures.len()).sum::<usize>(), 8);
+    }
+
+    #[test]
+    fn playback_and_export_keep_every_measure() {
+        let sc = empty_score(8);
+        let mut off = sc.clone();
+        off.layout.compress_rests = false;
+        assert_eq!(crate::io::midi_bytes(&sc), crate::io::midi_bytes(&off));
+        assert_eq!(crate::io::musicxml_string(&sc), crate::io::musicxml_string(&off));
+        assert_eq!(crate::audio::play_order(&sc).len(), 8);
+    }
 }

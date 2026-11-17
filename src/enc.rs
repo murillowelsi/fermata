@@ -639,7 +639,10 @@ pub fn export(score: &Score, model: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     // page layout as the rebuild shows it
-    let geo = crate::score_view::layout(score, egui::Pos2::ZERO, 1.0, false);
+    // every measure laid out, as if Compressed Rests were off (the .enc keeps all its measures)
+    let mut plain = score.clone();
+    plain.layout.compress_rests = false;
+    let geo = crate::score_view::layout(&plain, egui::Pos2::ZERO, 1.0, false);
     let systems: Vec<&crate::score_view::SysGeo> = geo.systems.iter().filter(|s| !s.measures.is_empty()).collect();
     if systems.is_empty() {
         return Err("The score has no measures to save.".into());

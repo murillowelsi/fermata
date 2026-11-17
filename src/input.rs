@@ -299,13 +299,14 @@ impl App {
                     let changed = !following || self.follow_sys != Some(si);
                     if changed {
                         self.follow_sys = if following { Some(si) } else { None };
-                        let mg = sys.measures.iter().find(|x| x.m == tm).unwrap();
-                        let r = Rect::from_min_max(pos2(mg.x0, sys.top(geo.sp) - geo.sp * 4.0), pos2(mg.x1, sys.bottom(geo.sp) + geo.sp * 4.0));
-                        let clip = ui.clip_rect();
-                        let visible = r.top() >= clip.top() && r.bottom() <= clip.bottom() && r.left() >= clip.left() && r.right() <= clip.right();
-                        if !visible {
-                            // top-align so a scroll at the end of the score lands once and stays put
-                            ui.scroll_to_rect(r, Some(egui::Align::TOP));
+                        if let Some(mg) = sys.measures.iter().find(|x| x.covers(tm)) {
+                            let r = Rect::from_min_max(pos2(mg.x0, sys.top(geo.sp) - geo.sp * 4.0), pos2(mg.x1, sys.bottom(geo.sp) + geo.sp * 4.0));
+                            let clip = ui.clip_rect();
+                            let visible = r.top() >= clip.top() && r.bottom() <= clip.bottom() && r.left() >= clip.left() && r.right() <= clip.right();
+                            if !visible {
+                                // top-align so a scroll at the end of the score lands once and stays put
+                                ui.scroll_to_rect(r, Some(egui::Align::TOP));
+                            }
                         }
                     }
                 }
@@ -328,7 +329,7 @@ impl App {
                             if t != l.tick {
                                 l.tick = t;
                                 let mt = self.score.measures[l.measure].ticks();
-                                if let Some(mg) = geo.systems.iter().flat_map(|s| s.measures.iter()).find(|mg| mg.m == l.measure) {
+                                if let Some(mg) = geo.systems.iter().flat_map(|s| s.measures.iter()).find(|mg| mg.covers(l.measure)) {
                                     l.x = sv::x_for_tick(mg, t, mt);
                                 }
                             }

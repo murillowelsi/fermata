@@ -435,7 +435,7 @@ fn main() -> eframe::Result<()> {
             let d = chord(&mut app, last_p1 + 1);
             app.selected = [c, d].into_iter().collect();
             app.exec(commands::Cmd::Tie);
-            let pg = |m: usize| geo.systems.iter().find(|s| s.measures.iter().any(|x| x.m == m)).map(|s| s.page).unwrap();
+            let pg = |m: usize| geo.systems.iter().find(|s| s.measures.iter().any(|x| x.covers(m))).map(|s| s.page).unwrap();
             println!("across pages (bar {} on page {} -> bar {} on page {}): {} ", last_p1 + 1, pg(last_p1) + 1, last_p1 + 2, pg(last_p1 + 1) + 1, app.status);
             if let Some(e) = app.ev_mut(a) {
                 e.chord_symbol = Some(ui::chord_text("F", "", "", ""));

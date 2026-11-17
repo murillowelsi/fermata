@@ -814,16 +814,63 @@ impl Score {
         }
     }
     /// Is the system boundary after measure `m`?
+    /// Measures ▸ Compressed Rests: the runs `[a, b)` of 2 or more measures that are empty in every visible staff
+    /// and are drawn as one multi-measure rest. A run is broken by a change of time signature, key or tempo, a
+    /// double or repeat barline, an ending, a rehearsal mark, a coda or segno phrase, and a system break.
+    pub fn compressed_runs(&self) -> Vec<(usize, usize)> {
+        if !self.layout.compress_rests {
+            return vec![];
+        }
+        let visible: Vec<usize> = (0..self.staves.len()).filter(|&s| !self.staves[s].hidden).collect();
+        let empty = |m: usize| visible.iter().all(|&s| self.events.get(s).and_then(|st| st.get(m)).map(|v| v.is_empty()).unwrap_or(true));
+        // can measure m+1 continue a run that measure m is in?
+        let joins = |m: usize| {
+            let (a, b) = (&self.measures[m], &self.measures[m + 1]);
+            (a.num, a.den, a.key) == (b.num, b.den, b.key)
+                && b.tempo.is_none()
+                && matches!(a.barline, Barline::Single | Barline::Dashed | Barline::Invisible)
+                && !a.system_break
+                && b.ending.is_none()
+                && a.ending.is_none()
+                && b.rehearsal.is_none()
+                && b.coda_phrase.is_none()
+                && a.coda_phrase.is_none()
+        };
+        let n = self.measures.len();
+        let mut out = vec![];
+        let mut i = 0;
+        while i < n {
+            if !empty(i) {
+                i += 1;
+                continue;
+            }
+            let mut j = i + 1;
+            while j < n && empty(j) && joins(j - 1) {
+                j += 1;
+            }
+            if j - i >= 2 {
+                out.push((i, j));
+            }
+            i = j;
+        }
+        out
+    }
+
     pub fn systems(&self) -> Vec<(usize, usize)> {
         let n = self.measures.len();
+        // a compressed run counts as one measure of the system
+        let runs = self.compressed_runs();
+        let unit_end = |i: usize| runs.iter().find(|r| r.0 == i).map(|r| r.1).unwrap_or(i + 1);
         let mut out = vec![];
         let mut i = 0;
         let mut si = 0;
         while i < n {
             let want = self.layout.system_sizes.get(si).copied().unwrap_or(self.layout.measures_per_system).max(1);
             let mut j = i;
-            while j < n && j - i < want {
-                j += 1;
+            let mut units = 0;
+            while j < n && units < want {
+                j = unit_end(j);
+                units += 1;
                 if self.measures[j - 1].system_break {
                     break;
                 }

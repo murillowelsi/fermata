@@ -2327,7 +2327,7 @@ mod qa2_tests {
     fn note_attributes_mixed_fields_left_untouched_change_nothing() {
         let mut a = selected_quarters(&[0, TPQ]);
         a.score.events[0][0][1].value = 4; // a quarter and an eighth: the note value is mixed
-        let Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem, init } = open_attributes(&mut a) else { panic!() };
+        let Dialog::NoteAttributes { play_len, value, dots, voice, hidden, stem, init, .. } = open_attributes(&mut a) else { panic!() };
         assert!(init.mixed[1]);
         a.apply_dialog(Dialog::NoteAttributes { velocity: 33, play_len, value, dots, voice, hidden, stem, init });
         let got: Vec<(u8, u8)> = a.score.events[0][0].iter().map(|e| (e.value, e.velocity)).collect();
