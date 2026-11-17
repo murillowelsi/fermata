@@ -11,6 +11,7 @@ mod midi_in;
 mod midi_out;
 mod prefs;
 mod model;
+mod palettes;
 mod platform;
 mod rec;
 mod score_view;
@@ -26,6 +27,23 @@ struct Shell {
     shot_path: Option<std::path::PathBuf>,
     shot_requested: bool,
     shot_done: Arc<AtomicBool>,
+    /// `--palette-sheet`: all 11 palettes side by side on a plain background, then a pixel check of every cell.
+    sheet: bool,
+}
+
+/// Writes the pixel check of the palettes next to a screenshot (`<name>.txt`) and prints its summary.
+fn write_palette_check(img: &egui::ColorImage, path: &std::path::Path, ppp: f32, cells: &[palettes::CellLog], behind: egui::Color32) {
+    let (checked, bad) = palettes::verify_pixels(img, ppp, cells, behind);
+    let mut txt = format!(
+        "Palette pixel check: {} of {checked} cells with ink outside the inner area (margin max(3 pt, 12% of the shorter side), 1 physical px tolerance, {:.0} px/pt).\n",
+        bad.len(),
+        ppp
+    );
+    for b in &bad {
+        txt.push_str(&format!("  {b}\n"));
+    }
+    print!("{txt}");
+    let _ = std::fs::write(path.with_extension("txt"), txt);
 }
 
 fn save_png(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), String> {
@@ -95,42 +113,61 @@ impl eframe::App for Shell {
         }
 
         let k = theme::ctx_tokens(&ctx);
-        egui::Panel::top("menus").frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| a.menu_bar(ui));
-        // the toolbar (Windows ▸ Toolbar shows or hides it): voice, tools, transport, zoom and the measure
-        if a.toolbar_open {
-            egui::Panel::top("score_toolbar")
-                .exact_size(44.0)
-                .frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(10, 0)))
-                .show(ui, |ui| a.score_toolbar(ui));
-        }
-        egui::Panel::bottom("status").exact_size(24.0).frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| a.status_bar(ui));
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |ui| a.score_area(ui));
-        // red warning over the score when something didn't fit in the bar
-        if let Some((msg, t, _)) = a.warn.clone() {
-            let age = t.elapsed().as_secs_f32();
-            if age < 4.0 {
-                egui::Area::new(egui::Id::new("fit_warning"))
-                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 92.0))
-                    .order(egui::Order::Foreground)
-                    .interactable(false)
-                    .show(&ctx, |ui| {
-                        egui::Frame::new()
-                            .fill(k.danger)
-                            .corner_radius(9.0)
-                            .shadow(ctx.global_style().visuals.popup_shadow)
-                            .inner_margin(egui::Margin::symmetric(14, 8))
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new(format!("⚠  {msg}")).font(theme::font_semibold(13.0)).color(k.danger_fg));
-                            });
-                    });
-                ctx.request_repaint();
-            } else {
-                a.warn = None;
+        if self.sheet {
+            // contact sheet: the 11 palettes in a row on a plain background, nothing else
+            let mut x = 20.0;
+            let mut pos = vec![];
+            for i in 0..11 {
+                pos.push(egui::pos2(x, 24.0));
+                let (_, size) = palettes::grid_layout(&palettes::palette_def(i, a.tuplet_ratio));
+                x += size.x.max(76.0) + 10.0 + 14.0;
             }
+            a.palette_sheet_pos = Some(pos);
+            a.palettes = [true; 11];
+            a.palette_cell_log = Some(vec![]);
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |_| {});
+            a.palettes_ui(&ctx);
+        } else {
+            if a.palette_cell_log.is_some() {
+                a.palette_cell_log = Some(vec![]);
+            }
+            egui::Panel::top("menus").frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| a.menu_bar(ui));
+            // the toolbar (Windows ▸ Toolbar shows or hides it): voice, tools, transport, zoom and the measure
+            if a.toolbar_open {
+                egui::Panel::top("score_toolbar")
+                    .exact_size(44.0)
+                    .frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(10, 0)))
+                    .show(ui, |ui| a.score_toolbar(ui));
+            }
+            egui::Panel::bottom("status").exact_size(24.0).frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| a.status_bar(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |ui| a.score_area(ui));
+            // red warning over the score when something didn't fit in the bar
+            if let Some((msg, t, _)) = a.warn.clone() {
+                let age = t.elapsed().as_secs_f32();
+                if age < 4.0 {
+                    egui::Area::new(egui::Id::new("fit_warning"))
+                        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 92.0))
+                        .order(egui::Order::Foreground)
+                        .interactable(false)
+                        .show(&ctx, |ui| {
+                            egui::Frame::new()
+                                .fill(k.danger)
+                                .corner_radius(9.0)
+                                .shadow(ctx.global_style().visuals.popup_shadow)
+                                .inner_margin(egui::Margin::symmetric(14, 8))
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(format!("⚠  {msg}")).font(theme::font_semibold(13.0)).color(k.danger_fg));
+                                });
+                        });
+                    ctx.request_repaint();
+                } else {
+                    a.warn = None;
+                }
+            }
+            a.palettes_ui(&ctx);
+            a.side_windows(&ctx);
+            a.dialogs(&ctx);
         }
-        a.palettes_ui(&ctx);
-        a.side_windows(&ctx);
-        a.dialogs(&ctx);
         if let Some(c) = a.pending_cmd.take() {
             a.exec(c);
         }
@@ -161,9 +198,17 @@ impl eframe::App for Shell {
             if self.frames >= 60 && !self.shot_requested {
                 self.shot_requested = true;
                 let done = self.shot_done.clone();
+                let cells = self.app.palette_cell_log.clone();
+                let ppp = ctx.pixels_per_point();
+                // the cells sit on the palette panel, which is slightly see-through over the canvas
+                let tk = theme::ctx_tokens(&ctx);
+                let behind = theme::blend(tk.canvas, tk.pal_bg);
                 ctx.request_screenshot(move |img| {
                     if let Err(e) = save_png(&img, &path) {
                         eprintln!("screenshot failed: {e}");
+                    }
+                    if let Some(cells) = cells {
+                        write_palette_check(&img, &path, ppp, &cells, behind);
                     }
                     done.store(true, Ordering::SeqCst);
                 });
@@ -183,6 +228,8 @@ fn main() -> eframe::Result<()> {
     let mut shot = None;
     let mut open = None;
     let mut force_theme = None;
+    let mut open_palettes: Option<Vec<usize>> = None;
+    let mut sheet = false;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--icon-png" && i + 1 < args.len() {
@@ -444,6 +491,19 @@ fn main() -> eframe::Result<()> {
             i += 2;
             continue;
         }
+        // which palettes are open (indices, e.g. 0,1,3,4,6), with a pixel check of their cells in the screenshot
+        if args[i] == "--palettes" && i + 1 < args.len() {
+            open_palettes = Some(args[i + 1].split(',').filter_map(|v| v.trim().parse().ok()).filter(|&v: &usize| v < 11).collect());
+            i += 2;
+            continue;
+        }
+        // the 11 palettes side by side, saved as a picture with the pixel check of every cell
+        if args[i] == "--palette-sheet" && i + 1 < args.len() {
+            shot = Some(std::path::PathBuf::from(&args[i + 1]));
+            sheet = true;
+            i += 2;
+            continue;
+        }
         if args[i] == "--screenshot" && i + 1 < args.len() {
             shot = Some(std::path::PathBuf::from(&args[i + 1]));
             i += 2;
@@ -486,7 +546,14 @@ fn main() -> eframe::Result<()> {
             if let Some(p) = open {
                 app.open_path(p);
             }
-            Ok(Box::new(Shell { app, frames: 0, shot_path: shot, shot_requested: false, shot_done: Arc::new(AtomicBool::new(false)) }))
+            if let Some(list) = open_palettes {
+                app.palettes = [false; 11];
+                for i in list {
+                    app.palettes[i] = true;
+                }
+                app.palette_cell_log = Some(vec![]);
+            }
+            Ok(Box::new(Shell { app, frames: 0, shot_path: shot, shot_requested: false, shot_done: Arc::new(AtomicBool::new(false)), sheet }))
         }),
     )
 }

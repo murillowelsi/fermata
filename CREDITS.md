@@ -8,9 +8,16 @@ Fermata's own code, icons and colours are original work of the Fermata team. The
 | Font | Where | Used for | Licence |
 |---|---|---|---|
 | **Inter** 4.1 (Regular, Medium, SemiBold), © 2016 The Inter Project Authors, <https://github.com/rsms/inter> | `assets/fonts/` | Interface text: menus, toolbar, status bar, dialogs, tips | SIL Open Font License 1.1 (`assets/fonts/Inter-OFL.txt`) |
+| **Bravura** 1.482, © 2015 Steinberg Media Technologies GmbH, <https://github.com/steinbergmedia/bravura> (Reserved Font Name "Bravura") | `assets/fonts/Bravura.otf` | Music symbols in the palettes (SMuFL glyphs) | SIL Open Font License 1.1 (`assets/fonts/Bravura-OFL.txt`) |
+| **Bravura metadata** (`Bravura.json`, the font's SMuFL metadata: glyph boxes, advance widths), Steinberg | `assets/fonts/Bravura.json` | Ink boxes that fit each palette symbol inside its cell | Distributed with the font in the same OFL release (`OFL.txt`) |
 | **Ubuntu Light**, © Canonical Ltd. (bundled by egui) | inside the `epaint_default_fonts` crate | Text on the score page; fallback for interface text | Ubuntu Font Licence 1.0 |
 | **Hack**, © Source Foundry Authors (bundled by egui) | inside the `epaint_default_fonts` crate | Monospaced text | MIT (DejaVu parts public domain) |
 | **egui-icons**, a subset of emoji-icon-font by John Slegers (bundled by egui) | inside the `epaint_default_fonts` crate | A few UI symbols egui itself draws | MIT |
+
+Bravura and its metadata were downloaded from the official release `bravura-1.482` of
+`steinbergmedia/bravura` (assets `Bravura.otf`, `Bravura.json`, `OFL.txt`), unchanged. The SMuFL glyph names used
+to read the metadata come from the SMuFL standard (w3c/smufl). The score page itself still uses Fermata's own
+drawings (`src/glyphs.rs`); moving the page to Bravura is task F-03.
 
 Inter was downloaded from the project's official release (`Inter-4.1.zip`, GitHub release v4.1); the three TTF
 files are from its `extras/ttf/` folder, unchanged.

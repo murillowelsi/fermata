@@ -33,6 +33,8 @@ pub struct Tokens {
     pub cell_hover: Color32,
     pub cell_press: Color32,
     pub pal_bg: Color32,
+    /// The dot in a palette's header.
+    pub pal_dot: Color32,
     pub tip_bg: Color32,
     pub tip_fg: Color32,
     pub shadow: Color32,
@@ -81,6 +83,7 @@ pub const LIGHT: Tokens = Tokens {
     cell_hover: black(0.10),
     cell_press: black(0.15),
     pal_bg: Color32::from_rgba_premultiplied(240, 240, 241, 245), // rgba(250,250,251,.96)
+    pal_dot: rgb(0xC9C9CD),
     tip_bg: rgb(0xFFFFFF),
     tip_fg: rgb(0x1D1D1F),
     shadow: black(0.20),
@@ -111,10 +114,20 @@ pub const DARK: Tokens = Tokens {
     cell_hover: white(0.12),
     cell_press: white(0.17),
     pal_bg: Color32::from_rgba_premultiplied(42, 42, 45, 245), // rgba(44,44,47,.96)
+    pal_dot: rgb(0x5A5A5E),
     tip_bg: rgb(0x3A3A3D),
     tip_fg: rgb(0xF2F2F4),
     shadow: black(0.60),
 };
+
+impl Tokens {
+    /// The palette panel's colour without its slight transparency.
+    pub fn pal_bg_opaque(&self) -> Color32 {
+        let a = self.pal_bg.a().max(1) as f32 / 255.0;
+        let u = |v: u8| (v as f32 / a).round().min(255.0) as u8;
+        Color32::from_rgb(u(self.pal_bg.r()), u(self.pal_bg.g()), u(self.pal_bg.b()))
+    }
+}
 
 /// The score page: always white paper with black ink, whatever the mode.
 pub const PAGE: Color32 = Color32::WHITE;
@@ -178,6 +191,9 @@ fn fonts() -> FontDefinitions {
         list.extend(fallback.iter().cloned());
         f.families.insert(FontFamily::Name(family.into()), list);
     }
+    // Bravura (SMuFL) for the palettes' music symbols
+    f.font_data.insert("Bravura".to_owned(), Arc::new(FontData::from_static(crate::palettes::BRAVURA)));
+    f.families.insert(FontFamily::Name(crate::palettes::BRAVURA_FAMILY.into()), vec!["Bravura".to_owned()]);
     f
 }
 

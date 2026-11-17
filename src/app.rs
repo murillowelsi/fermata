@@ -135,6 +135,14 @@ pub struct App {
     pub audition: bool,
     pub export_png_requested: bool,
     pub palette_cascade: bool,
+    /// Palettes folded to their header (double-click on the header).
+    pub pal_collapsed: [bool; 11],
+    /// Palettes already put at their first position (until then they follow the window's size).
+    pub pal_placed: [bool; 11],
+    /// Fixed palette positions for the `--palette-sheet` contact sheet.
+    pub palette_sheet_pos: Option<Vec<egui::Pos2>>,
+    /// Every palette cell drawn this frame, for the pixel check of `--palette-sheet`.
+    pub palette_cell_log: Option<Vec<crate::palettes::CellLog>>,
     pub lyric_line: usize,
     pub pending_cmd: Option<Cmd>,
     pub after_new_wizard: bool,
@@ -208,6 +216,10 @@ impl App {
             audition: true,
             export_png_requested: false,
             palette_cascade: false,
+            pal_collapsed: [false; 11],
+            pal_placed: [false; 11],
+            palette_sheet_pos: None,
+            palette_cell_log: None,
             lyric_line: 0,
             pending_cmd: None,
             after_new_wizard: false,
