@@ -25,6 +25,17 @@ impl App {
         }
     }
 
+    /// View ▸ Appearance: applies the look at once and keeps it for the next sessions.
+    pub fn set_appearance(&mut self, ctx: &egui::Context, a: crate::prefs::Appearance) {
+        self.prefs.appearance = a;
+        // a choice made in the menu wins over a --theme given on the command line
+        self.theme_forced = false;
+        ctx.set_theme(a.preference());
+        if !self.screenshot_mode {
+            crate::prefs::save(&self.prefs);
+        }
+    }
+
     pub fn menu_bar(&mut self, ui: &mut Ui) {
         use Cmd::*;
         // the menu titles: blue while their menu is open, a light shade under the mouse
@@ -197,6 +208,29 @@ impl App {
                 for c in [ZoomIn, ZoomOut] {
                     self.mi(ui, c);
                 }
+                ui.separator();
+                // light or dark look (F-15): no shortcut; the menu stays open, like "Audition notes while editing"
+                let keep_open = egui::containers::menu::MenuConfig::new()
+                    .style(kit::menu_style)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+                egui::containers::menu::SubMenuButton::new("Appearance").config(keep_open).ui(ui, |ui| {
+                    use crate::prefs::Appearance;
+                    let cur = self.prefs.appearance;
+                    let mut pick = None;
+                    if kit::menu_item(ui, "Use System Setting", "", cur == Appearance::System, true).clicked() {
+                        pick = Some(Appearance::System);
+                    }
+                    ui.separator();
+                    if kit::menu_item(ui, "Light", "", cur == Appearance::Light, true).clicked() {
+                        pick = Some(Appearance::Light);
+                    }
+                    if kit::menu_item(ui, "Dark", "", cur == Appearance::Dark, true).clicked() {
+                        pick = Some(Appearance::Dark);
+                    }
+                    if let Some(a) = pick {
+                        self.set_appearance(ui.ctx(), a);
+                    }
+                });
             });
             ui.menu_button("Windows", |ui| {
                 ui.menu_button("Palette", |ui| {

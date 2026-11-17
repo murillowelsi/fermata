@@ -47,9 +47,31 @@ pub struct Prefs {
     /// channel 1 (a Clavinova in MIDI Accord mode receives CH1 = KEYBOARD, every other channel OFF).
     #[serde(default = "yes")]
     pub single_channel: bool,
+    /// View ▸ Appearance: follow macOS, or always light or dark (F-15). Older files without it follow macOS.
+    #[serde(default)]
+    pub appearance: Appearance,
     /// Settings format; older files get the new click defaults.
     #[serde(default)]
     pub version: u32,
+}
+
+/// The app's light or dark look: as macOS is set (the default), or always one of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub fn preference(self) -> egui::ThemePreference {
+        match self {
+            Appearance::System => egui::ThemePreference::System,
+            Appearance::Light => egui::ThemePreference::Light,
+            Appearance::Dark => egui::ThemePreference::Dark,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -129,7 +151,7 @@ fn path() -> Option<PathBuf> {
 pub const VERSION: u32 = 4;
 
 pub fn load() -> Prefs {
-    let mut p: Prefs = path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let mut p = path().map(|p| load_from(&p)).unwrap_or_default();
     if p.version < VERSION {
         // earlier versions sent the click to the computer, then to channel 16; it now uses the drum channel
         // a Clavinova in MIDI Accord mode only plays channel 1: send everything there, click included
@@ -144,13 +166,55 @@ pub fn load() -> Prefs {
     p
 }
 
+/// The settings in a file (defaults when it's missing or unreadable).
+fn load_from(path: &std::path::Path) -> Prefs {
+    std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
 pub fn save(p: &Prefs) {
     if let Some(path) = path() {
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        save_to(p, &path);
+    }
+}
+
+fn save_to(p: &Prefs, path: &std::path::Path) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(s) = serde_json::to_string_pretty(p) {
+        let _ = std::fs::write(path, s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn appearance_survives_save_and_reopen() {
+        let dir = std::env::temp_dir().join(format!("fermata-prefs-test-{}", std::process::id()));
+        let file = dir.join("prefs.json");
+        for a in [Appearance::Dark, Appearance::Light, Appearance::System] {
+            let p = Prefs { appearance: a, ..Prefs::default() };
+            save_to(&p, &file);
+            assert_eq!(load_from(&file).appearance, a);
         }
-        if let Ok(s) = serde_json::to_string_pretty(p) {
-            let _ = std::fs::write(path, s);
-        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn older_settings_without_appearance_follow_the_system() {
+        // a settings file from 0.3.1 and before: no "appearance" field
+        let old = r#"{"out_port_a":null,"thru_on":true,"click_on":true,"single_channel":true,"version":4}"#;
+        let p: Prefs = serde_json::from_str(old).unwrap();
+        assert_eq!(p.appearance, Appearance::System);
+        assert_eq!(Prefs::default().appearance, Appearance::System);
+        assert_eq!(p.appearance.preference(), egui::ThemePreference::System);
+    }
+
+    #[test]
+    fn appearance_is_written_by_name() {
+        let s = serde_json::to_string(&Prefs { appearance: Appearance::Dark, ..Prefs::default() }).unwrap();
+        assert!(s.contains("\"appearance\":\"Dark\""), "{s}");
     }
 }

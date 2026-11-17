@@ -73,6 +73,10 @@ impl eframe::App for Shell {
                 a.midi = Some(midi_in::MidiIn::new());
                 a.midi_out = Some(midi_out::MidiOut::new());
                 a.prefs = prefs::load();
+                // the saved View ▸ Appearance, unless --theme was given
+                if !a.theme_forced {
+                    ctx.set_theme(a.prefs.appearance.preference());
+                }
                 a.apply_prefs();
             }
             // MIDI out: find the chosen ports (a piano switched on later is picked up)
@@ -566,7 +570,12 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx, force_theme);
+            // the saved View ▸ Appearance, from the first frame (screenshots keep the system look or --theme)
+            if force_theme.is_none() && !screenshot_mode {
+                cc.egui_ctx.set_theme(prefs::load().appearance.preference());
+            }
             let mut app = app::App::new(screenshot_mode);
+            app.theme_forced = force_theme.is_some();
             if let Some(p) = open {
                 app.open_path(p);
             }
