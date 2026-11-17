@@ -184,7 +184,7 @@ impl App {
             control_points: false,
             palettes: [true, false, false, false, false, false, false, false, false, false, false],
             floating_hidden: false,
-            toolbar_open: false,
+            toolbar_open: true, // the toolbar under the menus; Windows ▸ Toolbar hides it
             staff_sheet: false,
             keyboard_win: false,
             tempo_win: false,

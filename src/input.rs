@@ -277,9 +277,14 @@ impl App {
         let play = self.play_position();
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             let any_left = !self.floating_hidden && self.palettes.iter().enumerate().any(|(i, o)| *o && [0usize, 1, 2, 3, 10].contains(&i));
-            let origin = ui.min_rect().min + vec2(if any_left { if self.palettes[1] || self.palettes[2] || self.palettes[3] { 196.0 } else { 104.0 } } else { 24.0 }, 16.0);
+            // room for the palettes on the left; with space to spare the page sits in the middle of the window
+            let left = if any_left { if self.palettes[1] || self.palettes[2] || self.palettes[3] { 196.0 } else { 104.0 } } else { 24.0 };
+            let page_w = self.score.layout.page_w * self.zoom;
+            let centred = if self.linear { left } else { ((ui.clip_rect().width() - page_w) / 2.0).max(left) };
+            let origin = ui.min_rect().min + vec2(centred, 16.0);
             let geo = sv::layout(&self.score, origin, self.zoom, self.linear);
-            let size = geo.size + vec2(48.0, 32.0);
+            // the scrollable area reaches the right edge of the page (plus a margin), wherever the page sits
+            let size = vec2(centred + geo.size.x - geo.sp * 4.0 + 24.0, geo.size.y + 32.0);
             let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
             let painter = ui.painter_at(rect.expand(2000.0).intersect(ui.clip_rect()));
             // follow playback / cursor scrolling: scroll once when the playing system changes, and only if that

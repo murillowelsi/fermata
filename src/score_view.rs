@@ -453,8 +453,9 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
     let font = |s: f32| FontId::proportional(s);
 
     for (i, pr) in geo.pages.iter().enumerate() {
-        p.rect_filled(pr.translate(vec2(3.0, 3.0)), 0.0, Color32::from_black_alpha(60));
-        p.rect_filled(*pr, 0.0, Color32::WHITE);
+        // a soft shadow under the sheet; the sheet itself is always white, in light and dark mode
+        p.add(egui::Shadow { offset: [0, 3], blur: 18, spread: 0, color: Color32::from_black_alpha(70) }.as_shape(*pr, 0.0));
+        p.rect_filled(*pr, 0.0, crate::theme::PAGE);
         let t = &score.text;
         if i == 0 {
             let cx = pr.center().x;

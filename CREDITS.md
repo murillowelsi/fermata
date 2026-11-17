@@ -1,0 +1,35 @@
+# Credits
+
+Fermata's own code, icons and colours are original work of the Fermata team. The toolbar icons are drawn in code
+(`src/ui.rs`, `paint_icon`); no icon font or image files are used.
+
+## Fonts embedded in the app
+
+| Font | Where | Used for | Licence |
+|---|---|---|---|
+| **Inter** 4.1 (Regular, Medium, SemiBold), © 2016 The Inter Project Authors, <https://github.com/rsms/inter> | `assets/fonts/` | Interface text: menus, toolbar, status bar, dialogs, tips | SIL Open Font License 1.1 (`assets/fonts/Inter-OFL.txt`) |
+| **Ubuntu Light**, © Canonical Ltd. (bundled by egui) | inside the `epaint_default_fonts` crate | Text on the score page; fallback for interface text | Ubuntu Font Licence 1.0 |
+| **Hack**, © Source Foundry Authors (bundled by egui) | inside the `epaint_default_fonts` crate | Monospaced text | MIT (DejaVu parts public domain) |
+| **egui-icons**, a subset of emoji-icon-font by John Slegers (bundled by egui) | inside the `epaint_default_fonts` crate | A few UI symbols egui itself draws | MIT |
+
+Inter was downloaded from the project's official release (`Inter-4.1.zip`, GitHub release v4.1); the three TTF
+files are from its `extras/ttf/` folder, unchanged.
+
+## Libraries
+
+| Crate | Licence |
+|---|---|
+| egui, eframe, epaint 0.37 | MIT OR Apache-2.0 |
+| serde, serde_json | MIT OR Apache-2.0 |
+| image 0.25 | MIT OR Apache-2.0 |
+| midir 0.11 | MIT |
+| rfd 0.15 | MIT |
+| cpal 0.18 | Apache-2.0 |
+| winit 0.30 | Apache-2.0 |
+
+Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).
+
+## Compatibility
+
+Fermata reads and writes Encore-compatible (`.enc`) files to work alongside that program. Fermata's icons, images,
+fonts and sounds are not taken from Encore.

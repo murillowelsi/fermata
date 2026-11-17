@@ -19,12 +19,17 @@ pub fn notehead_width(sp: f32, value: u8) -> f32 {
 
 /// value: 0 double whole, 1 whole, 2 half, >=3 filled.
 pub fn notehead(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
+    notehead_on(p, c, sp, value, col, Color32::WHITE);
+}
+
+/// A notehead whose hollow (whole, half) is filled with `paper`: white on the page, the cell colour in a palette.
+pub fn notehead_on(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32, paper: Color32) {
     let w = notehead_width(sp, value) / 2.0;
     let h = sp * 0.5;
     match value {
         0 | 1 => {
             p.add(Shape::convex_polygon(ellipse_pts(c, w, h, 0.0, 28), col, Stroke::NONE));
-            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.42, h * 0.78, 1.0, 20), Color32::WHITE, Stroke::NONE));
+            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.42, h * 0.78, 1.0, 20), paper, Stroke::NONE));
             if value == 0 {
                 let x0 = c.x - w - sp * 0.2;
                 let x1 = c.x + w + sp * 0.2;
@@ -35,7 +40,7 @@ pub fn notehead(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
         }
         2 => {
             p.add(Shape::convex_polygon(ellipse_pts(c, w, h * 0.92, -0.38, 28), col, Stroke::NONE));
-            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.78, h * 0.34, -0.5, 20), Color32::WHITE, Stroke::NONE));
+            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.78, h * 0.34, -0.5, 20), paper, Stroke::NONE));
         }
         _ => {
             p.add(Shape::convex_polygon(ellipse_pts(c, w, h * 0.92, -0.38, 28), col, Stroke::NONE));

@@ -3,65 +3,24 @@ use crate::app::*;
 use crate::commands::{self, Cmd, PALETTES};
 use crate::glyphs as g;
 use crate::model::*;
-use egui::{pos2, vec2, Align2, Color32, FontId, Rect, Sense, Stroke, Ui};
+use crate::theme;
+use egui::{pos2, vec2, Align2, Color32, Rect, Sense, Stroke, Ui};
 
-const PAL_BG: Color32 = Color32::from_rgb(214, 214, 214);
-
-/// "Ctrl+Alt+Shift+M", "Cmd+S": words rather than the Mac's modifier symbols, the same on every computer.
-fn fmt_shortcut(s: &egui::KeyboardShortcut) -> String {
-    let m = s.modifiers;
-    let mut t = String::new();
-    if m.ctrl {
-        t.push_str("Ctrl+");
-    }
-    if m.mac_cmd || (m.command && !m.ctrl) {
-        t.push_str("Cmd+");
-    }
-    if m.alt {
-        t.push_str("Alt+"); // the Option key on a Mac keyboard
-    }
-    if m.shift {
-        t.push_str("Shift+");
-    }
-    let k = match s.logical_key {
-        egui::Key::OpenBracket => "[".to_string(),
-        egui::Key::CloseBracket => "]".to_string(),
-        egui::Key::Equals => "=".to_string(),
-        egui::Key::Minus => "-".to_string(),
-        egui::Key::Semicolon => ";".to_string(),
-        egui::Key::Quote => "'".to_string(),
-        egui::Key::Slash => "/".to_string(),
-        egui::Key::Period => ".".to_string(),
-        egui::Key::Backspace => "Backspace".to_string(),
-        egui::Key::Delete => "Del".to_string(),
-        egui::Key::Insert => "Ins".to_string(),
-        k => k.name().trim_start_matches("Num").to_string(),
-    };
-    t + &k
-}
-
-fn shortcut_text(_ctx: &egui::Context, c: Cmd) -> String {
-    if let Some(s) = commands::shortcut(c) {
-        // Windows Encore's Ctrl keys first; on the Mac also the Cmd key that does the same (e.g. "Ctrl+T / Cmd+T")
-        match commands::mac_shortcut(c) {
-            Some(w) => format!("{} / {}", fmt_shortcut(&s), fmt_shortcut(&w)),
-            None => fmt_shortcut(&s),
-        }
-    } else {
-        commands::plain_key_text(c).unwrap_or("").to_string()
-    }
+/// The shortcut text of a command as menus, tips and Keyboard Shortcuts show it (Mac key symbols, Ctrl first).
+fn shortcut_text(c: Cmd) -> String {
+    theme::shortcut_glyphs(c)
 }
 
 impl App {
     fn mi(&mut self, ui: &mut Ui, c: Cmd) {
-        let txt = shortcut_text(ui.ctx(), c);
+        let txt = shortcut_text(c);
         if ui.add(egui::Button::new(commands::label(c)).shortcut_text(txt)).clicked() {
             self.pending_cmd = Some(c);
             ui.close();
         }
     }
     fn mi_check(&mut self, ui: &mut Ui, c: Cmd, on: bool) {
-        let txt = shortcut_text(ui.ctx(), c);
+        let txt = shortcut_text(c);
         // room for a check mark, drawn as lines (the bundled font has no check symbol)
         let l = format!("      {}", commands::label(c));
         let resp = ui.add(egui::Button::new(l).shortcut_text(txt));
@@ -278,18 +237,17 @@ impl App {
         });
     }
 
-    /// Score Window Toolbar: voice, tools, transport, zoom, thru, measure, pages.
-    /// Score Window Toolbar, in the original's order (Quick Start QS-4 and its screen):
-    /// Voice ▾ | Arrow Eraser Pencil | Record Play Stop Click | Thru A1 | Zoom Play-from | M1 | ◀ page ▶
+    /// The toolbar under the menus, in the original's order: Voice ▾ | Arrow Eraser Pencil | Record Play Stop Click
+    /// Play-from-cursor | Zoom − 100% + | measure. Everything else lives in the menus, shortcuts and palettes;
+    /// Thru and the page arrows are in the status bar.
     pub fn score_toolbar(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
             let vlabel = match self.show_voice {
-                None => "Voice -".to_string(),
-                Some(v) => format!("Voice {v} -"),
+                None => "Voice –".to_string(),
+                Some(v) => format!("Voice {v}"),
             };
-            // a light box with dark text, like the original's "Voice -" button, opening the voice menu
-            let vresp = field_button(ui, &vlabel, 58.0).on_hover_text("Voice: which voice you enter, and which voices are shown (V then 1-8 / V then A)");
+            let vresp = tip(voice_button(ui, &vlabel), "Voice: the voice you enter and the voices shown", "V 1–8 · V A");
             egui::Popup::menu(&vresp).show(|ui| {
                 for v in 1..=8u8 {
                     if ui.selectable_label(self.voice == v, format!("Enter in voice {v}")).clicked() {
@@ -309,63 +267,50 @@ impl App {
                     }
                 }
             });
-            strip_sep(ui);
-            for (t, kind, tip) in [(Tool::Arrow, 0, "Arrow tool (A / Esc)"), (Tool::Eraser, 1, "Eraser tool (E)"), (Tool::Pencil, 2, "Pencil tool (P)")] {
-                if icon_button(ui, kind, self.tool == t).on_hover_text(tip).clicked() {
+            bar_sep(ui);
+            for (t, icon, name, key) in [(Tool::Arrow, Icon::Arrow, "Arrow tool", "A · Esc"), (Tool::Eraser, Icon::Eraser, "Eraser tool", "E"), (Tool::Pencil, Icon::Pencil, "Pencil tool", "P")] {
+                if tip(icon_button(ui, icon, self.tool == t), name, key).clicked() {
                     self.tool = t;
                 }
             }
-            strip_sep(ui);
-            if icon_button(ui, 3, self.rec.is_some()).on_hover_text("Record (Enter)").clicked() {
+            bar_sep(ui);
+            if tip(icon_button(ui, Icon::Record, self.rec.is_some()), "Record", &shortcut_text(Cmd::Record)).clicked() {
                 self.pending_cmd = Some(Cmd::Record);
             }
             let playing = self.is_playing();
-            if icon_button(ui, 4, playing).on_hover_text("Play (Space)").clicked() {
+            if tip(icon_button(ui, Icon::Play, playing), "Play", &shortcut_text(Cmd::Play)).clicked() {
                 self.pending_cmd = Some(Cmd::Play);
             }
-            if icon_button(ui, 5, false).on_hover_text("Stop (Space)").clicked() {
+            if tip(icon_button(ui, Icon::Stop, false), "Stop", &shortcut_text(Cmd::Stop)).clicked() {
                 self.pending_cmd = Some(Cmd::Stop);
             }
-            if icon_button(ui, 8, self.prefs.click_on).on_hover_text("Click On/Off").clicked() {
+            if tip(icon_button(ui, Icon::Metronome, self.prefs.click_on), "Click On/Off", &shortcut_text(Cmd::ClickOnOff)).clicked() {
                 self.pending_cmd = Some(Cmd::ClickOnOff);
             }
-            strip_sep(ui);
-            let (tp, tc) = self.thru_target();
-            let thru = if self.audition { format!("Thru {}{}", if tp == 0 { "A" } else { "B" }, tc + 1) } else { "Thru Off".to_string() };
-            if field_button(ui, &thru, 62.0).on_hover_text("MIDI Thru: what you play goes to this port and channel (click to turn on/off)").clicked() {
-                self.audition = !self.audition;
-                self.prefs.thru_on = self.audition;
-                if !self.screenshot_mode {
-                    crate::prefs::save(&self.prefs);
-                }
-            }
-            strip_sep(ui);
-            let zr = icon_button(ui, 6, false).on_hover_text("Zoom: click to zoom in, right-click to zoom out (Z / Shift+Z)");
-            if zr.clicked() {
-                self.pending_cmd = Some(Cmd::ZoomIn);
-            }
-            if zr.secondary_clicked() {
-                self.pending_cmd = Some(Cmd::ZoomOut);
-            }
-            if icon_button(ui, 9, false).on_hover_text("Play from the cursor measure").clicked() {
+            if tip(icon_button(ui, Icon::PlayFrom, false), "Play from the cursor measure", "").clicked() {
                 let m = self.cursor.1;
                 self.play_from(m);
             }
-            strip_sep(ui);
+            bar_sep(ui);
+            let zo = tip(icon_button(ui, Icon::ZoomOut, false), "Zoom Out", &shortcut_text(Cmd::ZoomOut));
+            if zo.clicked() {
+                self.pending_cmd = Some(Cmd::ZoomOut);
+            }
+            let k = theme::t(ui);
+            let (zr, _) = ui.allocate_exact_size(vec2(50.0, 28.0), Sense::hover());
+            ui.painter().text(zr.center(), Align2::CENTER_CENTER, format!("{:.0}%", self.zoom / 1.35 * 100.0), theme::font_medium(13.0), k.text);
+            // a click zooms in, a right-click zooms out, as the original's zoom button did
+            let zi = tip(icon_button(ui, Icon::ZoomIn, false), "Zoom In", &shortcut_text(Cmd::ZoomIn));
+            if zi.clicked() {
+                self.pending_cmd = Some(Cmd::ZoomIn);
+            }
+            if zi.secondary_clicked() || zo.secondary_clicked() {
+                self.pending_cmd = Some(Cmd::ZoomOut);
+            }
+            bar_sep(ui);
             let m = self.play_position().map(|x| x.0).unwrap_or(self.cursor.1);
-            if field_button(ui, &format!("M{}", m + 1), 62.0).on_hover_text("Jump to measure (M)").clicked() {
+            if tip(measure_box(ui, m + 1), "Jump to Measure", &shortcut_text(Cmd::JumpToMeasure)).clicked() {
                 self.pending_cmd = Some(Cmd::JumpToMeasure);
-            }
-            strip_sep(ui);
-            // page navigation: ◀ [page] ▶
-            let pages = self.geo.pages.len().max(1);
-            let cur = self.geo.systems.iter().find(|s| m >= s.m0 && m < s.m1).map(|s| s.page).unwrap_or(0).min(pages - 1);
-            if icon_button(ui, 10, false).on_hover_text("Previous page").clicked() && cur > 0 {
-                self.goto_page(cur - 1);
-            }
-            page_icon(ui, cur + 1).on_hover_text(format!("Page {} of {}", cur + 1, pages));
-            if icon_button(ui, 11, false).on_hover_text("Next page").clicked() && cur + 1 < pages {
-                self.goto_page(cur + 1);
             }
         });
     }
@@ -379,76 +324,84 @@ impl App {
         }
     }
 
-    /// The floating customizable toolbar (Windows ▸ Toolbar), a floating window as in the original.
-    pub fn big_toolbar(&mut self, ui: &mut Ui) {
-        use Cmd::*;
-        let items: &[(&str, Cmd)] = &[
-            ("New", New), ("Open", Open), ("Save", Save), ("Print", Print), ("Undo", Undo), ("Cut", Cut), ("Copy", Copy), ("Paste", Paste), ("Clear", Clear), ("All", SelectAll),
-            ("<", NudgeLeft), (">", NudgeRight), ("^", NudgeUp), ("v", NudgeDown), ("Tempo", Tempo), ("4/4", TimeSig), ("Key", KeySig), ("+Bar", AddMeasure), ("-Bar", DeleteMeasure), ("||", Barline),
-            ("1.", Endings), ("D.S.", Coda), ("12", MeasureNumbers), ("Rests", CompressRests), ("Space", AlignSpacing), ("Info", NoteAttributes), ("Enh", Enharmonic), ("#", AccToSharps), ("b", AccToFlats), ("Up", StemUp),
-            ("Down", StemDown), ("Tie", Tie), ("Slur", SlurAbove), ("Beam", BeamGroup), ("Beat", BeamOnBeat), ("Flat", FlattenBeam), ("Pitch", ChangePitch), ("Dur", ChangeDuration), ("Vel", ChangeVelocity), ("Chord", MakeChord),
-            ("Grace", MakeGrace), ("TAB", MakeTab), ("Guess", GuessDurations), ("+Stf", AddStaff), ("-Stf", DeleteStaff), ("Split", SplitStaff), ("{", ConnectStaves), ("Text", TextElements), ("Play", Play), ("Stop", Stop),
-        ];
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-            for (icon, c) in items {
-                let tip = format!("{}  {}", commands::label(*c), shortcut_text(ui.ctx(), *c));
-                if ui.add_sized([38.0, 22.0], egui::Button::new(egui::RichText::new(*icon).size(11.5))).on_hover_text(tip).clicked() {
-                    self.pending_cmd = Some(*c);
-                }
-            }
-            ui.separator();
-            let lin = if self.linear { "Page View" } else { "Linear View" };
-            if ui.add_sized([80.0, 24.0], egui::Button::new(lin)).on_hover_text("Linear View  Cmd+Y").clicked() {
-                self.pending_cmd = Some(LinearView);
-            }
-            let click = if self.score.playback.click { "Click On" } else { "Click Off" };
-            if ui.add_sized([70.0, 24.0], egui::Button::new(click)).clicked() {
-                self.pending_cmd = Some(ClickOnOff);
-            }
-        });
-    }
-
+    /// Status bar in segments: cursor | time | key | tempo | MIDI and Thru | split | pages | QWERTY, REC | message.
     pub fn status_bar(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        let k = theme::t(ui);
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+            let f = theme::font(11.5);
+            let txt = |s: String| egui::RichText::new(s).font(theme::font(11.5)).color(k.text_2);
             let (s, m, t) = self.cursor;
             let mi = &self.score.measures[m.min(self.score.measures.len() - 1)];
             let beat = t / (TPQ * 4 / mi.den.max(1) as u32) + 1;
-            ui.label(format!("Staff {}  Measure {}  Beat {}  |  {}/{}  {}  |  Tempo {}", s + 1, m + 1, beat, mi.num, mi.den, key_name(mi.key), self.score.tempo_at(m)));
-            ui.separator();
-            ui.label(format!("{:.0}%", self.zoom / 1.35 * 100.0));
-            ui.separator();
-            let (txt, col) = match &self.midi {
+            ui.add_space(4.0);
+            ui.label(txt(format!("Staff {} · Measure {} · Beat {}", s + 1, m + 1, beat)));
+            status_sep(ui);
+            ui.label(txt(format!("{}/{}", mi.num, mi.den)));
+            status_sep(ui);
+            ui.label(txt(key_name(mi.key).to_string()));
+            status_sep(ui);
+            ui.label(txt(format!("Tempo {}", self.score.tempo_at(m))));
+            status_sep(ui);
+            // MIDI keyboard, output and Thru
+            let (mtxt, dot) = match &self.midi {
                 Some(mm) if mm.connected() => {
                     let last = mm.last_note.load(std::sync::atomic::Ordering::Relaxed);
                     let heard = if last == 255 { "no notes yet".to_string() } else { format!("last note {}", Pitch::from_midi(last as i32, false).name()) };
-                    (format!("MIDI in: {} ({heard})", mm.names.join(", ")), Color32::from_rgb(20, 130, 40))
+                    (format!("MIDI in: {} ({heard})", mm.names.join(", ")), k.ok)
                 }
-                _ => ("No MIDI keyboard".to_string(), Color32::from_gray(120)),
+                _ => ("No MIDI keyboard".to_string(), k.text_3),
             };
-            if ui.add(egui::Label::new(egui::RichText::new(txt).color(col)).sense(Sense::click())).on_hover_text("MIDI Setup").clicked() {
+            let (dr, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
+            ui.painter().circle_filled(dr.center(), 3.5, dot);
+            if ui.add(egui::Label::new(txt(mtxt)).sense(Sense::click())).on_hover_text("MIDI Setup").clicked() {
                 self.pending_cmd = Some(Cmd::MidiSetup);
             }
             if let Some(mo) = self.midi_out.as_ref() {
                 match (&mo.chosen[0], &mo.connected[0]) {
                     (Some(_), Some(o)) => {
-                        ui.label(egui::RichText::new(format!("Out A: {o} ({} sent)", mo.sent[0].load(std::sync::atomic::Ordering::Relaxed))).color(Color32::from_rgb(20, 130, 40)));
+                        ui.label(egui::RichText::new(format!("· Out A: {o} ({} sent)", mo.sent[0].load(std::sync::atomic::Ordering::Relaxed))).font(f.clone()).color(k.ok));
                     }
                     (Some(c), None) => {
-                        ui.label(egui::RichText::new(format!("Out A: {c} not found")).color(Color32::from_rgb(190, 60, 0)));
+                        ui.label(egui::RichText::new(format!("· Out A: {c} not found")).font(f.clone()).color(k.warn));
                     }
                     _ => {}
                 }
             }
-            ui.label(format!("Split = {}", Pitch::from_midi(self.rec_settings.split as i32, false).name()));
+            ui.label(txt("·".into()));
+            let (tp, tc) = self.thru_target();
+            let thru = if self.audition { format!("Thru {}{}", if tp == 0 { "A" } else { "B" }, tc + 1) } else { "Thru Off".to_string() };
+            if ui.add(egui::Label::new(txt(thru)).sense(Sense::click())).on_hover_text("MIDI Thru: what you play goes to this port and channel (click to turn on/off)").clicked() {
+                self.audition = !self.audition;
+                self.prefs.thru_on = self.audition;
+                if !self.screenshot_mode {
+                    crate::prefs::save(&self.prefs);
+                }
+            }
+            status_sep(ui);
+            ui.label(txt(format!("Split = {}", Pitch::from_midi(self.rec_settings.split as i32, false).name())));
+            status_sep(ui);
+            // pages: ‹ Page 1 of 2 ›
+            let pages = self.geo.pages.len().max(1);
+            let cur = self.geo.systems.iter().find(|sy| m >= sy.m0 && m < sy.m1).map(|sy| sy.page).unwrap_or(0).min(pages - 1);
+            if ui.add(egui::Label::new(txt("‹".into())).sense(Sense::click())).on_hover_text("Previous page").clicked() && cur > 0 {
+                self.goto_page(cur - 1);
+            }
+            ui.label(txt(format!("Page {} of {}", cur + 1, pages)));
+            if ui.add(egui::Label::new(txt("›".into())).sense(Sense::click())).on_hover_text("Next page").clicked() && cur + 1 < pages {
+                self.goto_page(cur + 1);
+            }
+            status_sep(ui);
             if self.qwerty {
-                ui.label(egui::RichText::new("QWERTY").strong().color(Color32::from_rgb(30, 90, 230)));
+                status_tag(ui, "QWERTY", k.accent_soft, k.accent);
             }
             if self.rec.is_some() {
-                ui.label(egui::RichText::new("* REC").strong().color(Color32::from_rgb(210, 30, 30)));
+                status_tag(ui, "● REC", k.danger, k.danger_fg);
             }
-            ui.separator();
-            ui.label(&self.status);
+            if self.qwerty || self.rec.is_some() {
+                status_sep(ui);
+            }
+            ui.add(egui::Label::new(egui::RichText::new(&self.status).font(f).color(k.text_3)).truncate());
         });
     }
 
@@ -476,7 +429,7 @@ impl App {
                 .default_width(if i == 9 { 84.0 } else if i == 4 { 58.0 } else { 70.0 })
                 .max_width(if i == 9 { 84.0 } else if i == 4 { 58.0 } else { 74.0 })
                 .default_pos(pos)
-                .frame(egui::Frame::window(&ctx.global_style()).fill(PAL_BG).inner_margin(3.0));
+                .frame(egui::Frame::window(&ctx.global_style()).fill(theme::ctx_tokens(ctx).pal_bg).inner_margin(3.0));
             if gen > 0 {
                 w = w.current_pos(pos);
             }
@@ -491,10 +444,11 @@ impl App {
     }
 
     fn pal_button(&mut self, ui: &mut Ui, item: Item, tip: &str, w: f32, draw: impl FnOnce(&egui::Painter, Rect, Color32)) {
-        let _ = self.pal_button_r(ui, item, tip, w, draw);
+        let _ = self.pal_button_r(ui, item, tip, w, move |p, r, fg, _| draw(p, r, fg));
     }
 
-    fn pal_button_r(&mut self, ui: &mut Ui, item: Item, tip: &str, w: f32, draw: impl FnOnce(&egui::Painter, Rect, Color32)) -> egui::Response {
+    /// A palette cell; `draw` gets the ink colour and the cell's (opaque) colour, for the hollow of whole and half notes.
+    fn pal_button_r(&mut self, ui: &mut Ui, item: Item, tip: &str, w: f32, draw: impl FnOnce(&egui::Painter, Rect, Color32, Color32)) -> egui::Response {
         // the tuplet button works with the note value beside it, so it shows as pressed while it's on
         let selected = match item {
             Item::Tuplet => self.cur_tuplet,
@@ -502,12 +456,20 @@ impl App {
             _ => self.item == item,
         };
         let (r, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
-        let bg = if selected { Color32::from_rgb(70, 70, 70) } else if resp.hovered() { Color32::from_gray(240) } else { Color32::from_gray(228) };
-        let fg = if selected { Color32::WHITE } else { Color32::BLACK };
+        let k = theme::t(ui);
+        let bg = if selected {
+            if resp.hovered() { k.accent_hover } else { k.accent }
+        } else if resp.is_pointer_button_down_on() {
+            theme::blend(k.panel, k.cell_press)
+        } else if resp.hovered() {
+            theme::blend(k.panel, k.cell_hover)
+        } else {
+            theme::blend(k.panel, k.cell)
+        };
+        let fg = if selected { k.accent_fg } else { k.text };
         let p = ui.painter_at(r);
-        p.rect_filled(r, 2.0, bg);
-        p.rect_stroke(r, 2.0, Stroke::new(1.0, Color32::from_gray(150)), egui::StrokeKind::Inside);
-        draw(&p, r, fg);
+        p.rect_filled(r, 5.0, bg);
+        draw(&p, r, fg, bg);
         let resp = resp.on_hover_text(tip);
         if resp.clicked() {
             self.pick_item(item);
@@ -588,7 +550,7 @@ impl App {
     fn text_btn(&mut self, ui: &mut Ui, item: Item, label: &str, w: f32) {
         let l = label.to_string();
         self.pal_button(ui, item, label, w, move |p, r, c| {
-            p.text(r.center(), Align2::CENTER_CENTER, &l, FontId::proportional(13.0), c);
+            p.text(r.center(), Align2::CENTER_CENTER, &l, theme::font(13.0), c);
         });
     }
 
@@ -600,9 +562,9 @@ impl App {
                     for v in 0..=8u8 {
                         let names = ["Double whole", "Whole", "Half", "Quarter", "Eighth", "16th", "32nd", "64th", "128th"];
                         self.pal_button(ui, Item::Rest(v), &format!("{} rest ({})", names[v as usize], v), 30.0, move |p, r, c| g::rest(p, r.center() + vec2(0.0, if v == 1 { 4.0 } else if v == 2 { 2.0 } else { -2.0 }), 5.0, v, c));
-                        self.pal_button(ui, Item::Note(v), &format!("{} note ({})", names[v as usize], v), 30.0, move |p, r, c| {
+                        let _ = self.pal_button_r(ui, Item::Note(v), &format!("{} note ({})", names[v as usize], v), 30.0, move |p, r, c, paper| {
                             let ctr = r.center() + vec2(-3.0, 6.0);
-                            g::notehead(p, ctr, 5.0, v, c);
+                            g::notehead_on(p, ctr, 5.0, v, c, paper);
                             if v >= 2 {
                                 p.line_segment([ctr + vec2(3.0, 0.0), ctr + vec2(3.0, -17.0)], Stroke::new(1.0, c));
                             }
@@ -628,8 +590,8 @@ impl App {
                 let (a, n) = self.tuplet_ratio;
                 let lbl = format!("{a}:{n}");
                 let l2 = lbl.clone();
-                let resp = self.pal_button_r(ui, Item::Tuplet, "Tuplet. Double-click tool to change value", 61.0, move |p, r, c| {
-                    p.text(r.center(), Align2::CENTER_CENTER, &l2, FontId::proportional(13.0), c);
+                let resp = self.pal_button_r(ui, Item::Tuplet, "Tuplet. Double-click tool to change value", 61.0, move |p, r, c, _| {
+                    p.text(r.center(), Align2::CENTER_CENTER, &l2, theme::font(13.0), c);
                 });
                 if resp.double_clicked() || resp.secondary_clicked() {
                     self.cur_tuplet = true;
@@ -730,11 +692,12 @@ impl App {
                     Rgb(128, 0, 0), Rgb(255, 0, 0), Rgb(0, 0, 128), Rgb(0, 0, 255), Rgb(0, 128, 128), Rgb(0, 255, 255), Rgb(0, 128, 0), Rgb(0, 255, 0),
                     Rgb(128, 128, 0), Rgb(100, 255, 200), Rgb(128, 0, 128), Rgb(255, 0, 255), Rgb(128, 128, 128), Rgb(200, 200, 200), Rgb(255, 255, 255), Rgb(0, 0, 0),
                 ];
+                let edge = theme::t(ui).line_2;
                 egui::Grid::new("colors").spacing([1.0, 1.0]).show(ui, |ui| {
                     for (k, c) in cols.into_iter().enumerate() {
                         self.pal_button(ui, Item::Color(c), "Color (applies to selection)", 26.0, move |p, r, _| {
                             p.rect_filled(r.shrink(5.0), 0.0, Color32::from_rgb(c.0, c.1, c.2));
-                            p.rect_stroke(r.shrink(5.0), 0.0, Stroke::new(1.0, Color32::DARK_GRAY), egui::StrokeKind::Inside);
+                            p.rect_stroke(r.shrink(5.0), 0.0, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
                         });
                         if k % 2 == 1 {
                             ui.end_row();
@@ -876,14 +839,14 @@ impl App {
             }
         }
         for (m, kr) in &whites {
-            p.rect_filled(*kr, 0.0, Color32::WHITE);
-            p.rect_stroke(*kr, 0.0, Stroke::new(1.0, Color32::GRAY), egui::StrokeKind::Inside);
+            p.rect_filled(*kr, 0.0, theme::PIANO_WHITE);
+            p.rect_stroke(*kr, 0.0, Stroke::new(1.0, theme::PIANO_LINE), egui::StrokeKind::Inside);
             if m % 12 == 0 {
-                p.text(kr.center_bottom() - vec2(0.0, 8.0), Align2::CENTER_CENTER, format!("C{}", m / 12 - 1), FontId::proportional(9.0), Color32::GRAY);
+                p.text(kr.center_bottom() - vec2(0.0, 8.0), Align2::CENTER_CENTER, format!("C{}", m / 12 - 1), theme::font(9.0), theme::PIANO_LINE);
             }
         }
         for (_, kr) in &blacks {
-            p.rect_filled(*kr, 1.0, Color32::BLACK);
+            p.rect_filled(*kr, 1.0, theme::PIANO_BLACK);
         }
         if resp.clicked() {
             if let Some(pos) = resp.interact_pointer_pos() {
@@ -1340,7 +1303,7 @@ impl App {
                     }
                 });
                 if let Some(e) = self.midi_out.as_ref().and_then(|m| m.error.clone()).or_else(|| self.midi.as_ref().and_then(|m| m.error.clone())) {
-                    ui.colored_label(Color32::from_rgb(180, 60, 0), e);
+                    ui.colored_label(theme::t(ui).warn, e);
                 }
                 ui.separator();
                 ui.strong("Check the connection");
@@ -1353,10 +1316,10 @@ impl App {
                                 ui.label(format!("Port {name}: built-in sound"));
                             }
                             (Some(c), None) => {
-                                ui.colored_label(Color32::from_rgb(190, 60, 0), format!("Port {name}: \"{c}\" not found. Is the piano on and the USB cable in its USB TO HOST port?"));
+                                ui.colored_label(theme::t(ui).warn, format!("Port {name}: \"{c}\" not found. Is the piano on and the USB cable in its USB TO HOST port?"));
                             }
                             (Some(_), Some(n)) => {
-                                ui.colored_label(Color32::from_rgb(20, 130, 40), format!("Port {name}: connected to \"{n}\" - {sent} messages sent"));
+                                ui.colored_label(theme::t(ui).ok, format!("Port {name}: connected to \"{n}\" - {sent} messages sent"));
                             }
                         }
                     }
@@ -1636,7 +1599,7 @@ impl App {
                         cmds.sort_by_key(|c| commands::label(*c));
                         for c in cmds {
                             ui.label(commands::label(c));
-                            ui.monospace(shortcut_text(ui.ctx(), c));
+                            ui.label(egui::RichText::new(shortcut_text(c)).color(theme::t(ui).text_2));
                             ui.end_row();
                         }
                         for (a, b) in [
@@ -2033,102 +1996,190 @@ pub fn item_name(i: &Item) -> String {
 }
 
 
-/// Small painted icons for the score window toolbar (the bundled font has no such symbols).
-fn strip_sep(ui: &mut Ui) {
+// ---------------- toolbar and status bar pieces ----------------
+
+/// A hover tip: the name, then each key in its own small key cap ("Play  [Space]"). Keys are separated by " · ".
+pub fn tip(resp: egui::Response, name: &str, keys: &str) -> egui::Response {
+    let name = name.to_string();
+    let keys = keys.to_string();
+    resp.on_hover_ui(move |ui| {
+        let k = theme::t(ui);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
+            ui.label(egui::RichText::new(&name).font(theme::font_medium(12.0)).color(k.text));
+            for key in keys.split(" · ").filter(|s| !s.is_empty()) {
+                let galley = ui.painter().layout_no_wrap(key.to_string(), theme::font_medium(11.0), k.text);
+                let (r, _) = ui.allocate_exact_size(galley.size() + vec2(12.0, 4.0), Sense::hover());
+                ui.painter().rect_filled(r, 5.0, k.cell_hover);
+                ui.painter().galley(r.center() - galley.size() / 2.0, galley, k.text);
+            }
+        });
+    })
+}
+
+/// The thin divider between toolbar groups.
+fn bar_sep(ui: &mut Ui) {
+    let k = theme::t(ui);
+    ui.add_space(6.0);
+    let (r, _) = ui.allocate_exact_size(vec2(1.0, 20.0), Sense::hover());
+    ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, k.line));
+    ui.add_space(6.0);
+}
+
+/// The thin divider between status bar segments.
+fn status_sep(ui: &mut Ui) {
+    let k = theme::t(ui);
     ui.add_space(4.0);
-    let (r, _) = ui.allocate_exact_size(vec2(2.0, 22.0), Sense::hover());
-    ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, Color32::from_rgb(52, 104, 170)));
-    ui.painter().line_segment([r.center_top() + vec2(1.0, 0.0), r.center_bottom() + vec2(1.0, 0.0)], Stroke::new(1.0, Color32::from_rgb(150, 196, 240)));
+    let (r, _) = ui.allocate_exact_size(vec2(1.0, 14.0), Sense::hover());
+    ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, k.line));
     ui.add_space(4.0);
 }
 
-/// A sunken text box on the strip, like the original's "Thru A1" and "M1" fields.
-fn field_button(ui: &mut Ui, text: &str, w: f32) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 20.0), Sense::click());
-    let p = ui.painter_at(r);
-    let bg = if resp.hovered() { Color32::from_rgb(214, 232, 252) } else { Color32::from_rgb(196, 220, 246) };
-    p.rect_filled(r, 1.0, bg);
-    p.line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, Color32::from_rgb(60, 100, 150)));
-    p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.0, Color32::from_rgb(60, 100, 150)));
-    p.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, Color32::WHITE));
-    p.line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.0, Color32::WHITE));
-    p.text(r.center(), Align2::CENTER_CENTER, text, FontId::proportional(11.5), Color32::from_gray(20));
+/// A small coloured label in the status bar (QWERTY, REC).
+fn status_tag(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), theme::font_semibold(10.5), fg);
+    let (r, _) = ui.allocate_exact_size(galley.size() + vec2(12.0, 4.0), Sense::hover());
+    ui.painter().rect_filled(r, 5.0, bg);
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, fg);
+}
+
+/// A framed box on the toolbar (field colour, thin ring, rounded), hovered a shade darker.
+fn bar_box(ui: &mut Ui, w: f32) -> (Rect, egui::Response) {
+    let k = theme::t(ui);
+    let (r, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
+    let fill = if resp.is_pointer_button_down_on() { theme::blend(k.field, k.cell_press) } else if resp.hovered() { theme::blend(k.field, k.cell) } else { k.field };
+    ui.painter().rect(r, 7.0, fill, Stroke::new(1.0, k.line_2), egui::StrokeKind::Inside);
+    (r, resp)
+}
+
+/// The Voice ▾ box that opens the voice menu.
+fn voice_button(ui: &mut Ui, label: &str) -> egui::Response {
+    let k = theme::t(ui);
+    let (r, resp) = bar_box(ui, 104.0);
+    let p = ui.painter();
+    // a small eighth note before the label
+    let n = pos2(r.left() + 13.0, r.center().y + 3.5);
+    p.add(egui::Shape::convex_polygon(ellipse(n, 3.0, 2.2, -0.4), k.text_3, Stroke::NONE));
+    p.line_segment([n + vec2(2.6, -0.6), n + vec2(2.6, -9.0)], Stroke::new(1.2, k.text_3));
+    p.line_segment([n + vec2(2.6, -9.0), n + vec2(5.6, -5.5)], Stroke::new(1.2, k.text_3));
+    p.text(pos2(r.left() + 24.0, r.center().y), Align2::LEFT_CENTER, label, theme::font_medium(13.0), k.text);
+    // chevron
+    let c = pos2(r.right() - 13.0, r.center().y);
+    p.line_segment([c + vec2(-3.5, -1.5), c + vec2(0.0, 2.0)], Stroke::new(1.3, k.text_2));
+    p.line_segment([c + vec2(0.0, 2.0), c + vec2(3.5, -1.5)], Stroke::new(1.3, k.text_2));
     resp
 }
 
-/// The small page symbol with the page number between the page arrows.
-fn page_icon(ui: &mut Ui, n: usize) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(22.0, 24.0), Sense::hover());
-    let p = ui.painter_at(r);
-    let page = Rect::from_center_size(r.center(), vec2(15.0, 19.0));
-    p.add(egui::Shape::convex_polygon(
-        vec![page.left_top(), page.right_top() - vec2(5.0, 0.0), page.right_top() + vec2(0.0, 5.0), page.right_bottom(), page.left_bottom()],
-        Color32::WHITE,
-        Stroke::new(1.0, Color32::from_gray(60)),
-    ));
-    p.text(page.center() + vec2(0.0, 1.0), Align2::CENTER_CENTER, n.to_string(), FontId::proportional(10.0), Color32::BLACK);
+/// The measure indicator: "M" and the cursor (or playing) measure; a click opens Jump to Measure.
+fn measure_box(ui: &mut Ui, m: usize) -> egui::Response {
+    let k = theme::t(ui);
+    let (r, resp) = bar_box(ui, 80.0);
+    let p = ui.painter();
+    let g1 = p.layout_no_wrap("M".into(), theme::font_medium(12.0), k.text_3);
+    let g2 = p.layout_no_wrap(m.to_string(), theme::font_semibold(14.0), k.text);
+    let w = g1.size().x + 5.0 + g2.size().x;
+    let x = r.center().x - w / 2.0;
+    p.galley(pos2(x, r.center().y - g1.size().y / 2.0), g1.clone(), k.text_3);
+    p.galley(pos2(x + g1.size().x + 5.0, r.center().y - g2.size().y / 2.0), g2, k.text);
     resp
 }
 
-/// Small painted icons for the score window toolbar (the bundled font has no such symbols).
-fn icon_button(ui: &mut Ui, kind: u8, on: bool) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-    let p = ui.painter_at(r);
+fn ellipse(c: egui::Pos2, rx: f32, ry: f32, rot: f32) -> Vec<egui::Pos2> {
+    let (s, co) = rot.sin_cos();
+    (0..20)
+        .map(|i| {
+            let a = i as f32 / 20.0 * std::f32::consts::TAU;
+            let (x, y) = (rx * a.cos(), ry * a.sin());
+            c + vec2(x * co - y * s, x * s + y * co)
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Icon {
+    Arrow,
+    Eraser,
+    Pencil,
+    Record,
+    Play,
+    Stop,
+    Metronome,
+    PlayFrom,
+    ZoomOut,
+    ZoomIn,
+}
+
+/// A toolbar icon button (30×28). `on` marks the current tool or a running state (playing, recording, click on).
+fn icon_button(ui: &mut Ui, icon: Icon, on: bool) -> egui::Response {
+    let k = theme::t(ui);
+    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 28.0), Sense::click());
+    let p = ui.painter_at(r.expand(1.0));
     if on {
-        p.rect_filled(r, 2.0, Color32::from_rgb(214, 232, 252));
-        p.rect_stroke(r, 2.0, Stroke::new(1.0, Color32::from_rgb(40, 80, 140)), egui::StrokeKind::Inside);
+        p.rect(r, 7.0, k.accent_soft, Stroke::new(1.0, theme::alpha(k.accent, 0.35)), egui::StrokeKind::Inside);
+    } else if resp.is_pointer_button_down_on() {
+        p.rect_filled(r, 7.0, k.cell_press);
     } else if resp.hovered() {
-        p.rect_filled(r, 2.0, Color32::from_rgba_unmultiplied(255, 255, 255, 70));
-        p.rect_stroke(r, 2.0, Stroke::new(1.0, Color32::from_rgb(220, 236, 255)), egui::StrokeKind::Inside);
+        p.rect_filled(r, 7.0, k.cell_hover);
     }
-    let c = r.center();
-    let k = Color32::from_gray(15);
-    match kind {
-        0 => {
-            let pts = vec![c + vec2(-4.0, -7.0), c + vec2(-4.0, 6.0), c + vec2(-1.0, 3.0), c + vec2(2.0, 8.0), c + vec2(4.0, 7.0), c + vec2(1.0, 2.0), c + vec2(5.0, 2.0)];
-            p.add(egui::Shape::convex_polygon(pts.clone(), Color32::BLACK, Stroke::NONE));
-            p.add(egui::Shape::closed_line(pts, Stroke::new(1.0, Color32::WHITE)));
-        }
-        1 => {
-            let pts = vec![c + vec2(-7.0, 3.0), c + vec2(0.0, -5.0), c + vec2(7.0, 0.0), c + vec2(1.0, 7.0), c + vec2(-3.0, 7.0)];
-            p.add(egui::Shape::convex_polygon(pts, Color32::WHITE, Stroke::new(1.2, k)));
-        }
-        2 => {
-            p.line_segment([c + vec2(-6.0, 7.0), c + vec2(5.0, -6.0)], Stroke::new(4.0, Color32::from_rgb(232, 196, 60)));
-            p.line_segment([c + vec2(-6.0, 7.0), c + vec2(-4.0, 5.0)], Stroke::new(2.0, k));
-        }
-        3 => {
-            p.circle_filled(c, 5.0, Color32::from_rgb(220, 20, 20));
-        }
-        4 => {
-            p.add(egui::Shape::convex_polygon(vec![c + vec2(-4.0, -6.0), c + vec2(6.0, 0.0), c + vec2(-4.0, 6.0)], k, Stroke::NONE));
-        }
-        5 => {
-            p.rect_filled(Rect::from_center_size(c, vec2(10.0, 10.0)), 0.0, k);
-        }
-        8 => {
-            // click (metronome)
-            p.circle_filled(c, 7.5, Color32::WHITE);
-            p.circle_stroke(c, 7.5, Stroke::new(1.2, Color32::from_rgb(200, 30, 30)));
-            p.add(egui::Shape::convex_polygon(vec![c + vec2(-4.0, 5.0), c + vec2(4.0, 5.0), c + vec2(1.5, -5.0), c + vec2(-1.5, -5.0)], Color32::from_rgb(90, 90, 90), Stroke::NONE));
-            p.line_segment([c + vec2(0.0, 4.0), c + vec2(4.0, -5.0)], Stroke::new(1.3, Color32::from_rgb(200, 30, 30)));
-        }
-        9 => {
-            p.add(egui::Shape::convex_polygon(vec![c + vec2(-3.0, -5.0), c + vec2(5.0, 0.0), c + vec2(-3.0, 5.0)], k, Stroke::NONE));
-        }
-        10 => {
-            p.add(egui::Shape::convex_polygon(vec![c + vec2(3.0, -5.0), c + vec2(3.0, 5.0), c + vec2(-4.0, 0.0)], k, Stroke::NONE));
-        }
-        11 => {
-            p.add(egui::Shape::convex_polygon(vec![c + vec2(-3.0, -5.0), c + vec2(4.0, 0.0), c + vec2(-3.0, 5.0)], k, Stroke::NONE));
-        }
-        _ => {
-            p.circle_stroke(c + vec2(-2.0, -2.0), 5.0, Stroke::new(1.6, k));
-            p.circle_filled(c + vec2(-2.0, -2.0), 3.6, Color32::from_rgba_unmultiplied(255, 255, 255, 120));
-            p.line_segment([c + vec2(2.0, 2.0), c + vec2(7.0, 7.0)], Stroke::new(2.5, k));
-        }
-    }
+    let col = if on { k.accent } else { k.text };
+    paint_icon(&p, r.center(), icon, col, k);
     resp
+}
+
+/// The toolbar icons, drawn in code (no icon font or image files). `c` is the centre of an 18-point box.
+pub fn paint_icon(p: &egui::Painter, c: egui::Pos2, icon: Icon, col: Color32, k: &theme::Tokens) {
+    let st = Stroke::new(1.5, col);
+    // a point in a box rotated 45° up to the right, for the eraser and the pencil
+    let rot = |x: f32, y: f32| {
+        let (s, co) = (-std::f32::consts::FRAC_PI_4).sin_cos();
+        c + vec2(x * co - y * s, x * s + y * co)
+    };
+    match icon {
+        Icon::Arrow => {
+            let o = c + vec2(-1.0, 0.0);
+            p.add(egui::Shape::convex_polygon(vec![o + vec2(-4.0, -7.5), o + vec2(-4.0, 5.0), o + vec2(5.0, 1.8)], col, Stroke::NONE));
+            p.add(egui::Shape::convex_polygon(vec![o + vec2(-1.2, 2.2), o + vec2(1.2, 1.4), o + vec2(3.6, 6.6), o + vec2(1.4, 7.5)], col, Stroke::NONE));
+        }
+        Icon::Eraser => {
+            let body = vec![rot(-7.0, -3.2), rot(5.5, -3.2), rot(5.5, 3.2), rot(-7.0, 3.2)];
+            p.add(egui::Shape::closed_line(body, st));
+            p.line_segment([rot(-2.0, -3.2), rot(-2.0, 3.2)], st);
+            p.line_segment([c + vec2(-0.5, 7.0), c + vec2(7.0, 7.0)], st);
+        }
+        Icon::Pencil => {
+            let body = vec![rot(-3.5, -2.4), rot(7.5, -2.4), rot(7.5, 2.4), rot(-3.5, 2.4), rot(-8.0, 0.0)];
+            p.add(egui::Shape::closed_line(body, st));
+            p.line_segment([rot(4.5, -2.4), rot(4.5, 2.4)], st);
+        }
+        Icon::Record => {
+            p.circle_filled(c, 5.5, k.danger);
+        }
+        Icon::Play => {
+            p.add(egui::Shape::convex_polygon(vec![c + vec2(-4.0, -6.0), c + vec2(6.0, 0.0), c + vec2(-4.0, 6.0)], col, Stroke::NONE));
+        }
+        Icon::Stop => {
+            p.rect_filled(Rect::from_center_size(c, vec2(10.0, 10.0)), 1.5, col);
+        }
+        Icon::Metronome => {
+            let body = vec![c + vec2(-5.5, 7.0), c + vec2(-2.2, -7.0), c + vec2(2.2, -7.0), c + vec2(5.5, 7.0)];
+            p.add(egui::Shape::closed_line(body, st));
+            p.line_segment([c + vec2(-4.2, 3.0), c + vec2(4.2, 3.0)], st);
+            p.line_segment([c + vec2(0.0, 3.0), c + vec2(4.5, -5.0)], st);
+        }
+        Icon::PlayFrom => {
+            p.rect_filled(Rect::from_min_max(c + vec2(-6.0, -6.0), c + vec2(-4.0, 6.0)), 0.5, col);
+            p.add(egui::Shape::convex_polygon(vec![c + vec2(-1.5, -6.0), c + vec2(6.5, 0.0), c + vec2(-1.5, 6.0)], col, Stroke::NONE));
+        }
+        Icon::ZoomOut | Icon::ZoomIn => {
+            let m = c + vec2(-1.5, -1.5);
+            p.circle_stroke(m, 5.5, st);
+            p.line_segment([m + vec2(4.0, 4.0), m + vec2(8.0, 8.0)], Stroke::new(2.0, col));
+            p.line_segment([m + vec2(-2.8, 0.0), m + vec2(2.8, 0.0)], st);
+            if icon == Icon::ZoomIn {
+                p.line_segment([m + vec2(0.0, -2.8), m + vec2(0.0, 2.8)], st);
+            }
+        }
+    }
 }
 
 /// The Choose Chord window's chord types (the original's names), by family and row; None leaves a cell empty.

@@ -14,6 +14,7 @@ mod model;
 mod platform;
 mod rec;
 mod score_view;
+mod theme;
 mod ui;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,20 +94,17 @@ impl eframe::App for Shell {
             a.exec(c);
         }
 
-        egui::Panel::top("menus").show(ui, |ui| a.menu_bar(ui));
-        // the blue score-window strip under the menus, as in the original
-        egui::Panel::top("score_toolbar")
-            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(86, 152, 222)).inner_margin(egui::Margin::symmetric(6, 3)).stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(52, 104, 170))))
-            .show(ui, |ui| a.score_toolbar(ui));
-        egui::Panel::bottom("status").show(ui, |ui| a.status_bar(ui));
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(150, 156, 166)))
-            .show(ui, |ui| a.score_area(ui));
-        if a.toolbar_open && !a.floating_hidden {
-            let mut open = true;
-            egui::Window::new("Toolbar").open(&mut open).default_pos(egui::pos2(260.0, 120.0)).default_width(560.0).resizable(true).show(&ctx, |ui| a.big_toolbar(ui));
-            a.toolbar_open = open;
+        let k = theme::ctx_tokens(&ctx);
+        egui::Panel::top("menus").frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| a.menu_bar(ui));
+        // the toolbar (Windows ▸ Toolbar shows or hides it): voice, tools, transport, zoom and the measure
+        if a.toolbar_open {
+            egui::Panel::top("score_toolbar")
+                .exact_size(44.0)
+                .frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(10, 0)))
+                .show(ui, |ui| a.score_toolbar(ui));
         }
+        egui::Panel::bottom("status").exact_size(24.0).frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| a.status_bar(ui));
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |ui| a.score_area(ui));
         // red warning over the score when something didn't fit in the bar
         if let Some((msg, t, _)) = a.warn.clone() {
             let age = t.elapsed().as_secs_f32();
@@ -117,11 +115,12 @@ impl eframe::App for Shell {
                     .interactable(false)
                     .show(&ctx, |ui| {
                         egui::Frame::new()
-                            .fill(egui::Color32::from_rgb(200, 35, 35))
-                            .corner_radius(6.0)
+                            .fill(k.danger)
+                            .corner_radius(9.0)
+                            .shadow(ctx.global_style().visuals.popup_shadow)
                             .inner_margin(egui::Margin::symmetric(14, 8))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(format!("! {msg}")).color(egui::Color32::WHITE).strong());
+                                ui.label(egui::RichText::new(format!("⚠  {msg}")).font(theme::font_semibold(13.0)).color(k.danger_fg));
                             });
                     });
                 ctx.request_repaint();
@@ -179,17 +178,11 @@ impl eframe::App for Shell {
     }
 }
 
-fn setup_style(ctx: &egui::Context) {
-    ctx.set_visuals(egui::Visuals::light());
-    ctx.global_style_mut(|s| {
-        s.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(13.0));
-    });
-}
-
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut shot = None;
     let mut open = None;
+    let mut force_theme = None;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--icon-png" && i + 1 < args.len() {
@@ -441,6 +434,16 @@ fn main() -> eframe::Result<()> {
             midi_selftest();
             return Ok(());
         }
+        // pins light or dark mode instead of following the system (for screenshots)
+        if args[i] == "--theme" && i + 1 < args.len() {
+            force_theme = match args[i + 1].as_str() {
+                "dark" => Some(egui::Theme::Dark),
+                "light" => Some(egui::Theme::Light),
+                _ => None,
+            };
+            i += 2;
+            continue;
+        }
         if args[i] == "--screenshot" && i + 1 < args.len() {
             shot = Some(std::path::PathBuf::from(&args[i + 1]));
             i += 2;
@@ -478,7 +481,7 @@ fn main() -> eframe::Result<()> {
         "Fermata",
         options,
         Box::new(move |cc| {
-            setup_style(&cc.egui_ctx);
+            theme::install(&cc.egui_ctx, force_theme);
             let mut app = app::App::new(screenshot_mode);
             if let Some(p) = open {
                 app.open_path(p);
