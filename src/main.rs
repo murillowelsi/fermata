@@ -255,6 +255,30 @@ fn main() -> eframe::Result<()> {
             let _ = image::save_buffer(&args[i + 1], &icon::rgba(size), size, size, image::ColorType::Rgba8);
             return Ok(());
         }
+        // development: export a score the way File ▸ Export does (.mid or .musicxml by the output's extension)
+        if args[i] == "--export" && i + 2 < args.len() {
+            let sc = match io::open(std::path::Path::new(&args[i + 1])) {
+                Ok(sc) => sc,
+                Err(e) => {
+                    eprintln!("couldn't open {}: {e}", args[i + 1]);
+                    std::process::exit(1);
+                }
+            };
+            let out = std::path::Path::new(&args[i + 2]);
+            let bytes = match out.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
+                "mid" | "midi" => io::midi_bytes(&sc),
+                "xml" | "musicxml" => io::musicxml_string(&sc).into_bytes(),
+                other => {
+                    eprintln!("unknown export type .{other} (use .mid or .musicxml)");
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = std::fs::write(out, bytes) {
+                eprintln!("couldn't write {}: {e}", out.display());
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
         if args[i] == "--click-selftest" {
             click_selftest();
             return Ok(());

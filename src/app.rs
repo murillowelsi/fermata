@@ -704,6 +704,35 @@ impl App {
         self.warn = Some((msg, std::time::Instant::now(), Some((s, m))));
     }
 
+    /// Time Signature: sets num/den on the measures `from..=to` (1-based). If any of them holds more than the new
+    /// signature allows, in any staff or voice, nothing changes and the first such measure is returned (0-based),
+    /// with its staff. A larger signature always fits.
+    pub fn set_time_signature(&mut self, num: u8, den: u8, from: usize, to: usize) -> Result<(), (usize, usize)> {
+        let range = from.saturating_sub(1)..to.min(self.score.measures.len());
+        let new_ticks = TPQ * 4 * num as u32 / den.max(1) as u32;
+        for m in range.clone() {
+            for s in 0..self.score.staves.len() {
+                let end = self.score.events.get(s).and_then(|st| st.get(m)).map(|evs| evs.iter().map(|e| e.end()).max().unwrap_or(0)).unwrap_or(0);
+                if end > new_ticks {
+                    return Err((s, m));
+                }
+            }
+        }
+        self.checkpoint();
+        for m in range {
+            self.score.measures[m].num = num;
+            self.score.measures[m].den = den;
+        }
+        Ok(())
+    }
+
+    /// The warning when a new time signature doesn't fit: "Measure 1 has more beats than 3/4. Nothing was changed."
+    pub fn warn_time_signature(&mut self, s: usize, m: usize, num: u8, den: u8) {
+        let msg = format!("Measure {} has more beats than {num}/{den}. Nothing was changed.", m + 1);
+        self.status = msg.clone();
+        self.warn = Some((msg, std::time::Instant::now(), Some((s, m))));
+    }
+
     /// After an edit, any note running past its bar line undoes the edit and shows the warning.
     pub fn revert_if_overflow(&mut self, measures: &[(usize, usize)]) -> bool {
         for &(s, m) in measures {
@@ -1766,4 +1795,64 @@ pub fn split_chord(text: &str) -> Option<(String, String, String)> {
         return None;
     }
     Some((root.to_string(), kind.to_string(), bass.to_string()))
+}
+
+#[cfg(test)]
+mod time_signature_tests {
+    use super::*;
+
+    fn quarters(a: &mut App, m: usize, n: u32) {
+        for k in 0..n {
+            a.enter(0, m, k * TPQ, Some(Pitch::from_midi(60, false)), 3, 0, false);
+        }
+    }
+
+    #[test]
+    fn full_4_4_to_3_4_is_refused_and_nothing_changes() {
+        let mut a = App::new(true);
+        quarters(&mut a, 0, 4);
+        let (before, undo) = (a.score.clone(), a.undo.len());
+        assert_eq!(a.set_time_signature(3, 4, 1, 1), Err((0, 0)));
+        assert_eq!(a.score, before);
+        assert_eq!(a.undo.len(), undo, "a refused change leaves no empty undo step");
+    }
+
+    #[test]
+    fn three_quarters_in_4_4_fit_3_4() {
+        let mut a = App::new(true);
+        quarters(&mut a, 0, 3);
+        assert_eq!(a.set_time_signature(3, 4, 1, 1), Ok(()));
+        assert_eq!((a.score.measures[0].num, a.score.measures[0].den), (3, 4));
+    }
+
+    #[test]
+    fn empty_measure_changes() {
+        let mut a = App::new(true);
+        assert_eq!(a.set_time_signature(3, 4, 1, 1), Ok(()));
+        assert_eq!(a.score.measures[0].num, 3);
+    }
+
+    #[test]
+    fn full_3_4_to_4_4_is_accepted() {
+        let mut a = App::new(true);
+        a.score.measures[0].num = 3;
+        quarters(&mut a, 0, 3);
+        assert_eq!(a.set_time_signature(4, 4, 1, 1), Ok(()));
+        assert_eq!(a.score.measures[0].num, 4);
+    }
+
+    #[test]
+    fn one_measure_that_doesnt_fit_refuses_the_whole_range() {
+        let mut a = App::new(true);
+        // measures 1-2 empty, measure 3 full in the second staff
+        let s = 1.min(a.score.staves.len() - 1);
+        for k in 0..4 {
+            a.enter(s, 2, k * TPQ, Some(Pitch::from_midi(48, false)), 3, 0, false);
+        }
+        let before = a.score.clone();
+        assert_eq!(a.set_time_signature(3, 4, 1, 4), Err((s, 2)));
+        assert_eq!(a.score, before);
+        a.warn_time_signature(s, 2, 3, 4);
+        assert_eq!(a.status, "Measure 3 has more beats than 3/4. Nothing was changed.");
+    }
 }

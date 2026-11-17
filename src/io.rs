@@ -104,7 +104,12 @@ pub fn midi_bytes(score: &Score) -> Vec<u8> {
                     continue;
                 }
                 let len = e.play_len.unwrap_or(e.ticks()).max(1);
-                for p in &e.pitches {
+                for (i, p) in e.pitches.iter().enumerate() {
+                    // a note reached by a tie isn't struck again: the first note of the tie holds through it
+                    if crate::audio::tied_into(score, si, m, e, p) {
+                        continue;
+                    }
+                    let len = if e.ties.get(i).copied().unwrap_or(false) { e.ticks() + crate::audio::tie_extension(score, si, m, e, p) } else { len };
                     let k = (p.midi() + staff.transpose as i32).clamp(0, 127) as u8;
                     evs.push((t + e.start, 1, vec![0x90 | ch, k, e.velocity.max(1)]));
                     evs.push((t + e.start + len, 0, vec![0x80 | ch, k, 0]));
@@ -445,7 +450,13 @@ pub fn musicxml_string(score: &Score) -> String {
                         if !e.grace {
                             x.push_str(&format!("<duration>{}</duration>", cv(e.ticks())));
                         }
-                        if e.ties.get(k).copied().unwrap_or(false) {
+                        // a tie ends on this note (stop) and/or starts from it (start), in that order
+                        let tie_stop = !e.grace && p.map(|p| crate::audio::tied_into(score, si, m, e, p)).unwrap_or(false);
+                        let tie_start = e.ties.get(k).copied().unwrap_or(false);
+                        if tie_stop {
+                            x.push_str("<tie type=\"stop\"/>");
+                        }
+                        if tie_start {
                             x.push_str("<tie type=\"start\"/>");
                         }
                         x.push_str(&format!("<voice>{v}</voice><type>{}</type>", types[e.value.min(8) as usize]));
@@ -461,7 +472,10 @@ pub fn musicxml_string(score: &Score) -> String {
                             _ => {}
                         }
                         let mut notations = String::new();
-                        if e.ties.get(k).copied().unwrap_or(false) {
+                        if tie_stop {
+                            notations.push_str("<tied type=\"stop\"/>");
+                        }
+                        if tie_start {
                             notations.push_str("<tied type=\"start\"/>");
                         }
                         if k == 0 {
@@ -520,4 +534,145 @@ pub fn musicxml_string(score: &Score) -> String {
     }
     x.push_str("</score-partwise>\n");
     x
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::App;
+
+    /// The notes of a Standard MIDI File written by `midi_bytes`: (key, start, length) in quarter notes.
+    fn notes_of(bytes: &[u8]) -> Vec<(u8, f32, f32)> {
+        let div = u16::from_be_bytes([bytes[12], bytes[13]]) as f32;
+        let mut out = vec![];
+        let mut i = 14;
+        while i + 8 <= bytes.len() {
+            let len = u32::from_be_bytes([bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]]) as usize;
+            let tr = &bytes[i + 8..i + 8 + len];
+            i += 8 + len;
+            let (mut p, mut t) = (0usize, 0u32);
+            let mut open: std::collections::HashMap<u8, Vec<u32>> = Default::default();
+            while p < tr.len() {
+                let mut d = 0u32;
+                loop {
+                    let b = tr[p];
+                    p += 1;
+                    d = (d << 7) | (b & 0x7f) as u32;
+                    if b & 0x80 == 0 {
+                        break;
+                    }
+                }
+                t += d;
+                let st = tr[p];
+                match st & 0xf0 {
+                    0x90 if tr[p + 2] > 0 => {
+                        open.entry(tr[p + 1]).or_default().push(t);
+                        p += 3;
+                    }
+                    0x80 | 0x90 => {
+                        if let Some(s) = open.get_mut(&tr[p + 1]).and_then(|v| if v.is_empty() { None } else { Some(v.remove(0)) }) {
+                            out.push((tr[p + 1], s as f32 / div, (t - s) as f32 / div));
+                        }
+                        p += 3;
+                    }
+                    0xb0 => p += 3,
+                    0xc0 => p += 2,
+                    0xf0 if st == 0xff => {
+                        let l = tr[p + 2] as usize;
+                        p += 3 + l;
+                    }
+                    _ => break,
+                }
+            }
+        }
+        out.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
+        out
+    }
+
+    fn app() -> App {
+        let mut a = App::new(true);
+        a.score.measures.iter_mut().for_each(|m| m.tempo = None);
+        a
+    }
+
+    /// One entry for `score_with`: (measure, tick, midi keys, value, tied keys).
+    type NoteSpec<'a> = (usize, u32, &'a [i32], u8, &'a [i32]);
+
+    /// Enters notes and ties the given pitches.
+    fn score_with(notes: &[NoteSpec]) -> App {
+        let mut a = app();
+        for &(m, t, keys, v, _) in notes {
+            for &k in keys {
+                a.enter(0, m, t, Some(Pitch::from_midi(k, false)), v, 0, false);
+            }
+        }
+        for &(m, t, _, _, tied) in notes {
+            let e = a.score.events[0][m].iter_mut().find(|e| e.start == t).unwrap();
+            for (i, p) in e.pitches.clone().iter().enumerate() {
+                if tied.contains(&p.midi()) {
+                    e.ties[i] = true;
+                }
+            }
+        }
+        a
+    }
+
+    #[test]
+    fn midi_whole_tied_across_the_bar_line_is_one_note_of_8_beats() {
+        // B-01: G4 whole in measure 1 tied to G4 whole in measure 2
+        let a = score_with(&[(0, 0, &[67], 1, &[67]), (1, 0, &[67], 1, &[])]);
+        let n: Vec<_> = notes_of(&midi_bytes(&a.score)).into_iter().filter(|n| n.0 == 67).collect();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].2, 8.0);
+    }
+
+    #[test]
+    fn midi_chain_of_three_tied_notes_is_one_note() {
+        let a = score_with(&[(0, 0, &[64], 2, &[64]), (0, 2 * TPQ, &[64], 2, &[64]), (1, 0, &[64], 3, &[])]);
+        let n: Vec<_> = notes_of(&midi_bytes(&a.score)).into_iter().filter(|n| n.0 == 64).collect();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].2, 5.0);
+    }
+
+    #[test]
+    fn midi_tie_in_a_chord_only_holds_the_tied_notes() {
+        // C-E-G half notes; only G is tied into the next C-E-G
+        let a = score_with(&[(0, 0, &[60, 64, 67], 2, &[67]), (0, 2 * TPQ, &[60, 64, 67], 2, &[])]);
+        let n = notes_of(&midi_bytes(&a.score));
+        let count = |k: u8| n.iter().filter(|x| x.0 == k).count();
+        assert_eq!((count(60), count(64), count(67)), (2, 2, 1), "{n:?}");
+        assert_eq!(n.iter().find(|x| x.0 == 67).unwrap().2, 4.0);
+    }
+
+    /// The tie elements of every G4/E4/C4... note in the MusicXML, in order: ("start", "stop" or "stop+start").
+    fn tie_marks(xml: &str, step: &str, octave: i32) -> Vec<String> {
+        xml.split("<note>")
+            .skip(1)
+            .filter(|n| n.contains(&format!("<step>{step}</step>")) && n.contains(&format!("<octave>{octave}</octave>")))
+            .map(|n| {
+                let n = &n[..n.find("</note>").unwrap()];
+                let tie: Vec<&str> = ["stop", "start"].into_iter().filter(|t| n.contains(&format!("<tie type=\"{t}\"/>"))).collect();
+                let tied: Vec<&str> = ["stop", "start"].into_iter().filter(|t| n.contains(&format!("<tied type=\"{t}\"/>"))).collect();
+                assert_eq!(tie, tied, "<tie> and <tied> must agree");
+                if n.contains("<tie type=\"start\"/>") && n.contains("<tie type=\"stop\"/>") {
+                    assert!(n.find("<tie type=\"stop\"/>") < n.find("<tie type=\"start\"/>"), "stop comes before start");
+                }
+                tie.join("+")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn musicxml_ties_have_start_and_stop() {
+        // B-02, the same three cases as the MIDI tests
+        let a = score_with(&[(0, 0, &[67], 1, &[67]), (1, 0, &[67], 1, &[])]);
+        assert_eq!(tie_marks(&musicxml_string(&a.score), "G", 4), vec!["start", "stop"]);
+        let a = score_with(&[(0, 0, &[64], 2, &[64]), (0, 2 * TPQ, &[64], 2, &[64]), (1, 0, &[64], 3, &[])]);
+        assert_eq!(tie_marks(&musicxml_string(&a.score), "E", 4), vec!["start", "stop+start", "stop"]);
+        let a = score_with(&[(0, 0, &[60, 64, 67], 2, &[67]), (0, 2 * TPQ, &[60, 64, 67], 2, &[])]);
+        let x = musicxml_string(&a.score);
+        assert_eq!(tie_marks(&x, "G", 4), vec!["start", "stop"]);
+        assert_eq!(tie_marks(&x, "C", 4), vec!["", ""]);
+        assert_eq!(tie_marks(&x, "E", 4), vec!["", ""]);
+    }
 }

@@ -460,7 +460,8 @@ pub fn clef_octave(c: Clef) -> i32 {
     }
 }
 
-fn tied_into(score: &Score, s: usize, m: usize, e: &Event, p: &Pitch) -> bool {
+/// Is this pitch of `e` reached by a tie from the previous note of its voice (also across the bar line)?
+pub(crate) fn tied_into(score: &Score, s: usize, m: usize, e: &Event, p: &Pitch) -> bool {
     let prev = score.events[s][m].iter().filter(|x| x.voice == e.voice && x.start < e.start && !x.grace).max_by_key(|x| x.start);
     let prev = match prev {
         Some(x) => Some(x),
@@ -473,7 +474,8 @@ fn tied_into(score: &Score, s: usize, m: usize, e: &Event, p: &Pitch) -> bool {
     false
 }
 
-fn tie_extension(score: &Score, s: usize, m: usize, e: &Event, p: &Pitch) -> u32 {
+/// The written length of the notes this pitch of `e` is tied on to (a chain of ties, across bar lines).
+pub(crate) fn tie_extension(score: &Score, s: usize, m: usize, e: &Event, p: &Pitch) -> u32 {
     let mut total = 0;
     let mut cur_m = m;
     let mut cur_start = e.start;

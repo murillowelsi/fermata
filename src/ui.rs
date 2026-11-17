@@ -1685,10 +1685,9 @@ impl App {
                 }
             }
             Dialog::TimeSig { num, den, from, to } => {
-                self.checkpoint();
-                for m in from.saturating_sub(1)..to.min(self.score.measures.len()) {
-                    self.score.measures[m].num = num;
-                    self.score.measures[m].den = den;
+                // refused as a whole when a measure in the range holds more than the new signature allows
+                if let Err((s, m)) = self.set_time_signature(num, den, from, to) {
+                    self.warn_time_signature(s, m, num, den);
                 }
             }
             Dialog::KeySig { key, from, to, transpose } => {
