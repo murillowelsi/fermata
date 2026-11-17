@@ -1,0 +1,23 @@
+// Windows resources of fermata.exe: the app icon "Traço" (F-14) and the file's version details.
+1 ICON "fermata.ico"
+
+1 VERSIONINFO
+FILEVERSION     0,3,1,0
+PRODUCTVERSION  0,3,1,0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Fermata - music notation editor"
+      VALUE "ProductName", "Fermata"
+      VALUE "FileVersion", "0.3.1"
+      VALUE "ProductVersion", "0.3.1"
+      VALUE "OriginalFilename", "fermata.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
