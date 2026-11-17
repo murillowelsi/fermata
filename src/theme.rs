@@ -223,7 +223,8 @@ pub fn visuals(k: &Tokens) -> Visuals {
     v.warn_fg_color = k.warn;
     v.error_fg_color = k.danger;
     v.selection.bg_fill = k.accent;
-    v.selection.stroke = Stroke::new(1.0, k.accent_fg);
+    // the outline of a focused field (selected items in lists and menus set their own white text)
+    v.selection.stroke = Stroke::new(1.0, k.accent);
     v.text_cursor.stroke = Stroke::new(2.0, k.accent);
 
     let w = &mut v.widgets;
@@ -279,7 +280,7 @@ fn style_for(style: &mut egui::Style, k: &Tokens) {
     let sp = &mut style.spacing;
     sp.item_spacing = egui::vec2(8.0, 6.0);
     sp.button_padding = egui::vec2(10.0, 3.0);
-    sp.interact_size.y = 24.0;
+    sp.interact_size.y = 26.0;
     sp.window_margin = Margin::same(12);
     sp.menu_margin = Margin::same(5);
 }

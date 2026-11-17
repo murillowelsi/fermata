@@ -1,6 +1,7 @@
 //! Menus, toolbars, floating palettes, dialogs and side windows.
 use crate::app::*;
 use crate::commands::{self, Cmd};
+use crate::kit;
 use crate::model::*;
 use crate::theme;
 use egui::{pos2, vec2, Align2, Color32, Rect, Sense, Stroke, Ui};
@@ -12,26 +13,13 @@ fn shortcut_text(c: Cmd) -> String {
 
 impl App {
     fn mi(&mut self, ui: &mut Ui, c: Cmd) {
-        let txt = shortcut_text(c);
-        if ui.add(egui::Button::new(commands::label(c)).shortcut_text(txt)).clicked() {
+        if kit::menu_item(ui, &commands::label(c), &shortcut_text(c), false, true).clicked() {
             self.pending_cmd = Some(c);
             ui.close();
         }
     }
     fn mi_check(&mut self, ui: &mut Ui, c: Cmd, on: bool) {
-        let txt = shortcut_text(c);
-        // room for a check mark, drawn as lines (the bundled font has no check symbol)
-        let l = format!("      {}", commands::label(c));
-        let resp = ui.add(egui::Button::new(l).shortcut_text(txt));
-        if on {
-            let r = resp.rect;
-            let x = r.left() + 8.0;
-            let y = r.center().y;
-            let col = ui.visuals().text_color();
-            ui.painter().line_segment([egui::pos2(x, y), egui::pos2(x + 3.5, y + 3.5)], Stroke::new(1.8, col));
-            ui.painter().line_segment([egui::pos2(x + 3.5, y + 3.5), egui::pos2(x + 10.0, y - 4.5)], Stroke::new(1.8, col));
-        }
-        if resp.clicked() {
+        if kit::menu_item(ui, &commands::label(c), &shortcut_text(c), on, true).clicked() {
             self.pending_cmd = Some(c);
             ui.close();
         }
@@ -39,7 +27,23 @@ impl App {
 
     pub fn menu_bar(&mut self, ui: &mut Ui) {
         use Cmd::*;
-        egui::MenuBar::new().ui(ui, |ui| {
+        // the menu titles: blue while their menu is open, a light shade under the mouse
+        let k = theme::t(ui);
+        {
+            let w = &mut ui.visuals_mut().widgets;
+            w.open.weak_bg_fill = k.accent;
+            w.open.fg_stroke = Stroke::new(1.0, k.accent_fg);
+            w.open.bg_stroke = Stroke::NONE;
+            w.hovered.weak_bg_fill = k.cell_hover;
+            w.hovered.bg_stroke = Stroke::NONE;
+            for v in [&mut w.open, &mut w.hovered, &mut w.inactive, &mut w.active] {
+                v.corner_radius = egui::CornerRadius::same(5);
+            }
+        }
+        // egui marks the title of the open menu as "selected"
+        ui.visuals_mut().selection.bg_fill = k.accent;
+        ui.visuals_mut().selection.stroke = Stroke::new(1.0, k.accent_fg);
+        egui::MenuBar::new().config(egui::containers::menu::MenuConfig::new().style(kit::menu_style)).ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 for c in [New, NewDefault, Open, Close] {
                     self.mi(ui, c);
@@ -225,7 +229,10 @@ impl App {
                 ui.separator();
                 self.mi(ui, MidiSetup);
                 self.mi(ui, MidiPlayback);
-                ui.checkbox(&mut self.audition, "Audition notes while editing");
+                // a toggle that keeps the menu open, as before
+                if kit::menu_item(ui, "Audition notes while editing", "", self.audition, true).clicked() {
+                    self.audition = !self.audition;
+                }
             });
             ui.menu_button("Help", |ui| {
                 self.mi(ui, ClavinovaGuide);
@@ -247,20 +254,21 @@ impl App {
                 Some(v) => format!("Voice {v}"),
             };
             let vresp = tip(voice_button(ui, &vlabel), "Voice: the voice you enter and the voices shown", "V 1–8 · V A");
-            egui::Popup::menu(&vresp).show(|ui| {
+            egui::Popup::menu(&vresp).style(kit::menu_style).show(|ui| {
+                ui.set_min_width(200.0);
                 for v in 1..=8u8 {
-                    if ui.selectable_label(self.voice == v, format!("Enter in voice {v}")).clicked() {
+                    if kit::menu_item(ui, &format!("Enter in voice {v}"), "", self.voice == v, true).clicked() {
                         self.voice = v;
                         ui.close();
                     }
                 }
                 ui.separator();
-                if ui.selectable_label(self.show_voice.is_none(), "Show all voices").clicked() {
+                if kit::menu_item(ui, "Show all voices", "", self.show_voice.is_none(), true).clicked() {
                     self.show_voice = None;
                     ui.close();
                 }
                 for v in 1..=8u8 {
-                    if ui.selectable_label(self.show_voice == Some(v), format!("Show voice {v} only")).clicked() {
+                    if kit::menu_item(ui, &format!("Show voice {v} only"), "", self.show_voice == Some(v), true).clicked() {
                         self.show_voice = Some(v);
                         ui.close();
                     }
@@ -481,20 +489,23 @@ impl App {
     pub fn side_windows(&mut self, ctx: &egui::Context) {
         if self.staff_sheet {
             let mut open = true;
-            egui::Window::new("Staff Sheet").open(&mut open).default_pos(pos2(220.0, 160.0)).default_width(900.0).show(ctx, |ui| self.staff_sheet_ui(ui));
+            kit::float_window(ctx, "Staff Sheet", &mut open, pos2(20.0, 300.0), |ui| self.staff_sheet_ui(ui));
             self.staff_sheet = open;
         }
         if self.keyboard_win {
             let mut open = true;
-            egui::Window::new("Keyboard").open(&mut open).default_pos(pos2(260.0, 640.0)).resizable(false).show(ctx, |ui| self.keyboard_ui(ui));
+            kit::float_window(ctx, "Keyboard", &mut open, pos2(260.0, 600.0), |ui| self.keyboard_ui(ui));
             self.keyboard_win = open;
         }
         if self.tempo_win {
             let mut open = true;
-            egui::Window::new("Tempo").open(&mut open).default_pos(pos2(900.0, 640.0)).resizable(false).show(ctx, |ui| {
+            kit::float_window(ctx, "Tempo", &mut open, pos2(900.0, 640.0), |ui| {
                 let m = self.cursor.1;
                 let mut t = self.score.tempo_at(m);
-                ui.add(egui::Slider::new(&mut t, 20..=300).text("beats per minute"));
+                kit::form(ui, "tempo_win", |ui| {
+                    kit::row(ui, "beats per minute", |ui| kit::slider(ui, &mut t, 20..=300, |v| format!("{}", v as i64)));
+                    kit::row(ui, "Volume", |ui| kit::slider(ui, &mut self.score.playback.master_volume, 0.0..=1.0, |v| format!("{:.0}%", v * 100.0)));
+                });
                 if t != self.score.tempo_at(m) {
                     // change the tempo mark governing this measure
                     let idx = (0..=m).rev().find(|&i| self.score.measures[i].tempo.is_some()).unwrap_or(0);
@@ -502,80 +513,95 @@ impl App {
                     self.dirty = true;
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Play Play").clicked() {
+                    let playing = self.is_playing();
+                    if tip(icon_button(ui, Icon::Play, playing), "Play", &shortcut_text(Cmd::Play)).clicked() {
                         self.pending_cmd = Some(Cmd::Play);
                     }
-                    if ui.button("Stop Stop").clicked() {
+                    if tip(icon_button(ui, Icon::Stop, false), "Stop", &shortcut_text(Cmd::Stop)).clicked() {
                         self.pending_cmd = Some(Cmd::Stop);
                     }
-                    ui.add(egui::Slider::new(&mut self.score.playback.master_volume, 0.0..=1.0).text("Volume"));
                 });
             });
             self.tempo_win = open;
         }
     }
 
+    /// Staff Sheet: one row per staff, the cursor staff in light blue; scrolls sideways when the window is narrow.
     fn staff_sheet_ui(&mut self, ui: &mut Ui) {
         let mut changed = false;
         let n = self.score.staves.len();
-        egui::ScrollArea::both().max_height(420.0).show(ui, |ui| {
-            egui::Grid::new("sheet").striped(true).show(ui, |ui| {
-                for h in ["#", "Name", "Abbrev.", "Clef", "Instrument", "Port", "Ch", "Vol", "Pan", "Transp.", "Hide", "Mute", "Solo", "Brace", "Bracket", "Bar thru", "Lines", "Drum"] {
-                    ui.strong(h);
-                }
-                ui.end_row();
-                for i in 0..n {
-                    let st = &mut self.score.staves[i];
-                    ui.label(format!("{}", i + 1));
-                    changed |= ui.add(egui::TextEdit::singleline(&mut st.name).desired_width(110.0)).changed();
-                    changed |= ui.add(egui::TextEdit::singleline(&mut st.abbrev).desired_width(50.0)).changed();
-                    let mut clef = st.clef_at(0);
-                    egui::ComboBox::from_id_salt(("clef", i)).selected_text(clef.name()).width(90.0).show_ui(ui, |ui| {
-                        for c in Clef::ALL {
-                            changed |= ui.selectable_value(&mut clef, c, c.name()).changed();
+        let k = theme::t(ui);
+        let cursor_row = self.cursor.0 + 1;
+        let max_w = (ui.ctx().content_rect().width() - 90.0).max(400.0);
+        egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            egui::ScrollArea::both().max_height(420.0).max_width(max_w).auto_shrink([true, true]).show(ui, |ui| {
+                let (head, soft, zebra) = (k.panel_2, k.accent_soft, k.cell);
+                egui::Grid::new("sheet")
+                    .spacing([10.0, 6.0])
+                    .min_row_height(30.0)
+                    .with_row_color(move |row, _| if row == 0 { Some(head) } else if row == cursor_row { Some(soft) } else if row % 2 == 0 { Some(zebra) } else { None })
+                    .show(ui, |ui| {
+                        for h in ["#", "Name", "Abbrev.", "Clef", "Instrument", "Port", "Ch", "Vol", "Pan", "Transp.", "Hide", "Mute", "Solo", "Brace", "Bracket", "Bar thru", "Lines", "Drum"] {
+                            ui.label(egui::RichText::new(h).font(theme::font_semibold(11.5)).color(k.text_2));
+                        }
+                        ui.end_row();
+                        for i in 0..n {
+                            let st = &mut self.score.staves[i];
+                            ui.label(format!("{}", i + 1));
+                            changed |= ui.add_sized([130.0, 24.0], egui::TextEdit::singleline(&mut st.name)).changed();
+                            changed |= ui.add_sized([64.0, 24.0], egui::TextEdit::singleline(&mut st.abbrev)).changed();
+                            let mut clef = st.clef_at(0);
+                            egui::ComboBox::from_id_salt(("clef", i)).selected_text(clef.name()).width(110.0).show_ui(ui, |ui| {
+                                kit::menu_look(ui);
+                                for c in Clef::ALL {
+                                    changed |= ui.selectable_value(&mut clef, c, c.name()).changed();
+                                }
+                            });
+                            if clef != st.clef_at(0) {
+                                st.set_clef(0, clef);
+                            }
+                            egui::ComboBox::from_id_salt(("prog", i)).selected_text(format!("{} {}", st.program as usize + 1, GM_NAMES[st.program as usize])).width(200.0).show_ui(ui, |ui| {
+                                kit::menu_look(ui);
+                                for (kk, nm) in GM_NAMES.iter().enumerate() {
+                                    changed |= ui.selectable_value(&mut st.program, kk as u8, format!("{} {}", kk + 1, nm)).changed();
+                                }
+                            });
+                            egui::ComboBox::from_id_salt(("port", i)).selected_text(if st.port == 0 { "A" } else { "B" }).width(48.0).show_ui(ui, |ui| {
+                                kit::menu_look(ui);
+                                changed |= ui.selectable_value(&mut st.port, 0, "A").changed();
+                                changed |= ui.selectable_value(&mut st.port, 1, "B").changed();
+                            });
+                            let mut ch = st.channel + 1;
+                            changed |= kit::num_with(ui, &mut ch, 1..=16, 60.0, |d| d).changed();
+                            st.channel = ch - 1;
+                            changed |= kit::num_with(ui, &mut st.volume, 0..=127, 66.0, |d| d).changed();
+                            changed |= kit::num_with(ui, &mut st.pan, -64..=63, 66.0, |d| d).changed();
+                            changed |= kit::num_with(ui, &mut st.transpose, -36..=36, 66.0, |d| d).changed();
+                            changed |= kit::checkbox(ui, &mut st.hidden, "").changed();
+                            changed |= kit::checkbox(ui, &mut st.muted, "").changed();
+                            changed |= kit::checkbox(ui, &mut st.solo, "").changed();
+                            changed |= kit::checkbox(ui, &mut st.brace_with_next, "").changed();
+                            changed |= kit::checkbox(ui, &mut st.bracket_with_next, "").changed();
+                            changed |= kit::checkbox(ui, &mut st.barline_to_next, "").changed();
+                            changed |= kit::num_with(ui, &mut st.lines, 1..=6, 56.0, |d| d).changed();
+                            changed |= kit::checkbox(ui, &mut st.drum, "").changed();
+                            ui.end_row();
                         }
                     });
-                    if clef != st.clef_at(0) {
-                        st.set_clef(0, clef);
-                    }
-                    egui::ComboBox::from_id_salt(("prog", i)).selected_text(GM_NAMES[st.program as usize]).width(160.0).show_ui(ui, |ui| {
-                        for (k, nm) in GM_NAMES.iter().enumerate() {
-                            changed |= ui.selectable_value(&mut st.program, k as u8, format!("{} {}", k + 1, nm)).changed();
-                        }
-                    });
-                    egui::ComboBox::from_id_salt(("port", i)).selected_text(if st.port == 0 { "A" } else { "B" }).width(36.0).show_ui(ui, |ui| {
-                        changed |= ui.selectable_value(&mut st.port, 0, "A").changed();
-                        changed |= ui.selectable_value(&mut st.port, 1, "B").changed();
-                    });
-                    let mut ch = st.channel + 1;
-                    changed |= ui.add(egui::DragValue::new(&mut ch).range(1..=16)).changed();
-                    st.channel = ch - 1;
-                    changed |= ui.add(egui::DragValue::new(&mut st.volume).range(0..=127)).changed();
-                    changed |= ui.add(egui::DragValue::new(&mut st.pan).range(-64..=63)).changed();
-                    changed |= ui.add(egui::DragValue::new(&mut st.transpose).range(-36..=36)).changed();
-                    changed |= ui.checkbox(&mut st.hidden, "").changed();
-                    changed |= ui.checkbox(&mut st.muted, "").changed();
-                    changed |= ui.checkbox(&mut st.solo, "").changed();
-                    changed |= ui.checkbox(&mut st.brace_with_next, "").changed();
-                    changed |= ui.checkbox(&mut st.bracket_with_next, "").changed();
-                    changed |= ui.checkbox(&mut st.barline_to_next, "").changed();
-                    changed |= ui.add(egui::DragValue::new(&mut st.lines).range(1..=6)).changed();
-                    changed |= ui.checkbox(&mut st.drum, "").changed();
-                    ui.end_row();
-                }
             });
         });
         if self.score.staves.iter().all(|s| s.hidden) {
             self.score.staves[0].hidden = false;
         }
         ui.horizontal(|ui| {
-            if ui.button("Add Staff...").clicked() {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            if kit::btn_inline(ui, "Add Staff...").clicked() {
                 self.pending_cmd = Some(Cmd::AddStaff);
             }
-            if ui.button("Delete Cursor Staff").clicked() {
+            if button_danger_inline(ui, "Delete Cursor Staff").clicked() {
                 self.pending_cmd = Some(Cmd::DeleteStaff);
             }
-            if ui.button("Move Cursor Staff Up").clicked() && self.cursor.0 > 0 {
+            if kit::btn_inline(ui, "Move Cursor Staff Up").clicked() && self.cursor.0 > 0 {
                 let s = self.cursor.0;
                 self.checkpoint();
                 self.score.staves.swap(s, s - 1);
@@ -588,10 +614,18 @@ impl App {
         }
     }
 
+    /// The pitches of the note at the cursor (lit on the Keyboard window).
+    fn cursor_pitches(&self) -> Vec<i32> {
+        let (s, m, t) = self.cursor;
+        self.score.events.get(s).and_then(|st| st.get(m)).map(|evs| evs.iter().filter(|e| e.start == t && !e.is_rest()).flat_map(|e| e.pitches.iter().map(|p| p.midi())).collect()).unwrap_or_default()
+    }
+
     fn keyboard_ui(&mut self, ui: &mut Ui) {
         let low = 36; // C2
         let octaves = 5;
         let ww = 18.0;
+        let k = theme::t(ui);
+        let lit = self.cursor_pitches();
         let (r, resp) = ui.allocate_exact_size(vec2(ww * 7.0 * octaves as f32 + ww, 80.0), Sense::click());
         let p = ui.painter_at(r);
         let mut whites = vec![];
@@ -607,14 +641,14 @@ impl App {
             }
         }
         for (m, kr) in &whites {
-            p.rect_filled(*kr, 0.0, theme::PIANO_WHITE);
+            p.rect_filled(*kr, 0.0, if lit.contains(m) { k.accent_soft } else { theme::PIANO_WHITE });
             p.rect_stroke(*kr, 0.0, Stroke::new(1.0, theme::PIANO_LINE), egui::StrokeKind::Inside);
             if m % 12 == 0 {
                 p.text(kr.center_bottom() - vec2(0.0, 8.0), Align2::CENTER_CENTER, format!("C{}", m / 12 - 1), theme::font(9.0), theme::PIANO_LINE);
             }
         }
-        for (_, kr) in &blacks {
-            p.rect_filled(*kr, 1.0, theme::PIANO_BLACK);
+        for (m, kr) in &blacks {
+            p.rect_filled(*kr, 1.0, if lit.contains(m) { k.accent } else { theme::PIANO_BLACK });
         }
         if resp.clicked() {
             if let Some(pos) = resp.interact_pointer_pos() {
@@ -635,182 +669,323 @@ impl App {
                 }
             }
         }
-        ui.label("Click a key to enter that note at the red cursor with the current note value.");
+        kit::help(ui, "Click a key to enter that note at the red cursor with the current note value.");
     }
 
     // ---------------- dialogs ----------------
 
     pub fn dialogs(&mut self, ctx: &egui::Context) {
-        let Some(mut d) = self.dialog.take() else { return };
+        let Some(mut d) = self.dialog.take() else {
+            self.pb_backup = None;
+            return;
+        };
+        // MIDI Playback changes are heard at once; Cancel puts back what was there when the dialog opened
+        if matches!(d, Dialog::MidiPlayback) && self.pb_backup.is_none() {
+            self.pb_backup = Some(self.score.playback.clone());
+        }
         let mut keep = true;
         let mut ok = false;
+        let mut cancel = false;
         let title = dialog_title(&d);
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let alert = matches!(d, Dialog::ConfirmClose(_) | Dialog::Message(_) | Dialog::About);
+        let wid = egui::Id::unique(("dialog_w", title));
         egui::Window::new(title)
+            .id(egui::Id::unique("dialog"))
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .frame(kit::window_frame(ctx))
             .show(ctx, |ui| {
-                self.dialog_body(ui, &mut d);
-                ui.separator();
-                ui.horizontal(|ui| match &d {
-                    Dialog::Message(_) | Dialog::About | Dialog::Shortcuts | Dialog::ClavinovaGuide => {
-                        if ui.button("OK").clicked() {
-                            keep = false;
+                if alert {
+                    self.alert_body(ui, &d, &mut ok, &mut keep, &mut cancel);
+                    return;
+                }
+                let width = ui.memory(|m| m.data.get_temp::<f32>(wid)).unwrap_or(320.0);
+                if kit::title_bar(ui, title, width, 32.0, false) {
+                    cancel = true;
+                }
+                let body = egui::Frame::new().inner_margin(egui::Margin { left: 20, right: 20, top: 6, bottom: 18 }).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+                    ui.set_max_width(980.0);
+                    self.dialog_body(ui, &mut d);
+                    ui.add_space(8.0);
+                    // footer: the main button on the right, Cancel to its left
+                    kit::footer(ui, |ui| match &d {
+                        Dialog::Shortcuts | Dialog::ClavinovaGuide => {
+                            if kit::btn_primary(ui, "OK").clicked() || enter {
+                                keep = false;
+                            }
                         }
-                    }
-                    Dialog::ConfirmClose(_) => {
-                        if ui.button("Save").clicked() {
-                            ok = true;
+                        Dialog::NewScore { .. } => {
+                            if kit::btn_primary(ui, "Create").clicked() || enter {
+                                ok = true;
+                            }
+                            if kit::btn(ui, "Create, then open Text Elements").clicked() {
+                                ok = true;
+                                self.after_new_wizard = true;
+                            }
+                            if kit::btn(ui, "Cancel").clicked() {
+                                cancel = true;
+                            }
                         }
-                        if ui.button("Don't Save").clicked() {
-                            self.dirty = false;
-                            ok = true;
+                        _ => {
+                            if kit::btn_primary(ui, "OK").clicked() || enter {
+                                ok = true;
+                            }
+                            if kit::btn(ui, "Cancel").clicked() {
+                                cancel = true;
+                            }
                         }
-                        if ui.button("Cancel").clicked() {
-                            keep = false;
-                        }
-                    }
-                    Dialog::NewScore { .. } => {
-                        if ui.button("Cancel").clicked() {
-                            keep = false;
-                        }
-                        if ui.button("Create, then open Text Elements").clicked() {
-                            ok = true;
-                            self.after_new_wizard = true;
-                        }
-                        if ui.button("Create").clicked() {
-                            ok = true;
-                        }
-                    }
-                    _ => {
-                        if ui.button("Cancel").clicked() {
-                            keep = false;
-                        }
-                        if ui.button("OK").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            ok = true;
-                        }
-                    }
+                    });
                 });
+                ui.memory_mut(|m| m.data.insert_temp(wid, body.response.rect.width()));
             });
+        if esc {
+            cancel = true;
+        }
+        if cancel {
+            keep = false;
+            ok = false;
+            if let Some(b) = self.pb_backup.take() {
+                self.score.playback = b;
+            }
+        }
         if ok {
             keep = false;
+            if matches!(d, Dialog::MidiPlayback) {
+                // one undo step for everything changed in the dialog
+                if let Some(b) = self.pb_backup.take() {
+                    if b != self.score.playback {
+                        let now = std::mem::replace(&mut self.score.playback, b);
+                        self.checkpoint();
+                        self.score.playback = now;
+                    }
+                }
+            }
             self.apply_dialog(d.clone());
         }
         if keep && self.dialog.is_none() {
             self.dialog = Some(d);
-        } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.dialog = None;
+        } else if self.dialog.is_none() {
+            self.pb_backup = None;
         }
+    }
+
+    /// Alerts (Unsaved Changes, messages, About): icon, sentence in bold, buttons in the macOS order.
+    fn alert_body(&mut self, ui: &mut Ui, d: &Dialog, ok: &mut bool, keep: &mut bool, cancel: &mut bool) {
+        let k = theme::t(ui);
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 22, bottom: 20 }).show(ui, |ui| {
+            ui.set_width(380.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+                kit::alert_icon(ui, matches!(d, Dialog::Message(_)));
+                let (head, sub) = match d {
+                    Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.file_base_name()),
+                    Dialog::Message(m) => (m.clone(), String::new()),
+                    _ => ("Fermata".to_string(), "A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.\nVersion 0.1 - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.".to_string()),
+                };
+                ui.add(egui::Label::new(egui::RichText::new(head).font(theme::font_semibold(14.0)).color(k.text)).wrap());
+                if !sub.is_empty() {
+                    ui.add(egui::Label::new(egui::RichText::new(sub).font(theme::font(12.0)).color(k.text_3)).wrap());
+                }
+            });
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                match d {
+                    Dialog::ConfirmClose(_) => {
+                        // macOS order: Don't Save on the left; Cancel and Save on the right (Esc = Cancel, Enter = Save)
+                        if kit::btn(ui, "Don't Save").clicked() {
+                            self.dirty = false;
+                            *ok = true;
+                        }
+                        kit::footer(ui, |ui| {
+                            if kit::btn_primary(ui, "Save").clicked() || enter {
+                                *ok = true;
+                            }
+                            if kit::btn(ui, "Cancel").clicked() {
+                                *cancel = true;
+                            }
+                        });
+                    }
+                    _ => {
+                        kit::footer(ui, |ui| {
+                            if kit::btn_primary(ui, "OK").clicked() || enter {
+                                *keep = false;
+                            }
+                        });
+                    }
+                }
+            });
+        });
     }
 
     fn dialog_body(&mut self, ui: &mut Ui, d: &mut Dialog) {
         let nm = self.score.measures.len();
+        // measure numbers are kept from 0 but shown and typed from 1
+        let pitch_fmt = |v: f64| Pitch::from_midi(v as i32, false).name();
+        let int_fmt = |v: f64| format!("{}", v as i64);
         match d {
             Dialog::NewScore { staves, systems, mps, c_score, handwritten, template } => {
-                ui.horizontal(|ui| {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 24.0;
                     ui.vertical(|ui| {
-                        ui.add(egui::DragValue::new(staves).range(1..=32).prefix("Staves per System: "));
-                        ui.add(egui::DragValue::new(systems).range(1..=12).prefix("Systems per Page: "));
-                        ui.add(egui::DragValue::new(mps).range(1..=16).prefix("Measures per System: "));
-                        ui.checkbox(c_score, "Make a \"C\" Score");
-                        ui.checkbox(handwritten, "Use Handwritten Style");
+                        kit::form(ui, "newscore", |ui| {
+                            kit::row(ui, "Staves per System", |ui| kit::num(ui, staves, 1..=32));
+                            kit::row(ui, "Systems per Page", |ui| kit::num(ui, systems, 1..=12));
+                            kit::row(ui, "Measures per System", |ui| kit::num(ui, mps, 1..=16));
+                            kit::row(ui, "", |ui| kit::checkbox(ui, c_score, "Make a \"C\" Score"));
+                            kit::row(ui, "", |ui| kit::checkbox(ui, handwritten, "Use Handwritten Style"));
+                        });
                     });
                     ui.vertical(|ui| {
-                        ui.strong("Starting Template");
-                        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                            for (k, t) in TEMPLATES.iter().enumerate() {
-                                ui.selectable_value(template, k, *t);
-                            }
+                        ui.label(egui::RichText::new("Starting Template").font(theme::font_semibold(11.5)).color(theme::t(ui).text_2));
+                        let k = theme::t(ui);
+                        egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(4.0).show(ui, |ui| {
+                            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                for (k, t) in TEMPLATES.iter().enumerate() {
+                                    if kit::list_row(ui, *template == k, t, 240.0).clicked() {
+                                        *template = k;
+                                    }
+                                }
+                            });
                         });
                     });
                 });
             }
             Dialog::TimeSig { num, den, from, to } => {
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(num).range(1..=32));
-                    ui.label("/");
-                    egui::ComboBox::from_id_salt("den").selected_text(den.to_string()).show_ui(ui, |ui| {
-                        for v in [1u8, 2, 4, 8, 16, 32] {
-                            ui.selectable_value(den, v, v.to_string());
+                kit::form(ui, "timesig", |ui| {
+                    kit::row(ui, "Time Signature", |ui| {
+                        kit::num(ui, num, 1..=32);
+                        ui.label("/");
+                        egui::ComboBox::from_id_salt("den").selected_text(den.to_string()).width(60.0).show_ui(ui, |ui| {
+                            kit::menu_look(ui);
+                            for v in [1u8, 2, 4, 8, 16, 32] {
+                                ui.selectable_value(den, v, v.to_string());
+                            }
+                        });
+                    });
+                    kit::row(ui, "", |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for (a, b) in [(2, 4), (3, 4), (4, 4), (6, 8), (9, 8), (12, 8), (2, 2), (5, 4)] {
+                            if kit::chip(ui, *num == a && *den == b, &format!("{a}/{b}")).clicked() {
+                                *num = a;
+                                *den = b;
+                            }
                         }
                     });
+                    kit::row(ui, "From measure", |ui| kit::num(ui, from, 1..=nm));
+                    kit::row(ui, "Through measure", |ui| kit::num(ui, to, 1..=nm));
                 });
-                ui.horizontal(|ui| {
-                    for (a, b) in [(2, 4), (3, 4), (4, 4), (6, 8), (9, 8), (12, 8), (2, 2), (5, 4)] {
-                        if ui.button(format!("{a}/{b}")).clicked() {
-                            *num = a;
-                            *den = b;
-                        }
-                    }
-                });
-                ui.add(egui::DragValue::new(from).range(1..=nm).prefix("From measure "));
-                ui.add(egui::DragValue::new(to).range(1..=nm).prefix("Through measure "));
             }
             Dialog::KeySig { key, from, to, transpose } => {
-                egui::ComboBox::from_id_salt("key").selected_text(key_name(*key)).width(200.0).show_ui(ui, |ui| {
-                    for k in -7..=7i8 {
-                        ui.selectable_value(key, k, key_name(k));
-                    }
+                kit::form(ui, "keysig", |ui| {
+                    kit::row(ui, "Key", |ui| {
+                        egui::ComboBox::from_id_salt("key").selected_text(key_name(*key)).width(200.0).show_ui(ui, |ui| {
+                            kit::menu_look(ui);
+                            for k in -7..=7i8 {
+                                ui.selectable_value(key, k, key_name(k));
+                            }
+                        });
+                    });
+                    kit::row(ui, "From measure", |ui| kit::num(ui, from, 1..=nm));
+                    kit::row(ui, "Through measure", |ui| kit::num(ui, to, 1..=nm));
+                    kit::row(ui, "", |ui| kit::checkbox(ui, transpose, "Transpose the notes to the new key"));
                 });
-                ui.add(egui::DragValue::new(from).range(1..=nm).prefix("From measure "));
-                ui.add(egui::DragValue::new(to).range(1..=nm).prefix("Through measure "));
-                ui.checkbox(transpose, "Transpose the notes to the new key");
             }
             Dialog::Tempo { bpm, measure, to_measure, mode, to_bpm } => {
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(measure).range(0..=nm - 1).custom_formatter(|v, _| format!("From measure {}", v as usize + 1)));
-                    ui.add(egui::DragValue::new(to_measure).range(0..=nm - 1).custom_formatter(|v, _| format!("to {}", v as usize + 1)));
+                kit::form(ui, "tempo", |ui| {
+                    kit::row(ui, "From measure", |ui| {
+                        kit::num_with(ui, measure, 0..=nm - 1, 72.0, kit::from1);
+                        ui.label("to");
+                        kit::num_with(ui, to_measure, 0..=nm - 1, 72.0, kit::from1);
+                    });
+                    kit::label(ui, "Mode");
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        kit::radio_value(ui, mode, 0, "Set all Tempos to");
+                        kit::radio_value(ui, mode, 1, "Change to (% of current values)");
+                        kit::radio_value(ui, mode, 2, "Change smoothly from ... to");
+                        kit::radio_value(ui, mode, 3, "Add (to all values)");
+                    });
+                    ui.end_row();
+                    kit::row(ui, "Tempo", |ui| {
+                        kit::num(ui, bpm, 1..=400);
+                        if *mode == 2 {
+                            ui.label("to");
+                            kit::num(ui, to_bpm, 1..=400);
+                        }
+                        kit::help(ui, "bpm");
+                    });
                 });
-                ui.radio_value(mode, 0, "Set all Tempos to");
-                ui.radio_value(mode, 1, "Change to (% of current values)");
-                ui.radio_value(mode, 2, "Change smoothly from ... to");
-                ui.radio_value(mode, 3, "Add (to all values)");
-                ui.add(egui::DragValue::new(bpm).range(1..=400));
-                if *mode == 2 {
-                    ui.add(egui::DragValue::new(to_bpm).range(1..=400).prefix("to "));
-                }
             }
             Dialog::Barline { kind, times, .. } => {
-                for b in crate::model::Barline::ALL {
-                    ui.radio_value(kind, b, b.name());
-                }
-                ui.add(egui::DragValue::new(times).range(2..=8).prefix("Play repeat times: "));
+                kit::form(ui, "barline", |ui| {
+                    kit::label(ui, "Type");
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        for b in crate::model::Barline::ALL {
+                            kit::radio_value(ui, kind, b, b.name());
+                        }
+                    });
+                    ui.end_row();
+                    kit::row(ui, "Play repeat times", |ui| kit::num(ui, times, 2..=8));
+                });
             }
             Dialog::Endings { text, .. } => {
-                ui.label("Ending text (e.g. 1.  2.  1, 2.) - leave empty to remove:");
-                ui.text_edit_singleline(text);
+                kit::text(ui, "Ending text (e.g. 1.  2.  1, 2.) - leave empty to remove:");
+                ui.add(egui::TextEdit::singleline(text).desired_width(320.0));
             }
             Dialog::Coda { text, rehearsal, .. } => {
-                ui.horizontal_wrapped(|ui| {
-                    for t in ["D.C.", "D.C. al Fine", "D.C. al Coda", "D.S.", "D.S. al Fine", "D.S. al Coda", "Fine", "To Coda"] {
-                        if ui.button(t).clicked() {
-                            *text = t.into();
+                kit::form(ui, "coda", |ui| {
+                    kit::label(ui, "Phrase");
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                        for line in [["D.C.", "D.C. al Fine", "D.C. al Coda", "D.S."], ["D.S. al Fine", "D.S. al Coda", "Fine", "To Coda"]] {
+                            ui.horizontal(|ui| {
+                                for t in line {
+                                    if kit::chip(ui, text.as_str() == t, t).clicked() {
+                                        *text = t.into();
+                                    }
+                                }
+                            });
                         }
-                    }
+                    });
+                    ui.end_row();
+                    kit::row(ui, "", |ui| ui.add(egui::TextEdit::singleline(text).desired_width(260.0)));
+                    kit::row(ui, "Rehearsal letter:", |ui| ui.add(egui::TextEdit::singleline(rehearsal).desired_width(80.0)));
                 });
-                ui.text_edit_singleline(text);
-                ui.label("Rehearsal letter:");
-                ui.text_edit_singleline(rehearsal);
             }
             Dialog::MeasureNumbers { mode } => {
-                ui.radio_value(mode, MeasureNumbers::None, "None");
-                ui.radio_value(mode, MeasureNumbers::EverySystem, "At the start of each system");
-                ui.radio_value(mode, MeasureNumbers::EveryMeasure, "Every measure");
-                ui.radio_value(mode, MeasureNumbers::Every5, "Every 5 measures");
+                kit::radio_value(ui, mode, MeasureNumbers::None, "None");
+                kit::radio_value(ui, mode, MeasureNumbers::EverySystem, "At the start of each system");
+                kit::radio_value(ui, mode, MeasureNumbers::EveryMeasure, "Every measure");
+                kit::radio_value(ui, mode, MeasureNumbers::Every5, "Every 5 measures");
             }
             Dialog::AddMeasures { count, before } => {
-                ui.add(egui::DragValue::new(count).range(1..=500).prefix("Add "));
-                ui.radio_value(before, true, "Before the cursor measure");
-                ui.radio_value(before, false, "After the cursor measure");
+                kit::form(ui, "addm", |ui| {
+                    kit::row(ui, "Add", |ui| kit::num(ui, count, 1..=500));
+                    kit::label(ui, "");
+                    ui.vertical(|ui| {
+                        kit::radio_value(ui, before, true, "Before the cursor measure");
+                        kit::radio_value(ui, before, false, "After the cursor measure");
+                    });
+                    ui.end_row();
+                });
             }
             Dialog::MeasuresPerSystem { n } => {
-                ui.add(egui::DragValue::new(n).range(1..=32).prefix("Measures per system: "));
+                kit::form(ui, "mps", |ui| kit::row(ui, "Measures per system", |ui| kit::num(ui, n, 1..=32)));
             }
             Dialog::SystemsPerPage { n } => {
-                ui.add(egui::DragValue::new(n).range(1..=16).prefix("Systems per page: "));
+                kit::form(ui, "spp", |ui| kit::row(ui, "Systems per page", |ui| kit::num(ui, n, 1..=16)));
             }
             Dialog::Text(t) => {
-                egui::Grid::new("txt").show(ui, |ui| {
+                kit::form(ui, "txt", |ui| {
                     for (l, v) in [
                         ("Title", &mut t.title),
                         ("Subtitle", &mut t.subtitle),
@@ -821,76 +996,92 @@ impl App {
                         ("Header", &mut t.header),
                         ("Footer", &mut t.footer),
                     ] {
-                        ui.label(l);
-                        ui.add(egui::TextEdit::singleline(v).desired_width(300.0));
-                        ui.end_row();
+                        kit::row(ui, l, |ui| ui.add(egui::TextEdit::singleline(v).desired_width(300.0)));
                     }
+                    kit::row(ui, "", |ui| kit::checkbox(ui, &mut t.show_page_numbers, "Page numbers"));
                 });
-                ui.checkbox(&mut t.show_page_numbers, "Page numbers");
             }
             Dialog::NoteAttributes { velocity, play_len, value, dots, voice, hidden, stem } => {
-                ui.add(egui::Slider::new(velocity, 1..=127).text("Velocity"));
-                ui.add(egui::DragValue::new(play_len).range(1..=TPQ * 16).prefix("Playback length (ticks, 480 = quarter): "));
-                ui.add(egui::Slider::new(value, 0..=8).text("Note value (0 = double whole ... 8 = 128th)"));
-                ui.add(egui::Slider::new(dots, 0..=2).text("Dots"));
-                ui.add(egui::Slider::new(voice, 1..=8).text("Voice"));
-                ui.horizontal(|ui| {
-                    ui.radio_value(stem, Stem::Auto, "Stem normal");
-                    ui.radio_value(stem, Stem::Up, "Up");
-                    ui.radio_value(stem, Stem::Down, "Down");
+                kit::form(ui, "attr", |ui| {
+                    kit::row(ui, "Velocity", |ui| kit::slider(ui, velocity, 1..=127, int_fmt));
+                    kit::row(ui, "Playback length (ticks, 480 = quarter)", |ui| kit::num_with(ui, play_len, 1..=TPQ * 16, 96.0, |d| d));
+                    kit::row(ui, "Note value (0 = double whole ... 8 = 128th)", |ui| kit::slider(ui, value, 0..=8, int_fmt));
+                    kit::row(ui, "Dots", |ui| kit::slider(ui, dots, 0..=2, int_fmt));
+                    kit::row(ui, "Voice", |ui| kit::slider(ui, voice, 1..=8, int_fmt));
+                    kit::row(ui, "", |ui| {
+                        kit::radio_value(ui, stem, Stem::Auto, "Stem normal");
+                        kit::radio_value(ui, stem, Stem::Up, "Up");
+                        kit::radio_value(ui, stem, Stem::Down, "Down");
+                    });
+                    kit::row(ui, "", |ui| kit::checkbox(ui, hidden, "Hidden (plays but doesn't print)"));
                 });
-                ui.checkbox(hidden, "Hidden (plays but doesn't print)");
             }
             Dialog::Velocity { mode, value, to } => {
-                ui.radio_value(mode, 0, "Set all values to");
-                ui.radio_value(mode, 2, "Change to (% of current values)");
-                ui.radio_value(mode, 3, "Change smoothly from ... to");
-                ui.radio_value(mode, 1, "Add (to all values)");
-                ui.add(egui::DragValue::new(value).range(-127..=400));
-                if *mode == 3 {
-                    ui.add(egui::DragValue::new(to).range(1..=127).prefix("to "));
-                }
+                kit::form(ui, "vel", |ui| {
+                    kit::label(ui, "Mode");
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        kit::radio_value(ui, mode, 0, "Set all values to");
+                        kit::radio_value(ui, mode, 2, "Change to (% of current values)");
+                        kit::radio_value(ui, mode, 3, "Change smoothly from ... to");
+                        kit::radio_value(ui, mode, 1, "Add (to all values)");
+                    });
+                    ui.end_row();
+                    kit::row(ui, "Value", |ui| {
+                        kit::num(ui, value, -127..=400);
+                        if *mode == 3 {
+                            ui.label("to");
+                            kit::num(ui, to, 1..=127);
+                        }
+                    });
+                });
             }
             Dialog::SpacingDefaults { stem, beam, tie_h, tie_v, ms } => {
-                ui.label("NOTE: \"half space\" means one half the height of a staff space");
-                ui.add(egui::DragValue::new(stem).range(1..=16).prefix("Beam stem length (half spaces): "));
-                ui.add(egui::DragValue::new(beam).range(25..=400).prefix("Beam thickness (% of half space): "));
-                ui.add(egui::DragValue::new(tie_h).range(0..=8).prefix("Horizontal tie offset (quarter spaces): "));
-                ui.add(egui::DragValue::new(tie_v).range(0..=8).prefix("Vertical tie offset (quarter spaces): "));
-                ui.horizontal(|ui| {
-                    ui.label("Measure spacing (half spaces):");
-                    for v in ms.iter_mut() {
-                        ui.add(egui::DragValue::new(v).range(0..=8));
-                    }
+                kit::help(ui, "NOTE: \"half space\" means one half the height of a staff space");
+                kit::form(ui, "spacing", |ui| {
+                    kit::row(ui, "Beam stem length (half spaces)", |ui| kit::num(ui, stem, 1..=16));
+                    kit::row(ui, "Beam thickness (% of half space)", |ui| kit::num(ui, beam, 25..=400));
+                    kit::row(ui, "Horizontal tie offset (quarter spaces)", |ui| kit::num(ui, tie_h, 0..=8));
+                    kit::row(ui, "Vertical tie offset (quarter spaces)", |ui| kit::num(ui, tie_v, 0..=8));
+                    kit::row(ui, "Measure spacing (half spaces)", |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for v in ms.iter_mut() {
+                            kit::num_with(ui, v, 0..=8, 52.0, |d| d);
+                        }
+                    });
                 });
             }
             Dialog::Duration { percent } => {
-                ui.add(egui::Slider::new(percent, 10..=200).text("% of written length"));
+                kit::form(ui, "dur", |ui| kit::row(ui, "% of written length", |ui| kit::slider(ui, percent, 10..=200, int_fmt)));
             }
             Dialog::Transpose { semitones, octave } => {
-                ui.add(egui::Slider::new(semitones, -11..=11).text("Semitones"));
-                ui.add(egui::Slider::new(octave, -3..=3).text("Octaves"));
-                ui.label("Applies to the selected notes, or the selected measures.");
+                kit::form(ui, "transp", |ui| {
+                    kit::row(ui, "Semitones", |ui| kit::slider(ui, semitones, -11..=11, int_fmt));
+                    kit::row(ui, "Octaves", |ui| kit::slider(ui, octave, -3..=3, int_fmt));
+                });
+                kit::help(ui, "Applies to the selected notes, or the selected measures.");
             }
             Dialog::Swing { swing, note } => {
-                ui.add(egui::Slider::new(swing, 50..=75).text("% (50.0 to 75.0)"));
-                ui.label("Note Type to Swing:");
-                ui.horizontal(|ui| {
-                    for (v, n) in [(1u8, "Whole"), (2, "Half"), (3, "Quarter"), (4, "Eighth"), (5, "16th"), (6, "32nd")] {
-                        ui.radio_value(note, v, n);
-                    }
+                kit::form(ui, "swing", |ui| {
+                    kit::row(ui, "% (50.0 to 75.0)", |ui| kit::slider(ui, swing, 50..=75, int_fmt));
+                    kit::row(ui, "Note Type to Swing:", |ui| {
+                        for (v, n) in [(1u8, "Whole"), (2, "Half"), (3, "Quarter"), (4, "Eighth"), (5, "16th"), (6, "32nd")] {
+                            kit::radio_value(ui, note, v, n);
+                        }
+                    });
                 });
             }
             Dialog::Tuplet { notes, in_time } => {
-                ui.label("Notes entered with the tuplet tool play this many notes in the time of the other number.");
+                kit::text(ui, "Notes entered with the tuplet tool play this many notes in the time of the other number.");
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(notes).range(2..=15));
+                    kit::num(ui, notes, 2..=15);
                     ui.label("notes in the time of");
-                    ui.add(egui::DragValue::new(in_time).range(1..=15));
+                    kit::num(ui, in_time, 1..=15);
                 });
                 ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     for (a, b) in [(3u8, 2u8), (2, 3), (5, 4), (6, 4), (7, 4), (7, 8), (9, 8)] {
-                        if ui.selectable_label(*notes == a && *in_time == b, format!("{a}:{b}")).clicked() {
+                        if kit::chip(ui, *notes == a && *in_time == b, &format!("{a}:{b}")).clicked() {
                             *notes = a;
                             *in_time = b;
                         }
@@ -899,51 +1090,56 @@ impl App {
             }
             Dialog::ClickSetup(p) => {
                 // the original's Click Settings: a row for the bar click and one for the beat click
-                egui::Grid::new("clickgrid").num_columns(6).spacing([8.0, 6.0]).show(ui, |ui| {
-                    for h in ["", "Port", "Chan", "Pitch", "Vel", "Dur (msec)", "Sound"] {
-                        ui.strong(h);
-                    }
-                    ui.end_row();
-                    for (label, c) in [("Bar click", &mut p.click_bar), ("Beat click", &mut p.click_beat)] {
-                        ui.label(label);
-                        egui::ComboBox::from_id_salt(("clickport", label)).width(90.0).selected_text(match c.port { 0 => "A", 1 => "B", _ => "Computer" }).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut c.port, 0, "A");
-                            ui.selectable_value(&mut c.port, 1, "B");
-                            ui.selectable_value(&mut c.port, 2, "Computer");
-                        });
-                        let on_port = c.port < 2;
-                        ui.add_enabled(on_port, egui::DragValue::new(&mut c.chan).range(1..=16));
-                        ui.add_enabled(on_port, egui::DragValue::new(&mut c.pitch).range(0..=127).custom_formatter(|v, _| format!("{} ({})", v as i32, Pitch::from_midi(v as i32, false).name())));
-                        ui.add(egui::DragValue::new(&mut c.vel).range(1..=127));
-                        ui.add_enabled(on_port, egui::DragValue::new(&mut c.dur_ms).range(10..=1000));
-                        ui.add_enabled_ui(on_port && c.chan != 10, |ui| {
-                            egui::ComboBox::from_id_salt(("clickprog", label)).width(150.0).selected_text(GM_NAMES[c.program.min(127) as usize]).show_ui(ui, |ui| {
-                                for (k, n) in GM_NAMES.iter().enumerate() {
-                                    ui.selectable_value(&mut c.program, k as u8, *n);
-                                }
-                            });
-                        });
+                let k = theme::t(ui);
+                egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+                    egui::Grid::new("clickgrid").num_columns(7).spacing([10.0, 6.0]).show(ui, |ui| {
+                        for h in ["", "Port", "Chan", "Pitch", "Vel", "Dur (msec)", "Sound"] {
+                            ui.label(egui::RichText::new(h).font(theme::font_semibold(11.5)).color(k.text_2));
+                        }
                         ui.end_row();
-                    }
+                        for (label, c) in [("Bar click", &mut p.click_bar), ("Beat click", &mut p.click_beat)] {
+                            ui.label(label);
+                            egui::ComboBox::from_id_salt(("clickport", label)).width(90.0).selected_text(match c.port { 0 => "A", 1 => "B", _ => "Computer" }).show_ui(ui, |ui| {
+                                kit::menu_look(ui);
+                                ui.selectable_value(&mut c.port, 0, "A");
+                                ui.selectable_value(&mut c.port, 1, "B");
+                                ui.selectable_value(&mut c.port, 2, "Computer");
+                            });
+                            let on_port = c.port < 2;
+                            ui.add_enabled_ui(on_port, |ui| kit::num_with(ui, &mut c.chan, 1..=16, 60.0, |d| d));
+                            ui.add_enabled_ui(on_port, |ui| kit::num_with(ui, &mut c.pitch, 0..=127, 96.0, |d| d.custom_formatter(|v, _| format!("{} ({})", v as i32, Pitch::from_midi(v as i32, false).name()))));
+                            kit::num_with(ui, &mut c.vel, 1..=127, 64.0, |d| d);
+                            ui.add_enabled_ui(on_port, |ui| kit::num_with(ui, &mut c.dur_ms, 10..=1000, 72.0, |d| d));
+                            ui.add_enabled_ui(on_port && c.chan != 10, |ui| {
+                                egui::ComboBox::from_id_salt(("clickprog", label)).width(150.0).selected_text(GM_NAMES[c.program.min(127) as usize]).show_ui(ui, |ui| {
+                                    kit::menu_look(ui);
+                                    for (k, n) in GM_NAMES.iter().enumerate() {
+                                        ui.selectable_value(&mut c.program, k as u8, *n);
+                                    }
+                                });
+                            });
+                            ui.end_row();
+                        }
+                    });
                 });
-                ui.checkbox(&mut p.click_only_rec, "Only Use Click When Recording");
-                ui.checkbox(&mut p.click_on, "Click on (toolbar metronome button)");
+                kit::checkbox(ui, &mut p.click_only_rec, "Only Use Click When Recording");
+                kit::checkbox(ui, &mut p.click_on, "Click on (toolbar metronome button)");
                 ui.horizontal(|ui| {
-                    if ui.button("Test click").on_hover_text("Plays one bar of clicks with these settings").clicked() {
+                    if kit::btn_inline(ui, "Test click").on_hover_text("Plays one bar of clicks with these settings").clicked() {
                         let draft = p.clone();
                         self.test_click(&draft);
                     }
-                    if ui.button("Defaults: channel 1, piano voice").clicked() {
+                    if kit::btn_inline(ui, "Defaults: channel 1, piano voice").clicked() {
                         p.click_bar = crate::prefs::bar_click_ch1();
                         p.click_beat = crate::prefs::beat_click_ch1();
                     }
-                    if ui.button("Defaults: channel 10, drum metronome").clicked() {
+                    if kit::btn_inline(ui, "Defaults: channel 10, drum metronome").clicked() {
                         p.click_bar = crate::prefs::bar_click();
                         p.click_beat = crate::prefs::beat_click();
                     }
                 });
-                ui.add_space(4.0);
-                ui.label("Port A = the piano, together with the music (when the piano isn't connected the click plays on the computer). Computer = always on the Mac. Channel 10 uses the piano's own drum kit (34 = metronome bell, 33 = metronome click on Yamaha). Other channels use the Sound chosen here - pick a channel the piano's MIDI Receive setting plays. Use Test click to try.");
+                ui.set_max_width(640.0);
+                kit::help(ui, "Port A = the piano, together with the music (when the piano isn't connected the click plays on the computer). Computer = always on the Mac. Channel 10 uses the piano's own drum kit (34 = metronome bell, 33 = metronome click on Yamaha). Other channels use the Sound chosen here - pick a channel the piano's MIDI Receive setting plays. Use Test click to try.");
             }
             Dialog::ClavinovaGuide => {
                 egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
@@ -952,9 +1148,9 @@ impl App {
                         self.midi_out.as_ref().map(|m| m.connected[0].clone()).flatten(),
                         self.midi.as_ref().map(|m| m.names.join(", ")).filter(|s| !s.is_empty()),
                     );
-                    ui.label(egui::RichText::new("Situação agora").strong());
-                    ui.label(format!("* Teclado (entrada): {}", in_ok.unwrap_or_else(|| "nenhum encontrado".into())));
-                    ui.label(format!("* Som da partitura (saída, Port A): {}", out_ok.unwrap_or_else(|| "som do computador".into())));
+                    ui.label(egui::RichText::new("Situação agora").font(theme::font_semibold(13.0)));
+                    kit::text(ui, &format!("* Teclado (entrada): {}", in_ok.unwrap_or_else(|| "nenhum encontrado".into())));
+                    kit::text(ui, &format!("* Som da partitura (saída, Port A): {}", out_ok.unwrap_or_else(|| "som do computador".into())));
                     ui.separator();
                     for (n, t) in [
                         ("1. Ligar o cabo", "Ligue o cabo USB da entrada USB TO HOST do Clavinova (atrás do piano) a uma porta USB do Mac. Ligue o piano."),
@@ -969,217 +1165,246 @@ impl App {
                         ("Se ficar alguma nota presa", "Setup > MIDI Setup > \"All Notes Off\" silencia tudo."),
                         ("Gravar tocando", "Com a partitura aberta, aperte Enter: conta um compasso e grava o que você tocar. Enter ou espaço para parar."),
                     ] {
-                        ui.label(egui::RichText::new(n).strong());
-                        ui.label(t);
+                        ui.label(egui::RichText::new(n).font(theme::font_semibold(13.0)));
+                        kit::text(ui, t);
                         ui.add_space(4.0);
                     }
-                    if ui.button("Abrir MIDI Setup").clicked() {
+                    if kit::btn_inline(ui, "Abrir MIDI Setup").clicked() {
                         self.pending_cmd = Some(Cmd::MidiSetup);
                     }
                 });
             }
             Dialog::MidiSetup(p) => {
-                // Same layout as the original's MIDI Setup: MIDI Out, MIDI In, MIDI Thru, Sync Source.
+                // Same content as the original's MIDI Setup: MIDI Out, MIDI In, Sync Source | MIDI Thru, Recording, check
                 let outs: Vec<String> = self.midi_out.as_ref().map(|m| m.available.clone()).unwrap_or_default();
                 let ins: Vec<String> = self.midi.as_ref().map(|m| m.available.clone()).unwrap_or_default();
                 let none_out = "None (built-in sound)";
-                ui.strong("MIDI Out");
-                egui::Grid::new("midi_out").num_columns(3).show(ui, |ui| {
-                    for (k, label) in ["Port A:", "Port B:"].iter().enumerate() {
-                        ui.label(*label);
-                        let cur = if k == 0 { &mut p.out_port_a } else { &mut p.out_port_b };
-                        egui::ComboBox::from_id_salt(("outp", k)).width(260.0).selected_text(cur.clone().unwrap_or_else(|| none_out.into())).show_ui(ui, |ui| {
-                            ui.selectable_value(cur, None, none_out);
-                            for n in &outs {
-                                ui.selectable_value(cur, Some(n.clone()), n);
-                            }
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 20.0;
+                    ui.vertical(|ui| {
+                        ui.set_width(400.0);
+                        kit::group(ui, "MIDI Out", |ui| {
+                            kit::form(ui, "midi_out", |ui| {
+                                for (k, label) in ["Port A", "Port B"].iter().enumerate() {
+                                    kit::row(ui, label, |ui| {
+                                        let cur = if k == 0 { &mut p.out_port_a } else { &mut p.out_port_b };
+                                        egui::ComboBox::from_id_salt(("outp", k)).width(190.0).selected_text(cur.clone().unwrap_or_else(|| none_out.into())).show_ui(ui, |ui| {
+                                            kit::menu_look(ui);
+                                            ui.selectable_value(cur, None, none_out);
+                                            for n in &outs {
+                                                ui.selectable_value(cur, Some(n.clone()), n);
+                                            }
+                                        });
+                                        kit::checkbox(ui, &mut p.transmit_sync[k], "Transmit Sync");
+                                    });
+                                }
+                            });
+                            kit::checkbox(ui, &mut p.single_channel, "Send everything on channel 1, without changing the piano's voice")
+                                .on_hover_text("For pianos that only play channel 1, like a Clavinova in MIDI Accord mode (RECEIVE: CH1 = KEYBOARD, other channels OFF). The click plays as short high notes in the piano's own sound.");
                         });
-                        ui.checkbox(&mut p.transmit_sync[k], "Transmit Sync");
-                        ui.end_row();
-                    }
-                });
-                ui.checkbox(&mut p.single_channel, "Send everything on channel 1, without changing the piano's voice")
-                    .on_hover_text("For pianos that only play channel 1, like a Clavinova in MIDI Accord mode (RECEIVE: CH1 = KEYBOARD, other channels OFF). The click plays as short high notes in the piano's own sound.");
-                ui.add_space(4.0);
-                ui.strong("MIDI In");
-                egui::Grid::new("midi_in").num_columns(2).show(ui, |ui| {
-                    ui.label("Record Port:");
-                    egui::ComboBox::from_id_salt("recp").width(260.0).selected_text(p.record_port.clone().unwrap_or_else(|| "All MIDI inputs".into())).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut p.record_port, None, "All MIDI inputs");
-                        for n in &ins {
-                            ui.selectable_value(&mut p.record_port, Some(n.clone()), n);
-                        }
+                        kit::group(ui, "MIDI In", |ui| {
+                            kit::form(ui, "midi_in", |ui| {
+                                kit::row(ui, "Record Port", |ui| {
+                                    egui::ComboBox::from_id_salt("recp").width(190.0).selected_text(p.record_port.clone().unwrap_or_else(|| "All MIDI inputs".into())).show_ui(ui, |ui| {
+                                        kit::menu_look(ui);
+                                        ui.selectable_value(&mut p.record_port, None, "All MIDI inputs");
+                                        for n in &ins {
+                                            ui.selectable_value(&mut p.record_port, Some(n.clone()), n);
+                                        }
+                                    });
+                                });
+                                kit::row(ui, "Receive Sync Port", |ui| {
+                                    egui::ComboBox::from_id_salt("syncp").width(190.0).selected_text(p.receive_sync_port.clone().unwrap_or_else(|| "None".into())).show_ui(ui, |ui| {
+                                        kit::menu_look(ui);
+                                        ui.selectable_value(&mut p.receive_sync_port, None, "None");
+                                        for n in &ins {
+                                            ui.selectable_value(&mut p.receive_sync_port, Some(n.clone()), n);
+                                        }
+                                    });
+                                });
+                            });
+                        });
+                        kit::group(ui, "Sync Source", |ui| {
+                            kit::radio_value(ui, &mut p.sync_external, false, "Internal");
+                            ui.add_enabled_ui(false, |ui| kit::radio(ui, p.sync_external, "External (following another device's clock isn't available yet)"));
+                        });
                     });
-                    ui.end_row();
-                    ui.label("Receive Sync Port:");
-                    egui::ComboBox::from_id_salt("syncp").width(260.0).selected_text(p.receive_sync_port.clone().unwrap_or_else(|| "None".into())).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut p.receive_sync_port, None, "None");
-                        for n in &ins {
-                            ui.selectable_value(&mut p.receive_sync_port, Some(n.clone()), n);
-                        }
-                    });
-                    ui.end_row();
-                });
-                ui.add_space(4.0);
-                ui.strong("MIDI Thru");
-                ui.checkbox(&mut p.thru_on, "Thru on (what you play on the keyboard sounds through the output)");
-                ui.radio_value(&mut p.thru_follow_staff, true, "Follow Current Staff");
-                ui.radio_value(&mut p.thru_follow_staff, false, "Always send out:");
-                ui.add_enabled_ui(!p.thru_follow_staff, |ui| {
-                    for (port, name) in [(0u8, "A"), (1u8, "B")] {
-                        ui.horizontal(|ui| {
-                            ui.label(name);
-                            for ch in 0..16u8 {
-                                let sel = p.thru_port == port && p.thru_channel == ch;
-                                if ui.selectable_label(sel, format!("{}", ch + 1)).clicked() {
-                                    p.thru_port = port;
-                                    p.thru_channel = ch;
+                    ui.vertical(|ui| {
+                        ui.set_width(470.0);
+                        kit::group(ui, "MIDI Thru", |ui| {
+                            kit::checkbox(ui, &mut p.thru_on, "Thru on (what you play on the keyboard sounds through the output)");
+                            ui.horizontal(|ui| {
+                                kit::radio_value(ui, &mut p.thru_follow_staff, true, "Follow Current Staff");
+                                kit::radio_value(ui, &mut p.thru_follow_staff, false, "Always send out:");
+                            });
+                            ui.add_enabled_ui(!p.thru_follow_staff, |ui| {
+                                for (port, name) in [(0u8, "A"), (1u8, "B")] {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 2.0;
+                                        ui.label(egui::RichText::new(name).color(theme::t(ui).text_2));
+                                        ui.add_space(6.0);
+                                        for ch in 0..16u8 {
+                                            let sel = p.thru_port == port && p.thru_channel == ch;
+                                            if kit::chip_sized(ui, sel, &format!("{}", ch + 1), 24.0, 22.0).clicked() {
+                                                p.thru_port = port;
+                                                p.thru_channel = ch;
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                        kit::group(ui, "Recording", |ui| {
+                            kit::form(ui, "midi_rec", |ui| {
+                                kit::row(ui, "Smallest note written", |ui| {
+                                    egui::ComboBox::from_id_salt("recq").width(120.0).selected_text(match p.rec_quantize { 4 => "Eighth", 5 => "16th", 6 => "32nd", _ => "Quarter" }).show_ui(ui, |ui| {
+                                        kit::menu_look(ui);
+                                        for (v, n) in [(3u8, "Quarter"), (4, "Eighth"), (5, "16th"), (6, "32nd")] {
+                                            ui.selectable_value(&mut p.rec_quantize, v, n);
+                                        }
+                                    });
+                                });
+                                kit::row(ui, "Split point (grand staff)", |ui| kit::slider(ui, &mut p.rec_split, 36..=84, pitch_fmt));
+                                kit::row(ui, "Count-in bars", |ui| kit::slider(ui, &mut p.rec_count_in, 0..=2, int_fmt));
+                                kit::row(ui, "", |ui| kit::checkbox(ui, &mut p.rec_click, "Click while recording"));
+                            });
+                        });
+                        kit::group(ui, "Check the connection", |ui| {
+                            let k = theme::t(ui);
+                            if let Some(m) = self.midi_out.as_ref() {
+                                for kk in 0..2usize {
+                                    let name = if kk == 0 { "A" } else { "B" };
+                                    let sent = m.sent[kk].load(std::sync::atomic::Ordering::Relaxed);
+                                    match (&m.chosen[kk], &m.connected[kk]) {
+                                        (None, _) => kit::status_line(ui, k.text_3, &format!("Port {name}: built-in sound")),
+                                        (Some(c), None) => kit::status_line(ui, k.warn, &format!("Port {name}: \"{c}\" not found. Is the piano on and the USB cable in its USB TO HOST port?")),
+                                        (Some(_), Some(n)) => kit::status_line(ui, k.ok, &format!("Port {name}: connected to \"{n}\" - {sent} messages sent")),
+                                    }
                                 }
                             }
+                            if let Some(e) = self.midi_out.as_ref().and_then(|m| m.error.clone()).or_else(|| self.midi.as_ref().and_then(|m| m.error.clone())) {
+                                ui.colored_label(k.warn, e);
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                                if kit::btn_inline(ui, "Test Port A").on_hover_text("Plays C-E-G-C on channel 1 straight to the piano (press OK first if you just changed Port A)").clicked() {
+                                    let ok = self.midi_out.as_ref().map(|m| m.test(0)).unwrap_or(false);
+                                    self.status = if ok { "Test notes sent to Port A. The piano should play four notes and its Rx Monitor should blink.".into() } else { "Port A isn't connected yet: choose the piano in Port A and press OK, then test again.".into() };
+                                }
+                                if kit::btn_inline(ui, "Copy diagnostics").on_hover_text("Copies what the program sees, to paste when asking for help").clicked() {
+                                    let mut t = self.midi_out.as_ref().map(|m| m.diagnostics()).unwrap_or_default();
+                                    if let Some(mi) = self.midi.as_ref() {
+                                        t.push_str(&format!("MIDI inputs found: {:?}\nInputs open: {:?}\nNotes received: {}\nRecording: {}\n", mi.available, mi.names, mi.received.load(std::sync::atomic::Ordering::Relaxed), self.rec.is_some()));
+                                    }
+                                    t.push_str(&format!("Cursor staff port/channel: {:?}\n", self.score.staves.get(self.cursor.0).map(|s| (s.port, s.channel + 1))));
+                                    ui.ctx().copy_text(t);
+                                    self.status = "Diagnostics copied - paste them in the chat.".into();
+                                }
+                                if kit::btn_inline(ui, "Look for devices again").clicked() {
+                                    if let Some(m) = self.midi.as_mut() {
+                                        m.disconnect_all();
+                                        m.last_scan = None;
+                                    }
+                                    if let Some(m) = self.midi_out.as_mut() {
+                                        m.last_scan = None;
+                                    }
+                                }
+                                if kit::btn_inline(ui, "All Notes Off").on_hover_text("Silence anything still sounding on the MIDI outputs").clicked() {
+                                    if let Some(m) = self.midi_out.as_mut() {
+                                        m.all_notes_off();
+                                    }
+                                }
+                            });
+                            kit::help(ui, "If the piano sounds twice when you play it, turn Thru off here.");
                         });
-                    }
-                });
-                ui.add_space(4.0);
-                ui.strong("Sync Source");
-                ui.radio_value(&mut p.sync_external, false, "Internal");
-                ui.add_enabled(false, egui::RadioButton::new(p.sync_external, "External (following another device's clock isn't available yet)"));
-                ui.separator();
-                ui.collapsing("Recording", |ui| {
-                    egui::ComboBox::from_label("Smallest note written").selected_text(match p.rec_quantize { 4 => "Eighth", 5 => "16th", 6 => "32nd", _ => "Quarter" }).show_ui(ui, |ui| {
-                        for (v, n) in [(3u8, "Quarter"), (4, "Eighth"), (5, "16th"), (6, "32nd")] {
-                            ui.selectable_value(&mut p.rec_quantize, v, n);
-                        }
                     });
-                    ui.add(egui::Slider::new(&mut p.rec_split, 36..=84).text("Split point (grand staff)").custom_formatter(|v, _| Pitch::from_midi(v as i32, false).name()));
-                    ui.add(egui::Slider::new(&mut p.rec_count_in, 0..=2).text("Count-in bars"));
-                    ui.checkbox(&mut p.rec_click, "Click while recording");
                 });
-                ui.horizontal(|ui| {
-                    if ui.button("Look for devices again").clicked() {
-                        if let Some(m) = self.midi.as_mut() {
-                            m.disconnect_all();
-                            m.last_scan = None;
-                        }
-                        if let Some(m) = self.midi_out.as_mut() {
-                            m.last_scan = None;
-                        }
-                    }
-                    if ui.button("All Notes Off").on_hover_text("Silence anything still sounding on the MIDI outputs").clicked() {
-                        if let Some(m) = self.midi_out.as_mut() {
-                            m.all_notes_off();
-                        }
-                    }
-                });
-                if let Some(e) = self.midi_out.as_ref().and_then(|m| m.error.clone()).or_else(|| self.midi.as_ref().and_then(|m| m.error.clone())) {
-                    ui.colored_label(theme::t(ui).warn, e);
-                }
-                ui.separator();
-                ui.strong("Check the connection");
-                if let Some(m) = self.midi_out.as_ref() {
-                    for k in 0..2usize {
-                        let name = if k == 0 { "A" } else { "B" };
-                        let sent = m.sent[k].load(std::sync::atomic::Ordering::Relaxed);
-                        match (&m.chosen[k], &m.connected[k]) {
-                            (None, _) => {
-                                ui.label(format!("Port {name}: built-in sound"));
-                            }
-                            (Some(c), None) => {
-                                ui.colored_label(theme::t(ui).warn, format!("Port {name}: \"{c}\" not found. Is the piano on and the USB cable in its USB TO HOST port?"));
-                            }
-                            (Some(_), Some(n)) => {
-                                ui.colored_label(theme::t(ui).ok, format!("Port {name}: connected to \"{n}\" - {sent} messages sent"));
-                            }
-                        }
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if ui.button("Test Port A").on_hover_text("Plays C-E-G-C on channel 1 straight to the piano (press OK first if you just changed Port A)").clicked() {
-                        let ok = self.midi_out.as_ref().map(|m| m.test(0)).unwrap_or(false);
-                        self.status = if ok { "Test notes sent to Port A. The piano should play four notes and its Rx Monitor should blink.".into() } else { "Port A isn't connected yet: choose the piano in Port A and press OK, then test again.".into() };
-                    }
-                    if ui.button("Copy diagnostics").on_hover_text("Copies what the program sees, to paste when asking for help").clicked() {
-                        let mut t = self.midi_out.as_ref().map(|m| m.diagnostics()).unwrap_or_default();
-                        if let Some(mi) = self.midi.as_ref() {
-                            t.push_str(&format!("MIDI inputs found: {:?}\nInputs open: {:?}\nNotes received: {}\nRecording: {}\n", mi.available, mi.names, mi.received.load(std::sync::atomic::Ordering::Relaxed), self.rec.is_some()));
-                        }
-                        t.push_str(&format!("Cursor staff port/channel: {:?}\n", self.score.staves.get(self.cursor.0).map(|s| (s.port, s.channel + 1))));
-                        ui.ctx().copy_text(t);
-                        self.status = "Diagnostics copied - paste them in the chat.".into();
-                    }
-                });
-                ui.label("If the piano sounds twice when you play it, turn Thru off here.");
             }
             Dialog::MidiPlayback => {
                 let pb = &mut self.score.playback;
-                ui.add(egui::Slider::new(&mut pb.default_tempo, 20..=300).text("Default tempo"));
-                ui.add(egui::Slider::new(&mut pb.swing, 50..=75).text("Swing"));
-                ui.checkbox(&mut pb.click, "Click (metronome)");
-                ui.checkbox(&mut pb.follow, "Follow playback");
-                ui.add(egui::Slider::new(&mut pb.master_volume, 0.0..=1.0).text("Volume"));
-                ui.checkbox(&mut pb.humanize, "Humanize (random velocity within each dynamic's range)");
-                ui.collapsing("Velocity Ranges", |ui| {
-                    egui::Grid::new("dynr").show(ui, |ui| {
+                kit::form(ui, "midipb", |ui| {
+                    kit::row(ui, "Default tempo", |ui| kit::slider(ui, &mut pb.default_tempo, 20..=300, int_fmt));
+                    kit::row(ui, "Swing", |ui| kit::slider(ui, &mut pb.swing, 50..=75, int_fmt));
+                    kit::row(ui, "", |ui| kit::checkbox(ui, &mut pb.click, "Click (metronome)"));
+                    kit::row(ui, "", |ui| kit::checkbox(ui, &mut pb.follow, "Follow playback"));
+                    kit::row(ui, "Volume", |ui| kit::slider(ui, &mut pb.master_volume, 0.0..=1.0, |v| format!("{:.0}%", v * 100.0)));
+                    kit::row(ui, "", |ui| kit::checkbox(ui, &mut pb.humanize, "Humanize (random velocity within each dynamic's range)"));
+                });
+                kit::section(ui, "dynr_section", "Velocity Ranges", |ui| {
+                    egui::Grid::new("dynr").spacing([8.0, 6.0]).show(ui, |ui| {
                         for (i, d) in DYNAMICS.iter().enumerate() {
                             if let Some(r) = pb.dyn_ranges.get_mut(i) {
                                 ui.label(*d);
-                                ui.add(egui::DragValue::new(&mut r.0).range(1..=127));
+                                kit::num_with(ui, &mut r.0, 1..=127, 64.0, |d| d);
                                 ui.label("to");
-                                ui.add(egui::DragValue::new(&mut r.1).range(1..=127));
+                                kit::num_with(ui, &mut r.1, 1..=127, 64.0, |d| d);
                                 ui.end_row();
                             }
                         }
                     });
                 });
-                ui.label("Instruments, channels, volume and pan per staff are in Windows > Staff Sheet.");
+                kit::help(ui, "Instruments, channels, volume and pan per staff are in Windows > Staff Sheet.");
             }
             Dialog::JumpTo { measure } => {
-                ui.add(egui::DragValue::new(measure).range(1..=nm).prefix("Measure "));
+                kit::form(ui, "jump", |ui| kit::row(ui, "Measure", |ui| kit::num(ui, measure, 1..=nm)));
             }
             Dialog::PageSetup { w, h, margin, staff_space, staff_gap, system_gap } => {
-                ui.horizontal(|ui| {
-                    if ui.button("Letter").clicked() {
-                        *w = 612.0;
-                        *h = 792.0;
-                    }
-                    if ui.button("A4").clicked() {
-                        *w = 595.0;
-                        *h = 842.0;
-                    }
-                    if ui.button("Landscape").clicked() {
-                        std::mem::swap(w, h);
-                    }
+                kit::form(ui, "page", |ui| {
+                    kit::row(ui, "Paper", |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        let (pw, ph) = (w.min(*h), w.max(*h));
+                        if kit::chip(ui, pw == 612.0 && ph == 792.0, "Letter").clicked() {
+                            *w = 612.0;
+                            *h = 792.0;
+                        }
+                        if kit::chip(ui, pw == 595.0 && ph == 842.0, "A4").clicked() {
+                            *w = 595.0;
+                            *h = 842.0;
+                        }
+                        if kit::chip(ui, *w > *h, "Landscape").clicked() {
+                            std::mem::swap(w, h);
+                        }
+                    });
+                    kit::row(ui, "Width (pt)", |ui| kit::num_with(ui, w, 200.0..=2000.0, 88.0, |d| d));
+                    kit::row(ui, "Height (pt)", |ui| kit::num_with(ui, h, 200.0..=2000.0, 88.0, |d| d));
+                    kit::row(ui, "Margin (pt)", |ui| kit::num_with(ui, margin, 10.0..=150.0, 88.0, |d| d));
+                    kit::row(ui, "Staff size", |ui| kit::slider(ui, staff_space, 3.0..=12.0, |v| format!("{v:.1}")));
+                    kit::row(ui, "Space between staves", |ui| kit::slider(ui, staff_gap, 4.0..=20.0, |v| format!("{v:.1}")));
+                    kit::row(ui, "Space between systems", |ui| kit::slider(ui, system_gap, 4.0..=24.0, |v| format!("{v:.1}")));
                 });
-                ui.add(egui::DragValue::new(w).range(200.0..=2000.0).prefix("Width (pt): "));
-                ui.add(egui::DragValue::new(h).range(200.0..=2000.0).prefix("Height (pt): "));
-                ui.add(egui::DragValue::new(margin).range(10.0..=150.0).prefix("Margin (pt): "));
-                ui.add(egui::Slider::new(staff_space, 3.0..=12.0).text("Staff size"));
-                ui.add(egui::Slider::new(staff_gap, 4.0..=20.0).text("Space between staves"));
-                ui.add(egui::Slider::new(system_gap, 4.0..=24.0).text("Space between systems"));
             }
             Dialog::AddStaff { name, clef, program } => {
-                ui.text_edit_singleline(name);
-                egui::ComboBox::from_id_salt("asclef").selected_text(clef.name()).show_ui(ui, |ui| {
-                    for c in Clef::ALL {
-                        ui.selectable_value(clef, c, c.name());
-                    }
+                kit::form(ui, "addstaff", |ui| {
+                    kit::row(ui, "Name", |ui| ui.add(egui::TextEdit::singleline(name).desired_width(220.0)));
+                    kit::row(ui, "Clef", |ui| {
+                        egui::ComboBox::from_id_salt("asclef").selected_text(clef.name()).width(140.0).show_ui(ui, |ui| {
+                            kit::menu_look(ui);
+                            for c in Clef::ALL {
+                                ui.selectable_value(clef, c, c.name());
+                            }
+                        });
+                    });
+                    kit::row(ui, "Instrument", |ui| {
+                        egui::ComboBox::from_id_salt("asprog").selected_text(GM_NAMES[*program as usize]).width(220.0).show_ui(ui, |ui| {
+                            kit::menu_look(ui);
+                            for (k, n) in GM_NAMES.iter().enumerate() {
+                                ui.selectable_value(program, k as u8, *n);
+                            }
+                        });
+                    });
                 });
-                egui::ComboBox::from_id_salt("asprog").selected_text(GM_NAMES[*program as usize]).show_ui(ui, |ui| {
-                    for (k, n) in GM_NAMES.iter().enumerate() {
-                        ui.selectable_value(program, k as u8, *n);
-                    }
-                });
-                ui.label("The staff is added below the cursor staff.");
+                kit::help(ui, "The staff is added below the cursor staff.");
             }
             Dialog::SplitStaff { split } => {
-                ui.add(egui::Slider::new(split, 36..=84).text("Split point").custom_formatter(|v, _| Pitch::from_midi(v as i32, false).name()));
-                ui.label("Notes at or above the split stay; lower notes move to a new bass staff.");
+                kit::form(ui, "split", |ui| kit::row(ui, "Split point", |ui| kit::slider(ui, split, 36..=84, pitch_fmt)));
+                kit::help(ui, "Notes at or above the split stay; lower notes move to a new bass staff.");
             }
             Dialog::ConnectStaves { kind } => {
-                ui.label("Connect the cursor staff with the staff below it:");
-                ui.radio_value(kind, 0, "Brace (piano style)");
-                ui.radio_value(kind, 1, "Bracket");
-                ui.radio_value(kind, 2, "Barlines only");
-                ui.radio_value(kind, 3, "Disconnect");
+                kit::text(ui, "Connect the cursor staff with the staff below it:");
+                kit::radio_value(ui, kind, 0, "Brace (piano style)");
+                kit::radio_value(ui, kind, 1, "Bracket");
+                kit::radio_value(ui, kind, 2, "Barlines only");
+                kit::radio_value(ui, kind, 3, "Disconnect");
             }
             Dialog::ChordSymbol { root, kind, bass, custom, .. } => {
                 // the original's Choose Chord window: chord types by family, then the root and an optional bass
@@ -1214,19 +1439,21 @@ impl App {
                         }
                     }
                 }
+                let k = theme::t(ui);
+                ui.spacing_mut().item_spacing.y = 6.0;
                 let cell = vec2(78.0, 20.0);
-                ui.label(egui::RichText::new("Name").strong());
+                ui.label(egui::RichText::new("Name").font(theme::font_semibold(11.5)).color(k.text_2));
                 for (family, rows) in CHORD_GRID.iter() {
-                    egui::Grid::new(("chordgrid", *family)).spacing([3.0, 3.0]).min_col_width(cell.x).show(ui, |ui| {
+                    egui::Grid::new(("chordgrid", *family)).spacing([3.0, 2.0]).min_col_width(cell.x).show(ui, |ui| {
                         for (ri, row) in rows.iter().enumerate() {
-                            ui.label(if ri == 0 { *family } else { "" });
-                            for k in row.iter() {
-                                match k {
-                                    Some(k) => {
-                                        let label = if k.is_empty() { "Major" } else { k };
-                                        let on = custom.is_empty() && kind.as_str() == *k;
-                                        if ui.add_sized(cell, egui::Button::selectable(on, label)).clicked() {
-                                            *kind = k.to_string();
+                            ui.label(egui::RichText::new(if ri == 0 { *family } else { "" }).font(theme::font_medium(12.5)));
+                            for kk in row.iter() {
+                                match kk {
+                                    Some(kk) => {
+                                        let label = if kk.is_empty() { "Major" } else { kk };
+                                        let on = custom.is_empty() && kind.as_str() == *kk;
+                                        if kit::chip_sized(ui, on, label, cell.x, cell.y).clicked() {
+                                            *kind = kk.to_string();
                                             custom.clear();
                                         }
                                     }
@@ -1238,7 +1465,7 @@ impl App {
                             ui.end_row();
                         }
                     });
-                    ui.add_space(6.0);
+                    ui.add_space(2.0);
                 }
                 ui.horizontal(|ui| {
                     ui.label("Custom:");
@@ -1248,43 +1475,45 @@ impl App {
                 ui.horizontal_top(|ui| {
                     for (title, val, none) in [("Root", &mut *root, false), ("Bass", &mut *bass, true)] {
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new(title).strong());
+                            ui.label(egui::RichText::new(title).font(theme::font_semibold(11.5)).color(k.text_2));
                             for acc in ["#", "", "b"] {
                                 ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 2.0;
+                                    ui.spacing_mut().item_spacing.x = 3.0;
                                     for l in ["C", "D", "E", "F", "G", "A", "B"] {
                                         let name = format!("{l}{acc}");
                                         let on = *val == name;
-                                        if ui.add_sized(vec2(30.0, 20.0), egui::Button::selectable(on, &name)).clicked() {
+                                        if kit::chip_sized(ui, on, &name, 32.0, 20.0).clicked() {
                                             // clicking the chosen bass again removes it
                                             *val = if none && on { String::new() } else { name };
                                         }
                                     }
                                 });
                             }
-                            if none {
-                                if ui.add(egui::Button::selectable(val.is_empty(), "No bass note")).clicked() {
-                                    val.clear();
-                                }
+                            if none && kit::chip(ui, val.is_empty(), "No bass note").clicked() {
+                                val.clear();
                             }
                         });
                         ui.add_space(24.0);
                     }
                 });
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Keys: a-g root, A-G bass, 3/4 sharp/flat root, #/$ sharp/flat bass, M major, m minor, + aug, o dim, 7, & maj7, 9, 1 = 11, 5, 6").small().weak());
+                kit::help(ui, "Keys: a-g root, A-G bass, 3/4 sharp/flat root, #/$ sharp/flat bass, M major, m minor, + aug, o dim, 7, & maj7, 9, 1 = 11, 5, 6");
                 let preview = chord_text(root, kind, bass, custom);
-                ui.label(egui::RichText::new(format!("Chord: {}", if preview.is_empty() { "(none)".into() } else { preview })).size(16.0).strong());
+                egui::Frame::new().fill(k.accent_soft).corner_radius(7.0).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                    ui.label(egui::RichText::new(format!("Chord: {}", if preview.is_empty() { "(none)".into() } else { preview })).font(theme::font_semibold(16.0)).color(k.text));
+                });
             }
             Dialog::TextGraphic { text, size, bold, .. } => {
-                ui.text_edit_singleline(text).request_focus();
-                ui.add(egui::Slider::new(size, 0.8..=5.0).text("Size"));
-                ui.checkbox(bold, "Bold");
+                ui.add(egui::TextEdit::singleline(text).desired_width(300.0)).request_focus();
+                kit::form(ui, "textg", |ui| {
+                    kit::row(ui, "Size", |ui| kit::slider(ui, size, 0.8..=5.0, |v| format!("{v:.1}")));
+                    kit::row(ui, "", |ui| kit::checkbox(ui, bold, "Bold"));
+                });
             }
             Dialog::Lyric { text, line, target } => {
-                ui.label("Space = next note, - = hyphen and next note, Shift+- = melisma (_), Shift+Space = to the tied note,");
-                ui.label("Tab / Shift+Tab = next / previous syllable, Ctrl+Space = space inside the lyric, Ctrl+- = hyphen inside a word.");
-                ui.add(egui::Slider::new(line, 0..=7).text("Verse line").custom_formatter(|v, _| format!("{}", v as usize + 1)));
+                kit::help(ui, "Space = next note, - = hyphen and next note, Shift+- = melisma (_), Shift+Space = to the tied note,");
+                kit::help(ui, "Tab / Shift+Tab = next / previous syllable, Ctrl+Space = space inside the lyric, Ctrl+- = hyphen inside a word.");
+                kit::form(ui, "lyricline", |ui| kit::row(ui, "Verse line", |ui| kit::slider(ui, line, 0..=7, |v| format!("{}", v as usize + 1))));
                 // the original's lyric keys, taken before the text box sees them
                 #[derive(PartialEq)]
                 enum Act {
@@ -1337,7 +1566,7 @@ impl App {
                     i.events = keep;
                 });
                 text.push_str(&add);
-                let r = ui.text_edit_singleline(text);
+                let r = ui.add(egui::TextEdit::singleline(text).desired_width(300.0));
                 r.request_focus();
                 match act {
                     Some(Act::Next) => {
@@ -1358,56 +1587,51 @@ impl App {
                 }
             }
             Dialog::Expression { text, .. } => {
-                ui.text_edit_singleline(text).request_focus();
+                ui.add(egui::TextEdit::singleline(text).desired_width(300.0)).request_focus();
             }
             Dialog::Shortcuts => {
-                egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
-                    egui::Grid::new("sc").striped(true).show(ui, |ui| {
-                        let mut cmds = commands::all_shortcut_cmds();
-                        cmds.sort_by_key(|c| commands::label(*c));
-                        for c in cmds {
-                            ui.label(commands::label(c));
-                            ui.label(egui::RichText::new(shortcut_text(c)).color(theme::t(ui).text_2));
-                            ui.end_row();
-                        }
-                        for (a, b) in [
-                            ("Note values double whole ... 128th", "0 - 8"),
-                            ("Rest / Sharp / Flat / Natural", "R / S / F / N"),
-                            ("Double sharp / double flat / courtesy", "Shift+S / Shift+F / Shift+N"),
-                            ("Dot / double dot / tuplet", "D / Shift+D / T"),
-                            ("Arrow / Pencil toggle, Eraser", "A or P (Esc = Arrow), E"),
-                            ("Play / Stop", "Space"),
-                            ("Record (step entry)", "Enter"),
-                            ("Jump to measure", "M"),
-                            ("Zoom in / out", "Z / Shift+Z"),
-                            ("QWERTY note entry on/off", "Q"),
-                            ("Show voice n / all voices", "V then 1-8 / V then A"),
-                            ("Move cursor by measure / staff", "Arrow keys"),
-                            ("First / last measure", "Home / End"),
-                            ("Select note left/right of cursor", "Ctrl+Left / Ctrl+Right"),
-                            ("One less / one more measure on system", "[ / ]"),
-                            ("Delete note left of cursor or selection", "Delete"),
-                            ("Select note / region corner", "Shift+click"),
-                            ("Audition pitch", "Right-click on staff"),
-                        ] {
-                            ui.label(a);
-                            ui.monospace(b);
-                            ui.end_row();
-                        }
+                let k = theme::t(ui);
+                let key_glyphs = |s: &str| s.replace("Shift+", "⇧").replace("Ctrl+", "⌃").replace("Alt+", "⌥").replace("Left", "←").replace("Right", "→");
+                egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(egui::Margin::symmetric(4, 4)).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
+                        egui::Grid::new("sc").striped(true).min_col_width(140.0).spacing([24.0, 6.0]).show(ui, |ui| {
+                            let mut cmds = commands::all_shortcut_cmds();
+                            cmds.sort_by_key(|c| commands::label(*c));
+                            for c in cmds {
+                                ui.label(commands::label(c));
+                                ui.label(egui::RichText::new(shortcut_text(c)).color(k.text_2));
+                                ui.end_row();
+                            }
+                            for (a, b) in [
+                                ("Note values double whole ... 128th", "0 - 8"),
+                                ("Rest / Sharp / Flat / Natural", "R / S / F / N"),
+                                ("Double sharp / double flat / courtesy", "Shift+S / Shift+F / Shift+N"),
+                                ("Dot / double dot / tuplet", "D / Shift+D / T"),
+                                ("Arrow / Pencil toggle, Eraser", "A or P (Esc = Arrow), E"),
+                                ("Play / Stop", "Space"),
+                                ("Record (step entry)", "Enter"),
+                                ("Jump to measure", "M"),
+                                ("Zoom in / out", "Z / Shift+Z"),
+                                ("QWERTY note entry on/off", "Q"),
+                                ("Show voice n / all voices", "V then 1-8 / V then A"),
+                                ("Move cursor by measure / staff", "Arrow keys"),
+                                ("First / last measure", "Home / End"),
+                                ("Select note left/right of cursor", "Ctrl+Left / Ctrl+Right"),
+                                ("One less / one more measure on system", "[ / ]"),
+                                ("Delete note left of cursor or selection", "Delete"),
+                                ("Select note / region corner", "Shift+click"),
+                                ("Audition pitch", "Right-click on staff"),
+                            ] {
+                                ui.label(a);
+                                ui.label(egui::RichText::new(key_glyphs(b)).color(k.text_2));
+                                ui.end_row();
+                            }
+                        });
                     });
                 });
             }
-            Dialog::About => {
-                ui.heading("Fermata");
-                ui.label("A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.");
-                ui.label("Version 0.1 - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.");
-            }
-            Dialog::Message(m) => {
-                ui.label(m.as_str());
-            }
-            Dialog::ConfirmClose(_) => {
-                ui.label("Save changes to this score first?");
-            }
+            // drawn as alerts (see alert_body)
+            Dialog::About | Dialog::Message(_) | Dialog::ConfirmClose(_) => {}
         }
     }
 
@@ -1783,6 +2007,11 @@ pub fn tip(resp: egui::Response, name: &str, keys: &str) -> egui::Response {
             }
         });
     })
+}
+
+/// A red-text button inside a window's content (Delete Cursor Staff).
+fn button_danger_inline(ui: &mut Ui, text: &str) -> egui::Response {
+    kit::btn_danger(ui, text)
 }
 
 /// The thin divider between toolbar groups.

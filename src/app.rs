@@ -136,6 +136,8 @@ pub struct App {
     pub export_png_requested: bool,
     pub palette_cascade: bool,
     /// Palettes folded to their header (double-click on the header).
+    /// MIDI Playback settings as they were when its dialog opened (Cancel puts them back).
+    pub pb_backup: Option<PlaybackSettings>,
     pub pal_collapsed: [bool; 11],
     /// Palettes already put at their first position (until then they follow the window's size).
     pub pal_placed: [bool; 11],
@@ -216,6 +218,7 @@ impl App {
             audition: true,
             export_png_requested: false,
             palette_cascade: false,
+            pb_backup: None,
             pal_collapsed: [false; 11],
             pal_placed: [false; 11],
             palette_sheet_pos: None,
