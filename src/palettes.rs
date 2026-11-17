@@ -813,7 +813,9 @@ impl App {
             if let Some(log) = self.palette_cell_log.as_mut() {
                 log.push(CellLog { name: format!("{}/{:?}", PALETTES[i], c.sym), rect: r, inner, fill: if matches!(c.sym, Sym::Swatch(_)) { None } else { fill.or(Some(Color32::TRANSPARENT)) } });
             }
-            let resp = resp.on_hover_text(&c.tip);
+            // the tip: the name, then the key in a key cap ("Sharp  S", "Double sharp  ⇧S")
+            let (name, key) = crate::kit::split_tip(&c.tip);
+            let resp = crate::kit::tip(resp, name, &key.replace("Shift+", "⇧"));
             if resp.clicked() {
                 self.pick_item(c.item.clone());
             }

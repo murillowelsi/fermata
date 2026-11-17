@@ -1,12 +1,14 @@
 mod app;
 mod audio;
 mod commands;
+mod devshots;
 mod enc;
 mod exec;
 mod glyphs;
 mod icon;
 mod input;
 mod io;
+mod kit;
 mod midi_in;
 mod midi_out;
 mod prefs;
@@ -29,6 +31,8 @@ struct Shell {
     shot_done: Arc<AtomicBool>,
     /// `--palette-sheet`: all 11 palettes side by side on a plain background, then a pixel check of every cell.
     sheet: bool,
+    /// `--clicks` / `--hover`: scripted mouse steps for screenshots of menus, submenus and tips.
+    steps: Vec<devshots::Step>,
 }
 
 /// Writes the pixel check of the palettes next to a screenshot (`<name>.txt`) and prints its summary.
@@ -54,6 +58,10 @@ fn save_png(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), String
 }
 
 impl eframe::App for Shell {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        devshots::inject(&self.steps, self.frames, raw_input);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.frames += 1;
@@ -195,7 +203,9 @@ impl eframe::App for Shell {
 
         if let Some(path) = self.shot_path.clone() {
             ctx.request_repaint();
-            if self.frames >= 60 && !self.shot_requested {
+            // after the last scripted mouse step, give menus and tips (0.5 s) time to appear
+            let shot_frame = self.steps.iter().map(|s| s.frame + 50).max().unwrap_or(0).max(60);
+            if self.frames >= shot_frame && !self.shot_requested {
                 self.shot_requested = true;
                 let done = self.shot_done.clone();
                 let cells = self.app.palette_cell_log.clone();
@@ -229,6 +239,8 @@ fn main() -> eframe::Result<()> {
     let mut open = None;
     let mut force_theme = None;
     let mut open_palettes: Option<Vec<usize>> = None;
+    let mut open_dialog: Option<String> = None;
+    let mut steps: Vec<devshots::Step> = vec![];
     let mut sheet = false;
     let mut i = 1;
     while i < args.len() {
@@ -492,6 +504,18 @@ fn main() -> eframe::Result<()> {
             continue;
         }
         // which palettes are open (indices, e.g. 0,1,3,4,6), with a pixel check of their cells in the screenshot
+        // development: open a dialog or floating window by name, then click / move the mouse (points)
+        if args[i] == "--dialog" && i + 1 < args.len() {
+            open_dialog = Some(args[i + 1].clone());
+            i += 2;
+            continue;
+        }
+        if (args[i] == "--clicks" || args[i] == "--hover") && i + 1 < args.len() {
+            let first = steps.iter().map(|s: &devshots::Step| s.frame + 20).max().unwrap_or(20);
+            steps.extend(devshots::parse_steps(&args[i + 1], args[i] == "--clicks", first));
+            i += 2;
+            continue;
+        }
         if args[i] == "--palettes" && i + 1 < args.len() {
             open_palettes = Some(args[i + 1].split(',').filter_map(|v| v.trim().parse().ok()).filter(|&v: &usize| v < 11).collect());
             i += 2;
@@ -553,7 +577,12 @@ fn main() -> eframe::Result<()> {
                 }
                 app.palette_cell_log = Some(vec![]);
             }
-            Ok(Box::new(Shell { app, frames: 0, shot_path: shot, shot_requested: false, shot_done: Arc::new(AtomicBool::new(false)), sheet }))
+            if let Some(d) = open_dialog.as_deref() {
+                if !devshots::open(&mut app, d) {
+                    eprintln!("unknown dialog {d}; known: {:?}", devshots::DIALOGS);
+                }
+            }
+            Ok(Box::new(Shell { app, frames: 0, shot_path: shot, shot_requested: false, shot_done: Arc::new(AtomicBool::new(false)), sheet, steps }))
         }),
     )
 }
