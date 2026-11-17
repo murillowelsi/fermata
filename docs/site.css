@@ -120,3 +120,18 @@ ol.steps > li.with-fig .step-fig { grid-column: 2; max-width: 760px; margin-top:
 ol.steps > li.with-fig .step-fig.dialog { max-width: 380px }
 .step-fig.real.dialog img { margin: 0 }
 .step-fig.real.dialog figcaption { text-align: left }
+
+/* download para Mac e Windows, e abas de instalação por sistema (0.3.3) */
+.dl-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap }
+.btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: var(--shadow-1) }
+.btn.secondary:hover { background: var(--bg-2) }
+.beta { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); margin-left: 4px; vertical-align: middle }
+.btn .beta { background: rgba(255,255,255,.22); color: inherit }
+.btn.secondary .beta { background: var(--accent-soft); color: var(--accent-ink) }
+.os-tabs > input { position: absolute; opacity: 0; pointer-events: none }
+.os-tabs > label { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; margin: 0 6px 24px 0; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text-2); font-weight: 600; font-size: 16px; cursor: pointer }
+.os-tabs > input:checked + label { background: var(--accent); border-color: var(--accent); color: #fff }
+.os-tabs > input:checked + label .beta { background: rgba(255,255,255,.22); color: #fff }
+.os-tabs > input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px }
+.os-panel { display: none }
+#os-mac:checked ~ .os-panel.mac, #os-win:checked ~ .os-panel.win { display: block }

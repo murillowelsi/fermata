@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fermata · editor de partituras gratuito para Mac</title>
-<meta name="description" content="Fermata é um editor de partituras gratuito para macOS: paletas flutuantes, atalhos para tudo e entrada pelo teclado MIDI.">
+<title>Fermata · editor de partituras gratuito para Mac e Windows</title>
+<meta name="description" content="Fermata é um editor de partituras gratuito para Mac e Windows: paletas flutuantes, atalhos para tudo e entrada pelo teclado MIDI.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#FBFBFD" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0F0F11" media="(prefers-color-scheme: dark)">
@@ -13,7 +13,7 @@
 <link rel="icon" href="favicon-16.png" sizes="16x16" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Fermata · editor de partituras gratuito para Mac">
+<meta property="og:title" content="Fermata · editor de partituras gratuito para Mac e Windows">
 <meta property="og:description" content="Paletas flutuantes, um atalho para cada comando e notas que aparecem na pauta enquanto você toca o teclado MIDI.">
 <meta property="og:url" content="https://murillowelsi.github.io/fermata/">
 <meta property="og:image" content="https://murillowelsi.github.io/fermata/og-image.png">
@@ -28,15 +28,15 @@
 <nav class="nav"><div class="wrap">
   <a class="brand" href="#"><svg viewBox="232 228 560 560" aria-hidden="true"><path d="M276 628A236 236 0 0 1 748 628" fill="none" stroke="currentColor" stroke-width="92" stroke-linecap="round"/><circle cx="512" cy="596" r="60" fill="currentColor"/></svg>Fermata</a>
   <div class="links"><a href="#recursos">Recursos</a><a href="#instalar">Instalar</a><a href="#versoes">Versões</a><a href="https://github.com/murillowelsi/fermata">GitHub</a></div>
-  <a class="btn sm" href="https://github.com/murillowelsi/fermata/releases/latest/download/Fermata-Installer.dmg">Baixar</a>
+  <a class="btn sm" href="#instalar">Baixar</a>
 </div></nav>
 
 <header class="hero"><div class="wrap">
   <div class="appicon"><img src="app-icon.svg" alt="Ícone do Fermata" width="168" height="168"></div>
   <h1>Fermata</h1>
-  <p class="lead">Um editor de partituras gratuito para Mac. Paletas flutuantes, um atalho para cada comando e notas que aparecem na pauta enquanto você toca o teclado MIDI.</p>
-  <a class="btn" href="https://github.com/murillowelsi/fermata/releases/latest/download/Fermata-Installer.dmg"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v9.5M6 9l4 4 4-4M4 15.5h12"/></svg>Baixar para Mac</a>
-  <div class="meta" id="latest-meta">Gratuito · macOS 10.13 ou mais novo · Intel e Apple Silicon</div>
+  <p class="lead">Um editor de partituras gratuito para Mac e Windows. Paletas flutuantes, um atalho para cada comando e notas que aparecem na pauta enquanto você toca o teclado MIDI.</p>
+  <div class="dl-row"><a class="btn" id="dl-mac" href="https://github.com/murillowelsi/fermata/releases/latest/download/Fermata-Installer.dmg"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v9.5M6 9l4 4 4-4M4 15.5h12"/></svg>Baixar para Mac</a><a class="btn secondary" id="dl-win" href="https://github.com/murillowelsi/fermata/releases/latest/download/Fermata-Windows-x64.zip"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v9.5M6 9l4 4 4-4M4 15.5h12"/></svg>Baixar para Windows <span class="beta">beta</span></a></div>
+  <div class="meta" id="latest-meta">Gratuito · macOS 10.13 ou mais novo (Intel e Apple Silicon) · Windows 10 e 11, 64 bits (beta)</div>
   <picture>
     <source srcset="screenshot-escuro.png" media="(prefers-color-scheme: dark)">
     <img class="shot" src="screenshot-claro.png" alt="O Fermata com uma partitura para piano aberta, paletas de notas, claves, ferramentas e dinâmicas">
@@ -55,6 +55,10 @@
 
 <section id="instalar"><div class="wrap">
   <div class="eyebrow">Instalação</div><h2>Como instalar</h2>
+  <div class="os-tabs">
+  <input type="radio" name="os" id="os-mac" checked><label for="os-mac"> Mac</label>
+  <input type="radio" name="os" id="os-win"><label for="os-win">Windows <span class="beta">beta</span></label>
+  <div class="os-panel mac">
   <p class="intro">O Fermata é gratuito e ainda não tem a "notarização" paga da Apple. Por isso, na primeira vez, o macOS pede que você confirme que quer abrir o app. É uma confirmação só, feita uma vez.</p>
   <ol class="steps">
     <li class="with-fig"><span class="n">1</span><div><h3>Baixe o instalador</h3><p>Clique em <span class="ui">Baixar para Mac</span> no alto desta página. O arquivo <code>Fermata-Installer.dmg</code> vai para a pasta Downloads.</p></div><figure class="step-fig real"><img src="instalacao/real/passo-1.png" alt="O topo da página do Fermata, com o ícone, o nome e o botão azul “Baixar para Mac”." width="1020" height="650" loading="lazy"><figcaption>Print real do macOS</figcaption></figure></li>
@@ -74,12 +78,35 @@
   <details><summary>Como atualizar para uma versão nova</summary>
     <p>Baixe o instalador novo e arraste o Fermata para Aplicativos de novo, escolhendo <span class="ui">Substituir</span>. Talvez o macOS peça a confirmação dos passos 3 a 5 mais uma vez.</p><p>Os prints são de um Mac com o sistema em inglês. Em português, os botões se chamam Concluído, Mover para o Lixo e Abrir Mesmo Assim.</p>
   </details>
+  </div>
+  <div class="os-panel win">
+  <div class="note"><b>Versão Windows em teste (beta).</b> Ela foi gerada e conferida, mas ainda não foi aberta num PC com Windows. Se algo não funcionar, conte para a gente pelo <a href="https://github.com/murillowelsi/fermata/issues">GitHub</a>.</div>
+  <p class="intro">O Fermata para Windows é um app portátil: não tem instalador, é só extrair e abrir. Como ele ainda não tem a assinatura digital paga, o Windows pede uma confirmação na primeira vez.</p>
+  <ol class="steps">
+    <li><span class="n">1</span><div><h3>Baixe o arquivo</h3><p>Clique em <span class="ui">Baixar para Windows</span> no alto desta página. O arquivo <code>Fermata-Windows-x64.zip</code> vai para a pasta Downloads.</p></div></li>
+    <li><span class="n">2</span><div><h3>Extraia a pasta</h3><p>Clique com o botão direito no <code>.zip</code> e escolha <span class="ui">Extrair tudo…</span> (Extract All). Guarde a pasta <span class="ui">Fermata</span> onde preferir, por exemplo em Documentos.</p></div></li>
+    <li><span class="n">3</span><div><h3>Abra o Fermata</h3><p>Dentro da pasta, dê dois cliques em <code>Fermata.exe</code>.</p></div></li>
+    <li><span class="n">4</span><div><h3>Confirme no aviso do Windows</h3><p>Se aparecer a tela azul <span class="ui">O Windows protegeu o computador</span> (Windows protected your PC), clique em <span class="ui">Mais informações</span> (More info) e depois em <span class="ui">Executar assim mesmo</span> (Run anyway). <strong>Não clique em "Não executar".</strong></p><p>Isso só acontece na primeira vez.</p></div></li>
+    <li><span class="n">5</span><div><h3>Deixe à mão (opcional)</h3><p>Com o Fermata aberto, clique com o botão direito no ícone dele na barra de tarefas e escolha <span class="ui">Fixar na barra de tarefas</span>.</p></div></li>
+  </ol>
+  <details><summary>Por que o Windows avisa? É seguro?</summary>
+    <p>O Windows mostra esse aviso para apps sem uma assinatura digital paga. O Fermata é um projeto gratuito e ainda não tem essa assinatura. O código-fonte é aberto e pode ser conferido no <a href="https://github.com/murillowelsi/fermata">GitHub</a>. Baixe sempre por esta página ou pela página de versões do projeto.</p>
+  </details>
+  <details><summary>Como atualizar para uma versão nova</summary>
+    <p>Feche o Fermata, baixe o <code>.zip</code> novo e extraia por cima da pasta antiga, escolhendo substituir os arquivos. Suas partituras não ficam nessa pasta e não são apagadas.</p>
+  </details>
+  <details><summary>Atalhos no Windows</summary>
+    <p>Os atalhos são os mesmos do Mac, com <span class="ui">Ctrl</span> como tecla principal. Se você usa mais de um idioma de teclado, <span class="ui">Alt+Shift</span> pode trocar o idioma em vez de abrir uma paleta: nesse caso, desligue esse atalho do Windows em Configurações ▸ Hora e idioma ▸ Digitação ▸ Configurações avançadas de teclado.</p>
+  </details>
+</div>
+</div>
 </div></section>
 
 <section id="versoes"><div class="wrap">
   <div class="eyebrow">Versões</div><h2>Versões</h2>
   <div id="releases">
-    <div class="card"><div class="rel"><div><h3>Fermata 0.3.2 <span class="tag">mais recente</span></h3><div class="what">Escolha o tema no app: View ▸ Appearance (igual ao sistema, claro ou escuro).</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.3.2">Ver e baixar</a></div></div>
+    <div class="card"><div class="rel"><div><h3>Fermata 0.3.3 <span class="tag">mais recente</span></h3><div class="what">Primeira versão para Windows (beta) e o logo Traço no About.</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.3.3">Ver e baixar</a></div></div>
+    <div class="card"><div class="rel"><div><h3>Fermata 0.3.2</h3><div class="what">Escolha o tema no app: View ▸ Appearance (igual ao sistema, claro ou escuro).</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.3.2">Ver e baixar</a></div></div>
     <div class="card"><div class="rel"><div><h3>Fermata 0.3.1</h3><div class="what">Instalador novo: janela maior, com o Fermata e a pasta Applications lado a lado.</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.3.1">Ver e baixar</a></div></div>
     <div class="card"><div class="rel"><div><h3>Fermata 0.3.0</h3><div class="what">Diálogos e menus no estilo novo e o ícone Traço.</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.3.0">Ver e baixar</a></div></div>
     <div class="card"><div class="rel"><div><h3>Fermata 0.2.0</h3><div class="what">Visual novo: modo claro e escuro, barra enxuta, paletas com símbolos Bravura.</div></div><a class="dl" href="https://github.com/murillowelsi/fermata/releases/tag/v0.2.0">Ver e baixar</a></div></div>
@@ -95,6 +122,8 @@
 </div></footer>
 
 <script>
+// Abre a aba e destaca o botão do sistema de quem visita.
+(function(){ if (/Windows/i.test(navigator.userAgent)) { var r=document.getElementById('os-win'); if(r) r.checked=true; var m=document.getElementById('dl-mac'), w=document.getElementById('dl-win'); if(m&&w){ m.classList.add('secondary'); w.classList.remove('secondary'); w.parentNode.insertBefore(w,m);} } })();
 // Lista as versões direto do GitHub; se não conseguir, fica a lista acima.
 (function () {
   var box = document.getElementById('releases');
@@ -116,15 +145,17 @@
           (dmg ? ' · ' + (dmg.size / 1048576).toFixed(1) + ' MB' : '');
         var notes = document.createElement('a'); notes.className = 'notes'; notes.href = rel.html_url; notes.textContent = 'Notas da versão';
         left.appendChild(h); left.appendChild(when); left.appendChild(notes);
-        var a = document.createElement('a'); a.className = 'dl';
-        a.href = dmg ? dmg.browser_download_url : rel.html_url;
-        a.textContent = dmg ? 'Baixar .dmg' : 'Ver versão';
-        row.appendChild(left); row.appendChild(a); card.appendChild(row);
+        var zip = (rel.assets || []).filter(function (x) { return /windows.*\.zip$/i.test(x.name); })[0];
+        var btns = document.createElement('div'); btns.style.display = 'flex'; btns.style.gap = '8px'; btns.style.flexWrap = 'wrap';
+        if (dmg) { var a = document.createElement('a'); a.className = 'dl'; a.href = dmg.browser_download_url; a.textContent = 'Mac (.dmg)'; btns.appendChild(a); }
+        if (zip) { var z = document.createElement('a'); z.className = 'dl'; z.href = zip.browser_download_url; z.textContent = 'Windows (.zip)'; btns.appendChild(z); }
+        if (!dmg && !zip) { var v = document.createElement('a'); v.className = 'dl'; v.href = rel.html_url; v.textContent = 'Ver versão'; btns.appendChild(v); }
+        row.appendChild(left); row.appendChild(btns); card.appendChild(row);
         box.appendChild(card);
       });
       var first = list[0];
       document.getElementById('latest-meta').textContent =
-        (first.name || first.tag_name) + ' · Gratuito · macOS 10.13 ou mais novo · Intel e Apple Silicon';
+        (first.name || first.tag_name) + ' · Gratuito · macOS 10.13 ou mais novo (Intel e Apple Silicon) · Windows 10 e 11, 64 bits (beta)';
     })
     .catch(function () {});
 })();
