@@ -136,8 +136,6 @@ pub struct App {
     pub status: String,
     pub geo: Geometry,
     pub drag: Option<Drag>,
-    pub auto_beam: bool,
-    pub auto_space: bool,
     pub recording: bool,
     pub last_pitch: Pitch,
     pub palette_layout_gen: u32,
@@ -221,8 +219,6 @@ impl App {
             status: "Ready. Pick a note value and click on a staff, or press Q for QWERTY note entry.".into(),
             geo: Geometry::default(),
             drag: None,
-            auto_beam: true,
-            auto_space: true,
             recording: false,
             last_pitch: Pitch { step: 4 * 7 + 6, alter: 0 },
             palette_layout_gen: 0,
@@ -1387,7 +1383,7 @@ impl App {
         t.muted = true;
         self.score.add_staff(s + 1, t);
         self.score.events[s + 1] = self.score.events[s].clone();
-        self.status = "Tablature staff added below (fret numbers on six lines; it doesn't play, so the notes aren't doubled).".into();
+        self.status = "Tablature staff added (fret numbers aren't drawn yet).".into();
     }
 
     pub fn extract_part(&mut self, s: usize) {

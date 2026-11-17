@@ -419,8 +419,8 @@ impl App {
                 }
                 self.status = format!("Click {}.", if self.prefs.click_on { "on" } else { "off" });
             }
-            AutoGuessBeam => self.auto_beam = !self.auto_beam,
-            AutoSpace => self.auto_space = !self.auto_space,
+            // not built yet: the shortcuts stay, and say so instead of toggling a mark that does nothing
+            AutoGuessBeam | AutoSpace => self.status = format!("{} isn't available yet.", crate::commands::label(c)),
             QwertyMode => {
                 self.qwerty = !self.qwerty;
                 self.status = if self.qwerty {

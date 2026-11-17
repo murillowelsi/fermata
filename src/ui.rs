@@ -18,6 +18,13 @@ impl App {
             ui.close();
         }
     }
+    /// A menu item for something not built yet: greyed out, no check mark, its shortcut still shown, and the tip
+    /// "Not available yet".
+    fn mi_unavailable(&mut self, ui: &mut Ui, c: Cmd) {
+        let r = kit::menu_item(ui, &commands::label(c), &shortcut_text(c), false, false);
+        tip(r, "Not available yet", "");
+    }
+
     fn mi_check(&mut self, ui: &mut Ui, c: Cmd, on: bool) {
         if kit::menu_item(ui, &commands::label(c), &shortcut_text(c), on, true).clicked() {
             self.pending_cmd = Some(c);
@@ -252,12 +259,13 @@ impl App {
                 self.mi(ui, Cascade);
             });
             ui.menu_button("Setup", |ui| {
-                let (a, b, c2, d, e) = (self.prefs.click_on, self.score.playback.follow, self.auto_beam, self.auto_space, self.qwerty);
+                let (a, b, e) = (self.prefs.click_on, self.score.playback.follow, self.qwerty);
                 self.mi_check(ui, ClickOnOff, a);
                 self.mi(ui, ClickSetup);
                 self.mi_check(ui, FollowPlayback, b);
-                self.mi_check(ui, AutoGuessBeam, c2);
-                self.mi_check(ui, AutoSpace, d);
+                // not built yet: greyed out until they do something
+                self.mi_unavailable(ui, AutoGuessBeam);
+                self.mi_unavailable(ui, AutoSpace);
                 ui.separator();
                 self.mi_check(ui, QwertyMode, e);
                 ui.separator();
@@ -879,7 +887,11 @@ impl App {
                             kit::row(ui, "Systems per Page", |ui| kit::num(ui, systems, 1..=12));
                             kit::row(ui, "Measures per System", |ui| kit::num(ui, mps, 1..=16));
                             kit::row(ui, "", |ui| kit::checkbox(ui, c_score, "Make a \"C\" Score"));
-                            kit::row(ui, "", |ui| kit::checkbox(ui, handwritten, "Use Handwritten Style"));
+                            kit::row(ui, "", |ui| {
+                                // no handwritten music font yet: greyed out, and never on
+                                *handwritten = false;
+                                ui.add_enabled_ui(false, |ui| kit::checkbox(ui, handwritten, "Use Handwritten Style")).response.on_disabled_hover_text("Not available yet")
+                            });
                         });
                     });
                     ui.vertical(|ui| {
@@ -1270,6 +1282,8 @@ impl App {
                                     });
                                 });
                                 kit::row(ui, "Receive Sync Port", |ui| {
+                                    // following another device's clock isn't built yet (see Sync Source ▸ External)
+                                    ui.add_enabled_ui(false, |ui| {
                                     egui::ComboBox::from_id_salt("syncp").width(190.0).selected_text(p.receive_sync_port.clone().unwrap_or_else(|| "None".into())).show_ui(ui, |ui| {
                                         kit::menu_look(ui);
                                         ui.selectable_value(&mut p.receive_sync_port, None, "None");
@@ -1277,6 +1291,9 @@ impl App {
                                             ui.selectable_value(&mut p.receive_sync_port, Some(n.clone()), n);
                                         }
                                     });
+                                    })
+                                    .response
+                                    .on_disabled_hover_text("Not available yet");
                                 });
                             });
                         });
@@ -2365,6 +2382,24 @@ mod qa2_tests {
         // a template from New Score too
         let t = crate::app::build_template(0, 2, 5, 3, false, false);
         assert_eq!(t.measures[0].tempo, None);
+    }
+
+    #[test]
+    fn unavailable_setup_items_only_say_so() {
+        let mut a = App::new(true);
+        let before = a.score.clone();
+        a.exec(Cmd::AutoGuessBeam);
+        assert_eq!(a.status, "Auto Guess/Beam isn't available yet.");
+        a.exec(Cmd::AutoSpace);
+        assert!(a.status.ends_with("isn't available yet."), "{}", a.status);
+        assert_eq!(a.score, before);
+    }
+
+    #[test]
+    fn tablature_message_is_honest() {
+        let mut a = App::new(true);
+        a.exec(Cmd::TabStaff);
+        assert_eq!(a.status, "Tablature staff added (fret numbers aren't drawn yet).");
     }
 
     #[test]
