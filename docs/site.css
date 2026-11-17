@@ -1,0 +1,99 @@
+/* Fermata · página de download · CSS estático, sem framework e sem dependências (F-14). */
+
+:root, .light {
+  --bg: #FBFBFD; --bg-2: #F2F2F5; --panel: #FFFFFF; --text: #1D1D1F; --text-2: #5C5C62; --text-3: #8A8A8F; --line: #E3E3E8;
+  --accent: #007AFF; --accent-hover: #0069DB; --accent-soft: #E6F0FF; --accent-ink: #0058CC;
+  --warn-bg: #FFF7E8; --warn-line: #F1C878;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.06), 0 6px 20px rgba(0,0,0,.06);
+  --shadow-shot: 0 30px 80px rgba(0,40,100,.22), 0 0 0 1px rgba(0,0,0,.06);
+  --hero-glow: radial-gradient(60% 55% at 50% 0%, rgba(0,122,255,.16) 0%, rgba(0,122,255,0) 70%);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not(.light) {
+  --bg: #0F0F11; --bg-2: #161619; --panel: #1C1C1F; --text: #F2F2F4; --text-2: #A8A8AE; --text-3: #7C7C82; --line: #2C2C31;
+  --accent: #0A84FF; --accent-hover: #3399FF; --accent-soft: #0E2742; --accent-ink: #66B2FF;
+  --warn-bg: #2A2313; --warn-line: #6E5520;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+  --shadow-shot: 0 30px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.08);
+  --hero-glow: radial-gradient(60% 55% at 50% 0%, rgba(10,132,255,.22) 0%, rgba(10,132,255,0) 70%);
+  color-scheme: dark;
+} }
+.dark {
+  --bg: #0F0F11; --bg-2: #161619; --panel: #1C1C1F; --text: #F2F2F4; --text-2: #A8A8AE; --text-3: #7C7C82; --line: #2C2C31;
+  --accent: #0A84FF; --accent-hover: #3399FF; --accent-soft: #0E2742; --accent-ink: #66B2FF;
+  --warn-bg: #2A2313; --warn-line: #6E5520;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
+  --shadow-shot: 0 30px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.08);
+  --hero-glow: radial-gradient(60% 55% at 50% 0%, rgba(10,132,255,.22) 0%, rgba(10,132,255,0) 70%);
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 Inter, -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: 'cv11' 1, 'ss01' 1 }
+a { color: var(--accent-ink); text-decoration: none } a:hover { text-decoration: underline }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px }
+code { font: 14px ui-monospace, Menlo, monospace; background: var(--accent-soft); color: var(--accent-ink); padding: 2px 7px; border-radius: 6px }
+
+/* nav */
+.nav { position: sticky; top: 0; z-index: 5; backdrop-filter: saturate(180%) blur(16px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line) }
+.nav .wrap { height: 60px; display: flex; align-items: center; gap: 26px }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: -.02em; color: var(--text) }
+.brand svg { width: 30px; height: 30px; display: block }
+.nav .links { margin-left: auto; display: flex; gap: 24px; font-size: 15px; font-weight: 500 } .nav .links a { color: var(--text-2) }
+.btn { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: #fff; font-weight: 600; border-radius: 12px; padding: 14px 26px; font-size: 18px; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent) }
+.btn:hover { background: var(--accent-hover); text-decoration: none }
+.btn.sm { padding: 7px 14px; font-size: 14px; border-radius: 9px; box-shadow: none }
+.btn svg { width: 20px; height: 20px }
+
+/* hero */
+.hero { text-align: center; padding: 84px 0 0; background: var(--hero-glow) }
+.hero .appicon { width: 168px; height: 168px; display: block; margin: 0 auto 18px; filter: drop-shadow(0 18px 30px rgba(0,80,200,.25)) }
+.hero h1 { font-size: 72px; line-height: 1.02; letter-spacing: -.035em; margin: 0 0 14px; font-weight: 750 }
+.lead { font-size: 22px; line-height: 1.45; color: var(--text-2); max-width: 680px; margin: 0 auto 30px; letter-spacing: -.01em }
+.meta { color: var(--text-3); font-size: 14px; margin-top: 14px }
+.shot { display: block; width: 100%; border-radius: 14px; box-shadow: var(--shadow-shot); margin: 56px 0 0 }
+
+/* sections */
+section { padding: 96px 0 0 }
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 8px }
+h2 { font-size: 40px; line-height: 1.1; letter-spacing: -.03em; margin: 0 0 14px; font-weight: 700 }
+.intro { color: var(--text-2); max-width: 720px; margin: 0 0 30px; font-size: 18px }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; box-shadow: var(--shadow-1) }
+.card .fi { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; margin-bottom: 16px }
+.card h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -.01em } .card p { margin: 0; color: var(--text-2); font-size: 15.5px; line-height: 1.5 }
+ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px }
+ol.steps > li { display: grid; grid-template-columns: 44px 1fr; gap: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; box-shadow: var(--shadow-1) }
+ol.steps .n { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center }
+ol.steps h3 { margin: 4px 0 4px; font-size: 18px } ol.steps ul { padding-left: 18px } ol.steps p, ol.steps ul { margin: 4px 0 0; color: var(--text-2); font-size: 15.5px }
+.ui { font-weight: 600; color: var(--text) }
+.note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 14px; padding: 16px 20px; margin: 16px 0; font-size: 15.5px }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin: 10px 0; font-size: 15.5px }
+summary { cursor: pointer; font-weight: 600 }
+.rel { display: flex; align-items: center; justify-content: space-between; gap: 16px }
+.rel h3 { margin: 0; font-size: 19px; display: flex; align-items: center; gap: 10px } .rel .when { color: var(--text-3); font-size: 14px; margin-top: 2px } .rel .what { color: var(--text-2); font-size: 15px; margin-top: 6px }
+.tag { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 3px 9px; border-radius: 999px }
+.dl { font-weight: 600; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); white-space: nowrap }
+footer { margin-top: 110px; border-top: 1px solid var(--line); padding: 34px 0 48px; color: var(--text-3); font-size: 14px }
+footer .wrap { display: flex; gap: 30px; align-items: flex-start } footer .brand { font-size: 16px } footer .brand svg { width: 24px; height: 24px }
+footer p { margin: 0 0 6px }
+
+/* ajustes da versão publicada */
+.brand svg { color: var(--accent) }
+.hero .appicon img { width: 100%; height: 100%; display: block }
+details p, details pre { color: var(--text-2) }
+pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto }
+pre code { background: none; padding: 0 }
+#releases { display: grid; gap: 12px }
+.notes { font-size: 14px; display: inline-block; margin-top: 8px }
+@media (max-width: 860px) {
+  .grid { grid-template-columns: repeat(2, 1fr) }
+  .nav .links { display: none }
+  .nav .btn.sm { margin-left: auto }
+  .hero h1 { font-size: 52px }
+  footer .wrap { flex-direction: column; gap: 12px }
+}
+@media (max-width: 520px) {
+  .grid { grid-template-columns: 1fr }
+  .rel { flex-direction: column; align-items: flex-start }
+  h2 { font-size: 32px }
+}
