@@ -15,7 +15,7 @@ Fermata recupera o fluxo de trabalho dos editores clássicos de partitura (palet
 
 ![Fermata editando uma peça para piano](docs/screenshot-claro.png)
 
-<sub>Fermata 0.3.1 com o "Estudo em Sol", peça criada pelo time. O app segue o modo claro ou escuro do macOS.</sub>
+<sub>Fermata 0.3.2 com o "Estudo em Sol", peça criada pelo time. O app segue o modo claro ou escuro do macOS, ou o que você escolher em View ▸ Appearance.</sub>
 
 **[Baixar e instalar →](https://murillowelsi.github.io/fermata/)**
 
@@ -130,7 +130,7 @@ cargo clippy                 # análise do código
 
 ## Status
 
-O Fermata está em **pré-lançamento (0.3.1)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
+O Fermata está em **pré-lançamento (0.3.2)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
 
 ## Créditos
 
