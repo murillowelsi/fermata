@@ -97,3 +97,14 @@ pre code { background: none; padding: 0 }
   .rel { flex-direction: column; align-items: flex-start }
   h2 { font-size: 32px }
 }
+
+/* F-14b: ilustrações do passo a passo */
+/* F-14b · ilustrações do passo a passo. Acrescentar ao final do docs/site.css. */
+ol.steps > li.with-fig { grid-template-columns: 44px minmax(0, 1fr) minmax(0, 480px); align-items: start }
+.step-fig { margin: 0 }
+.step-fig img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line) }
+.note .step-fig { max-width: 480px; margin-top: 14px }
+@media (max-width: 880px) {
+  ol.steps > li.with-fig { grid-template-columns: 44px 1fr }
+  ol.steps > li.with-fig .step-fig { grid-column: 2; max-width: 520px }
+}

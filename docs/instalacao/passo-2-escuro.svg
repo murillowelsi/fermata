@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 315" width="560" height="315" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Inter, Arial, sans-serif"><defs>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="rgba(0,0,0,.55)" flood-opacity="1"/></filter>
+<symbol id="app" viewBox="0 0 1024 1024"><rect x="100" y="100" width="824" height="824" rx="190" fill="#0A84FF"/><path d="M276 628A236 236 0 0 1 748 628" fill="none" stroke="#fff" stroke-width="92" stroke-linecap="round"/><circle cx="512" cy="596" r="60" fill="#fff"/></symbol>
+<symbol id="cur" viewBox="0 0 20 28"><path d="M1.5 1.5v21.2l5.2-4.9 3.6 8 3.3-1.5-3.6-7.8h7.2z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+</defs><rect width="560" height="315" rx="14" fill="#141417"/><g filter="url(#sh)"><rect x="36" y="28" width="488" height="262" rx="12" fill="#232327"/></g>
+<path d="M36 40a12 12 0 0 1 12-12h464a12 12 0 0 1 12 12v16h-488z" fill="#2C2C31"/><line x1="36" y1="56" x2="524" y2="56" stroke="#3A3A40"/>
+<circle cx="52" cy="42" r="5" fill="#4A4A52"/><circle cx="68" cy="42" r="5" fill="#4A4A52"/><circle cx="84" cy="42" r="5" fill="#4A4A52"/>
+<text x="280" y="47" font-size="14.0" font-weight="600" fill="#F2F2F4" text-anchor="middle">Fermata</text>
+<use href="#app" x="98" y="104" width="104" height="104"/><text x="150" y="228" font-size="15.7" font-weight="600" fill="#F2F2F4" text-anchor="middle">Fermata</text>
+<line x1="222" y1="156" x2="338" y2="156" stroke="#0A84FF" stroke-width="6" stroke-linecap="round" /><path d="M331.7138441335348 149.28804245954115L344 156L331.7138441335348 162.71195754045885" fill="none" stroke="#0A84FF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<g opacity=".55"><use href="#app" x="262" y="120" width="56" height="56"/></g><use href="#cur" x="300" y="158" width="20" height="28"/>
+<g transform="translate(356 98) scale(1.12)"><path d="M6 22a8 8 0 0 1 8-8h26l10 10h36a8 8 0 0 1 8 8v4H6z" fill="#426D9F"/><rect x="6" y="30" width="88" height="58" rx="8" fill="#4F7CB3"/></g><text x="412" y="228" font-size="15.7" font-weight="600" fill="#F2F2F4" text-anchor="middle">Applications</text>
+<text x="283" y="276" font-size="14.0" font-weight="400" fill="#A6A6AC" text-anchor="middle">arraste o ícone até a pasta</text></svg>

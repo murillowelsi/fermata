@@ -15,7 +15,7 @@ Fermata recupera o fluxo de trabalho dos editores clássicos de partitura (palet
 
 ![Fermata editando uma peça para piano](docs/screenshot-claro.png)
 
-<sub>Fermata 0.2.0 com o "Estudo em Sol", peça criada pelo time. O app segue o modo claro ou escuro do macOS.</sub>
+<sub>Fermata 0.3.0 com o "Estudo em Sol", peça criada pelo time. O app segue o modo claro ou escuro do macOS.</sub>
 
 **[Baixar e instalar →](https://murillowelsi.github.io/fermata/)**
 
@@ -120,7 +120,6 @@ cargo clippy                 # análise do código
 
 ## Próximos passos
 
-- **Visual novo, parte 2:** diálogos e menus no estilo novo.
 - **Fonte musical Bravura na partitura:** as paletas já usam a Bravura; falta a página.
 - **Gravação mais precisa:** duas vozes na mesma pauta sem colisões e layout de página melhor.
 - **Impressão e PDF** de verdade.
@@ -131,7 +130,7 @@ cargo clippy                 # análise do código
 
 ## Status
 
-O Fermata está em **pré-lançamento (0.2.0)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
+O Fermata está em **pré-lançamento (0.3.0)**. Ele já serve para escrever e tocar, mas ainda tem arestas: guarde cópias dos arquivos importantes e mande o que encontrar.
 
 ## Créditos
 

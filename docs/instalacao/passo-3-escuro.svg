@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 315" width="560" height="315" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Inter, Arial, sans-serif"><defs>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="rgba(0,0,0,.55)" flood-opacity="1"/></filter>
+<symbol id="app" viewBox="0 0 1024 1024"><rect x="100" y="100" width="824" height="824" rx="190" fill="#0A84FF"/><path d="M276 628A236 236 0 0 1 748 628" fill="none" stroke="#fff" stroke-width="92" stroke-linecap="round"/><circle cx="512" cy="596" r="60" fill="#fff"/></symbol>
+<symbol id="cur" viewBox="0 0 20 28"><path d="M1.5 1.5v21.2l5.2-4.9 3.6 8 3.3-1.5-3.6-7.8h7.2z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+</defs><rect width="560" height="315" rx="14" fill="#141417"/><rect width="560" height="315" rx="14" fill="rgba(0,0,0,.35)"/>
+<g filter="url(#sh)"><rect x="150" y="18" width="260" height="280" rx="16" fill="#232327"/></g>
+<use href="#app" x="252" y="34" width="56" height="56"/><circle cx="304" cy="84" r="12" fill="#F5B54A"/><text x="304" y="89" font-size="16.8" font-weight="800" fill="#fff" text-anchor="middle">!</text>
+<text x="280" y="118" font-size="16.2" font-weight="700" fill="#F2F2F4" text-anchor="middle">“Fermata” não foi aberto</text>
+<text x="280" y="140" font-size="13.4" font-weight="400" fill="#A6A6AC" text-anchor="middle">O macOS não pôde verificar</text><text x="280" y="156" font-size="13.4" font-weight="400" fill="#A6A6AC" text-anchor="middle">se este app é seguro.</text>
+<rect x="163" y="173" width="234" height="46" rx="15" fill="none" stroke="#0A84FF" stroke-width="3"/><rect x="168" y="178" width="224" height="36" rx="8" fill="#0A84FF" /><text x="280" y="200.6" font-size="15.7" font-weight="600" fill="#FFFFFF" text-anchor="middle">OK</text>
+<rect x="168" y="230" width="224" height="36" rx="8" fill="#3A3A40" stroke="#4A4A52"/><text x="280" y="252.6" font-size="14.6" font-weight="500" fill="#A6A6AC" text-anchor="middle">Mover para o Lixo</text>
+<line x1="178" y1="248" x2="382" y2="248" stroke="#FF6B6B" stroke-width="2.5" stroke-linecap="round"/>
+<use href="#cur" x="360" y="196" width="20" height="28"/>
+<rect x="424" y="184" width="90.6" height="22" rx="11" fill="#0A84FF"/><text x="469.3" y="199" font-size="12.9" font-weight="700" fill="#fff" text-anchor="middle">clique aqui</text><rect x="424" y="236" width="84" height="22" rx="11" fill="#FF6B6B"/><text x="466" y="251" font-size="12.9" font-weight="700" fill="#fff" text-anchor="middle">não clique</text></svg>
