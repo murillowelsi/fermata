@@ -816,11 +816,17 @@ impl App {
             ui.set_width(380.0);
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
-                kit::alert_icon(ui, matches!(d, Dialog::Message(_)));
+                kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 });
                 let (head, sub) = match d {
                     Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.file_base_name()),
                     Dialog::Message(m) => (m.clone(), String::new()),
-                    _ => ("Fermata".to_string(), "A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.\nVersion 0.1 - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.".to_string()),
+                    _ => (
+                        "Fermata".to_string(),
+                        format!(
+                            "A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.\nVersion {} - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.",
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                    ),
                 };
                 ui.add(egui::Label::new(egui::RichText::new(head).font(theme::font_semibold(14.0)).color(k.text)).wrap());
                 if !sub.is_empty() {

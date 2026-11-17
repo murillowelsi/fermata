@@ -35,7 +35,8 @@ pub enum BtnKind {
 fn button(ui: &mut Ui, text: &str, kind: BtnKind, min_w: f32) -> Response {
     let k = theme::t(ui);
     let font = if kind == BtnKind::Primary { theme::font_semibold(13.0) } else { theme::font_medium(13.0) };
-    let g = ui.painter().layout_no_wrap(text.to_string(), font, k.text);
+    // laid out without a colour (PLACEHOLDER): the colour given when painting (white on the blue button) is used
+    let g = ui.painter().layout_no_wrap(text.to_string(), font, Color32::PLACEHOLDER);
     let w = (g.size().x + 28.0).max(min_w);
     let (r, resp) = ui.allocate_exact_size(vec2(w, BTN_H), Sense::click());
     let down = resp.is_pointer_button_down_on();
@@ -145,7 +146,7 @@ pub fn chip(ui: &mut Ui, on: bool, text: &str) -> Response {
 
 pub fn chip_sized(ui: &mut Ui, on: bool, text: &str, min_w: f32, h: f32) -> Response {
     let k = theme::t(ui);
-    let g = ui.painter().layout_no_wrap(text.to_string(), theme::font_medium(12.5), k.text);
+    let g = ui.painter().layout_no_wrap(text.to_string(), theme::font_medium(12.5), Color32::PLACEHOLDER);
     let w = (g.size().x + 18.0).max(min_w);
     let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     let hover = resp.hovered() && ui.is_enabled();
@@ -428,8 +429,8 @@ pub fn menu_look(ui: &mut Ui) {
 /// A menu item: ✓ column on the left, label, shortcut in grey on the right; blue under the mouse.
 pub fn menu_item(ui: &mut Ui, label: &str, shortcut: &str, checked: bool, enabled: bool) -> Response {
     let k = theme::t(ui);
-    let lg = ui.painter().layout_no_wrap(label.to_string(), theme::font(13.0), k.text);
-    let sg = ui.painter().layout_no_wrap(shortcut.to_string(), theme::font(12.5), k.text_3);
+    let lg = ui.painter().layout_no_wrap(label.to_string(), theme::font(13.0), Color32::PLACEHOLDER);
+    let sg = ui.painter().layout_no_wrap(shortcut.to_string(), theme::font(12.5), Color32::PLACEHOLDER);
     let desired = 24.0 + lg.size().x + if shortcut.is_empty() { 16.0 } else { 28.0 + sg.size().x + 8.0 };
     let w = if ui.is_sizing_pass() { desired } else { ui.available_width().max(desired) };
     let sense = if enabled { Sense::click() } else { Sense::hover() };
@@ -520,18 +521,31 @@ pub fn float_window(ctx: &egui::Context, title: &str, open: &mut bool, default_p
     });
 }
 
-/// The square icon of an alert: a note in a soft blue square, or a warning sign.
-pub fn alert_icon(ui: &mut Ui, warn: bool) {
+/// The app icon "Traço" as a texture, made once from the PNG that `icon.rs` embeds.
+fn app_icon_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::unique("fermata-app-icon-texture");
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return t;
+    }
+    let d = crate::icon::icon_data();
+    let img = egui::ColorImage::from_rgba_unmultiplied([d.width as usize, d.height as usize], &d.rgba);
+    let t = ctx.load_texture("fermata-app-icon", img, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|data| data.insert_temp(id, t.clone()));
+    t
+}
+
+/// The icon of an alert: the app icon (no square behind it, as on macOS) at `size` pt, or a warning sign for
+/// warnings.
+pub fn alert_icon(ui: &mut Ui, warn: bool, size: f32) {
     let k = theme::t(ui);
-    let (r, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
-    let (bg, fg) = if warn { (theme::alpha(k.warn, 0.18), k.warn) } else { (k.accent_soft, k.accent) };
-    ui.painter().rect_filled(r, 10.0, bg);
     if warn {
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, "⚠", theme::font_semibold(22.0), fg);
+        let (r, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
+        ui.painter().rect_filled(r, 10.0, theme::alpha(k.warn, 0.18));
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, "⚠", theme::font_semibold(22.0), k.warn);
     } else {
-        let font = egui::FontId::new(26.0, egui::FontFamily::Name(crate::palettes::BRAVURA_FAMILY.into()));
-        // a quarter note (SMuFL noteQuarterUp), centred by eye in the square
-        ui.painter().text(r.center() + vec2(-3.0, 9.0), Align2::CENTER_CENTER, "\u{E1D5}", font, fg);
+        let tex = app_icon_texture(ui.ctx());
+        let (r, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+        ui.painter().image(tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     }
 }
 
