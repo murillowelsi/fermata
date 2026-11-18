@@ -88,7 +88,33 @@ pub enum Dialog {
     Shortcuts,
     About,
     Message(String),
-    ConfirmClose(Cmd),
+    ConfirmClose(Then),
+}
+
+/// What replaces the current score once the person has answered "Save changes to this score first?" (at once when
+/// there's nothing unsaved). Every way of replacing the score goes through `App::replace_score`.
+#[derive(Clone, Debug)]
+pub enum Then {
+    Close,
+    NewDefault,
+    Quit,
+    /// File > New Score's result, and whether Text Elements opens next.
+    NewScore(Box<Score>, bool),
+    /// The open window (File > Open), shown after the answer.
+    Open,
+    ImportMidi,
+    /// Revert to Saved: asks with its own text (there is nothing to save, only changes to lose).
+    Revert(PathBuf),
+    /// A file that arrived by itself: the installed web app's file handlers and Launch Queue.
+    Load(Box<crate::platform::Opened>),
+}
+
+/// The three answers to "Save changes to this score first?".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    Save,
+    DontSave,
+    Cancel,
 }
 
 #[derive(Clone, Debug)]
@@ -162,6 +188,9 @@ pub struct App {
     pub lyric_line: usize,
     pub pending_cmd: Option<Cmd>,
     pub after_new_wizard: bool,
+    /// The browser saves in the background: what to do once it says the save went through.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub after_save: Option<Then>,
     pub scroll_to_cursor: bool,
     /// System the view last scrolled to while following playback.
     pub follow_sys: Option<usize>,
@@ -239,6 +268,7 @@ impl App {
             lyric_line: 0,
             pending_cmd: None,
             after_new_wizard: false,
+            after_save: None,
             scroll_to_cursor: false,
             follow_sys: None,
             midi: None,
@@ -1426,6 +1456,11 @@ impl App {
         self.score.layout.system_sizes = sizes;
     }
 
+    /// The score's file name when it has one ("Song.fmt"), else its title.
+    pub fn doc_name(&self) -> String {
+        self.path.as_ref().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| self.file_base_name())
+    }
+
     pub fn file_base_name(&self) -> String {
         if self.score.text.title.trim().is_empty() { "Untitled".into() } else { self.score.text.title.trim().replace(['/', '\\', ':'], "-") }
     }
@@ -1499,16 +1534,79 @@ impl App {
         }
     }
 
-    pub fn open(&mut self) {
-        if let Some(o) = crate::platform::pick_open("Scores, Encore files and MIDI", &crate::platform::OPEN_EXTS) {
-            self.load_opened(o);
+    /// Replace the current score, asking first when it has unsaved changes (Save / Don't Save / Cancel).
+    pub fn replace_score(&mut self, then: Then) {
+        if self.dirty {
+            self.dialog = Some(Dialog::ConfirmClose(then));
+        } else {
+            self.run_then(then);
         }
     }
 
-    /// Files delivered by the platform layer since the last frame (none on the desktop, kept for drag-and-drop).
+    /// The person's answer to "Save changes to this score first?". Save goes on only once the score is saved; a
+    /// cancelled or failed save leaves everything as it was.
+    pub fn answer_unsaved(&mut self, then: Then, answer: Answer) {
+        match answer {
+            Answer::Cancel => {}
+            Answer::DontSave => self.run_then(then),
+            Answer::Save => {
+                // the browser saves in the background: go on when it says the file was written
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = self.save(false);
+                    if !matches!(self.dialog, Some(Dialog::Message(_))) {
+                        self.after_save = Some(then);
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                if self.save(false) {
+                    self.run_then(then);
+                }
+            }
+        }
+    }
+
+    fn run_then(&mut self, then: Then) {
+        match then {
+            Then::Close | Then::NewDefault => self.new_score(default_new_score()),
+            Then::Quit => {
+                self.dirty = false;
+                self.quit_requested = true;
+            }
+            Then::NewScore(sc, wizard) => {
+                self.new_score(*sc);
+                if wizard {
+                    self.dialog = Some(Dialog::Text(self.score.text.clone()));
+                }
+            }
+            Then::Open => {
+                if let Some(o) = crate::platform::pick_open("Scores, Encore files and MIDI", &crate::platform::OPEN_EXTS) {
+                    self.load_opened(o);
+                }
+            }
+            Then::ImportMidi => {
+                if let Some(o) = crate::platform::pick_open("MIDI", &["mid", "midi"]) {
+                    self.load_opened(o);
+                }
+            }
+            Then::Revert(p) => self.open_path(p),
+            Then::Load(o) => self.load_opened(*o),
+        }
+    }
+
+    pub fn open(&mut self) {
+        self.replace_score(Then::Open);
+    }
+
+    /// Files delivered by the platform layer since the last frame (the browser: its open window, which was asked
+    /// for after the unsaved-changes question, and files handed over by the installed app, which ask here).
     pub fn poll_opened(&mut self) {
         for o in crate::platform::take_opened() {
-            self.load_opened(o);
+            if o.picked {
+                self.load_opened(o);
+            } else {
+                self.replace_score(Then::Load(Box::new(o)));
+            }
         }
         // the browser saves in the background: the score becomes "saved" when the browser says so
         #[cfg(target_arch = "wasm32")]
@@ -1518,8 +1616,17 @@ impl App {
                     self.path = Some(PathBuf::from(&name));
                     self.dirty = false;
                     self.status = format!("Saved {name}");
+                    if let Some(then) = self.after_save.take() {
+                        self.run_then(then);
+                    }
                 }
-                Err(e) => self.dialog = Some(Dialog::Message(format!("Couldn't save: {e}"))),
+                // the save window was closed: nothing saved, nothing replaced
+                Err(e) if e.is_empty() => self.after_save = None,
+                Err(e) => {
+                    self.after_save = None;
+                    self.dirty = true;
+                    self.dialog = Some(Dialog::Message(format!("Couldn't save: {e}")));
+                }
             }
         }
     }
@@ -1534,6 +1641,8 @@ impl App {
     pub fn load_opened(&mut self, o: crate::platform::Opened) {
         match crate::io::open_bytes(&o.name, &o.bytes) {
             Ok(sc) => {
+                #[cfg(target_arch = "wasm32")]
+                crate::web::opened_document(o.id, &o.name, &o.bytes);
                 let ext = o.name.rsplit('.').next().unwrap_or("").to_lowercase();
                 let is_native = !matches!(ext.as_str(), "mid" | "midi" | "enc");
                 if ext == "enc" {
@@ -1878,5 +1987,147 @@ mod time_signature_tests {
         assert_eq!(a.score, before);
         a.warn_time_signature(s, 2, 3, 4);
         assert_eq!(a.status, "Measure 3 has more beats than 3/4. Nothing was changed.");
+    }
+}
+
+#[cfg(test)]
+mod unsaved_tests {
+    //! F-24: nothing replaces a score with unsaved changes without asking (Save / Don't Save / Cancel).
+    use super::*;
+    use crate::commands::Cmd;
+    use crate::platform::Opened;
+
+    /// A new score with one note written: unsaved, with one undo step.
+    fn edited() -> App {
+        let mut a = App::new(true);
+        a.enter(0, 0, 0, Some(Pitch::from_midi(60, false)), 3, 0, false);
+        assert!(a.dirty && !a.undo.is_empty());
+        a
+    }
+
+    /// Another score, as a file that arrives (open window, Finder, the installed web app).
+    fn other(picked: bool) -> Opened {
+        let mut sc = default_new_score();
+        sc.text.title = "Other".into();
+        Opened { name: "other.fmt".into(), bytes: crate::io::score_bytes(&sc).unwrap(), path: Some("other.fmt".into()), picked, id: 0 }
+    }
+
+    fn pending(a: &App) -> Then {
+        match &a.dialog {
+            Some(Dialog::ConfirmClose(t)) => t.clone(),
+            d => panic!("expected the unsaved-changes question, got {d:?}"),
+        }
+    }
+
+    #[test]
+    fn opening_with_unsaved_changes_asks_and_changes_nothing() {
+        let mut a = edited();
+        let (before, undo) = (a.score.clone(), a.undo.clone());
+        a.replace_score(Then::Load(Box::new(other(false))));
+        assert!(matches!(pending(&a), Then::Load(_)));
+        assert_eq!(a.score, before);
+        assert_eq!(a.undo, undo);
+        assert!(a.dirty);
+    }
+
+    #[test]
+    fn cancel_keeps_the_score_and_its_undo() {
+        let mut a = edited();
+        let (before, undo) = (a.score.clone(), a.undo.clone());
+        a.replace_score(Then::Load(Box::new(other(false))));
+        let t = pending(&a);
+        a.dialog = None;
+        a.answer_unsaved(t, Answer::Cancel);
+        assert_eq!(a.score, before);
+        assert_eq!(a.undo, undo);
+        assert!(a.dirty && a.dialog.is_none());
+        // the undo still brings back the score before the note
+        a.do_undo();
+        assert_ne!(a.score, before);
+    }
+
+    #[test]
+    fn dont_save_replaces() {
+        let mut a = edited();
+        a.replace_score(Then::Load(Box::new(other(false))));
+        let t = pending(&a);
+        a.dialog = None;
+        a.answer_unsaved(t, Answer::DontSave);
+        assert_eq!(a.score.text.title, "Other");
+        assert!(!a.dirty && a.undo.is_empty());
+    }
+
+    #[test]
+    fn save_writes_the_file_then_replaces() {
+        let mut a = edited();
+        let before = a.score.clone();
+        let file = std::env::temp_dir().join(format!("fermata-f24-{}.fmt", std::process::id()));
+        a.path = Some(file.clone());
+        a.replace_score(Then::Load(Box::new(other(false))));
+        let t = pending(&a);
+        a.dialog = None;
+        a.answer_unsaved(t, Answer::Save);
+        let saved = crate::io::open_bytes("x.fmt", &std::fs::read(&file).unwrap()).unwrap();
+        let _ = std::fs::remove_file(&file);
+        assert_eq!(saved, before, "the file holds the score as it was");
+        assert_eq!(a.score.text.title, "Other");
+    }
+
+    #[test]
+    fn a_failed_save_replaces_nothing() {
+        let mut a = edited();
+        let before = a.score.clone();
+        a.path = Some(PathBuf::from("/no/such/folder/score.fmt"));
+        a.replace_score(Then::Load(Box::new(other(false))));
+        let t = pending(&a);
+        a.dialog = None;
+        a.answer_unsaved(t, Answer::Save);
+        assert_eq!(a.score, before);
+        assert!(a.dirty);
+        assert!(matches!(a.dialog, Some(Dialog::Message(_))), "the error is shown");
+    }
+
+    #[test]
+    fn a_saved_score_is_replaced_without_asking() {
+        let mut a = App::new(true);
+        a.replace_score(Then::Load(Box::new(other(false))));
+        assert!(a.dialog.is_none());
+        assert_eq!(a.score.text.title, "Other");
+    }
+
+    #[test]
+    fn every_command_that_replaces_the_score_asks() {
+        for c in [Cmd::Open, Cmd::ImportMidi, Cmd::NewDefault, Cmd::Close, Cmd::Quit] {
+            let mut a = edited();
+            let before = a.score.clone();
+            a.exec(c);
+            pending(&a);
+            assert_eq!(a.score, before, "{c:?} changed the score before the answer");
+            assert!(!a.quit_requested);
+        }
+        let mut a = edited();
+        let sc = build_template(1, 2, 5, 3, false, false);
+        a.replace_score(Then::NewScore(Box::new(sc), false));
+        assert!(matches!(pending(&a), Then::NewScore(..)));
+    }
+
+    #[test]
+    fn revert_asks_with_its_own_question() {
+        let mut a = edited();
+        a.path = Some(PathBuf::from("song.fmt"));
+        let before = a.score.clone();
+        a.exec(Cmd::Revert);
+        assert!(matches!(pending(&a), Then::Revert(_)));
+        assert_eq!(a.score, before);
+    }
+
+    #[test]
+    fn quit_dont_save_quits() {
+        let mut a = edited();
+        a.exec(Cmd::Quit);
+        let t = pending(&a);
+        a.dialog = None;
+        a.answer_unsaved(t, Answer::DontSave);
+        assert!(a.quit_requested);
     }
 }

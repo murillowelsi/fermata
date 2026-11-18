@@ -233,6 +233,12 @@ impl eframe::App for Shell {
 
         }
 
+        // closing the window (its close button, Alt+F4, the Dock's Quit) asks first when there are unsaved changes
+        #[cfg(not(target_arch = "wasm32"))]
+        if ctx.input(|i| i.viewport().close_requested()) && a.dirty && !a.quit_requested && self.shot_path.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            a.replace_score(app::Then::Quit);
+        }
         if a.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -291,7 +297,20 @@ fn main() {
         if let Some(el) = doc.get_element_by_id("loading") {
             match started {
                 Ok(()) => el.remove(),
-                Err(e) => el.set_text_content(Some(&format!("Fermata couldn't start: {e:?}"))),
+                // the page's own message with a Try again button (index.html), else plain text
+                Err(e) => {
+                    use wasm_bindgen::JsCast;
+                    let msg = format!("{e:?}");
+                    let show = web_sys::window()
+                        .and_then(|w| js_sys::Reflect::get(&w, &"fermataLoadFailed".into()).ok())
+                        .and_then(|f| f.dyn_into::<js_sys::Function>().ok());
+                    match show {
+                        Some(f) => {
+                            let _ = f.call1(&wasm_bindgen::JsValue::NULL, &msg.into());
+                        }
+                        None => el.set_text_content(Some(&format!("Fermata couldn't start: {msg}"))),
+                    }
+                }
             }
         }
     });

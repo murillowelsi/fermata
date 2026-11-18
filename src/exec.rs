@@ -10,21 +10,10 @@ impl App {
         let mrange = self.sel_measures.unwrap_or((cm, cm));
         match c {
             New => self.dialog = Some(Dialog::NewScore { staves: 2, systems: 5, mps: 3, c_score: false, handwritten: false, template: 0 }),
-            NewDefault => {
-                if self.dirty {
-                    self.dialog = Some(Dialog::ConfirmClose(NewDefault));
-                } else {
-                    self.new_score(default_new_score());
-                }
-            }
+            // everything that replaces the score asks first when it has unsaved changes (App::replace_score)
+            NewDefault => self.replace_score(Then::NewDefault),
             Open => self.open(),
-            Close => {
-                if self.dirty {
-                    self.dialog = Some(Dialog::ConfirmClose(Close));
-                } else {
-                    self.new_score(default_new_score());
-                }
-            }
+            Close => self.replace_score(Then::Close),
             Save => {
                 self.save(false);
             }
@@ -32,7 +21,7 @@ impl App {
                 self.save(true);
             }
             Revert => match self.path.clone() {
-                Some(p) => self.open_path(p),
+                Some(p) => self.replace_score(Then::Revert(p)),
                 None => self.status = "This score hasn't been saved yet.".into(),
             },
             Print | ExportPng => self.export_png_requested = true,
@@ -40,11 +29,7 @@ impl App {
                 let l = &self.score.layout;
                 self.dialog = Some(Dialog::PageSetup { w: l.page_w, h: l.page_h, margin: l.margin, staff_space: l.staff_space, staff_gap: l.staff_gap, system_gap: l.system_gap });
             }
-            ImportMidi => {
-                if let Some(o) = crate::platform::pick_open("MIDI", &["mid", "midi"]) {
-                    self.load_opened(o);
-                }
-            }
+            ImportMidi => self.replace_score(Then::ImportMidi),
             ExportMidi => {
                 let b = crate::io::midi_bytes(&self.score);
                 self.export_bytes("mid", "MIDI file", &b);
@@ -55,13 +40,7 @@ impl App {
                 self.export_bytes("musicxml", "MusicXML", &b);
             }
             ExtractPart => self.extract_part(cs),
-            Quit => {
-                if self.dirty {
-                    self.dialog = Some(Dialog::ConfirmClose(Quit));
-                } else {
-                    self.quit_requested = true;
-                }
-            }
+            Quit => self.replace_score(Then::Quit),
             Undo | UndoAlt => self.do_undo(),
             CutAlt => self.copy(true),
             CopyAlt => self.copy(false),

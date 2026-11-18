@@ -745,7 +745,7 @@ impl App {
             .frame(kit::window_frame(ctx))
             .show(ctx, |ui| {
                 if alert {
-                    self.alert_body(ui, &d, &mut ok, &mut keep, &mut cancel);
+                    self.alert_body(ui, &d, &mut keep, &mut cancel);
                     return;
                 }
                 let width = ui.memory(|m| m.data.get_temp::<f32>(wid)).unwrap_or(320.0);
@@ -820,7 +820,7 @@ impl App {
     }
 
     /// Alerts (Unsaved Changes, messages, About): icon, sentence in bold, buttons in the macOS order.
-    fn alert_body(&mut self, ui: &mut Ui, d: &Dialog, ok: &mut bool, keep: &mut bool, cancel: &mut bool) {
+    fn alert_body(&mut self, ui: &mut Ui, d: &Dialog, keep: &mut bool, cancel: &mut bool) {
         let k = theme::t(ui);
         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
         egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 22, bottom: 20 }).show(ui, |ui| {
@@ -829,7 +829,11 @@ impl App {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 });
                 let (head, sub) = match d {
-                    Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.file_base_name()),
+                    Dialog::ConfirmClose(Then::Revert(_)) => (
+                        format!("Revert to the saved version of \"{}\"?", self.doc_name()),
+                        "The changes made since it was last saved will be lost.".to_string(),
+                    ),
+                    Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.doc_name()),
                     Dialog::Message(m) => (m.clone(), String::new()),
                     _ => (
                         "Fermata".to_string(),
@@ -848,17 +852,32 @@ impl App {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 match d {
-                    Dialog::ConfirmClose(_) => {
+                    // Revert: only changes to lose, so Cancel and Revert (Esc = Cancel, Enter = Revert)
+                    Dialog::ConfirmClose(then @ Then::Revert(_)) => {
+                        kit::footer(ui, |ui| {
+                            if kit::btn_primary(ui, "Revert").clicked() || enter {
+                                self.answer_unsaved(then.clone(), Answer::DontSave);
+                                *keep = false;
+                            }
+                            if kit::btn(ui, "Cancel").clicked() {
+                                self.answer_unsaved(then.clone(), Answer::Cancel);
+                                *cancel = true;
+                            }
+                        });
+                    }
+                    Dialog::ConfirmClose(then) => {
                         // macOS order: Don't Save on the left; Cancel and Save on the right (Esc = Cancel, Enter = Save)
                         if kit::btn(ui, "Don't Save").clicked() {
-                            self.dirty = false;
-                            *ok = true;
+                            self.answer_unsaved(then.clone(), Answer::DontSave);
+                            *keep = false;
                         }
                         kit::footer(ui, |ui| {
                             if kit::btn_primary(ui, "Save").clicked() || enter {
-                                *ok = true;
+                                self.answer_unsaved(then.clone(), Answer::Save);
+                                *keep = false;
                             }
                             if kit::btn(ui, "Cancel").clicked() {
+                                self.answer_unsaved(then.clone(), Answer::Cancel);
                                 *cancel = true;
                             }
                         });
@@ -1717,11 +1736,8 @@ impl App {
     fn apply_dialog(&mut self, d: Dialog) {
         match d {
             Dialog::NewScore { staves, systems, mps, c_score, handwritten, template } => {
-                self.new_score(build_template(template, staves, systems, mps, c_score, handwritten));
-                if self.after_new_wizard {
-                    self.after_new_wizard = false;
-                    self.dialog = Some(Dialog::Text(self.score.text.clone()));
-                }
+                let wizard = std::mem::take(&mut self.after_new_wizard);
+                self.replace_score(Then::NewScore(Box::new(build_template(template, staves, systems, mps, c_score, handwritten)), wizard));
             }
             Dialog::TimeSig { num, den, from, to } => {
                 // refused as a whole when a measure in the range holds more than the new signature allows
@@ -1927,16 +1943,8 @@ impl App {
                     e.expression = if text.is_empty() { None } else { Some(text) };
                 }
             }
-            Dialog::ConfirmClose(c) => {
-                if self.dirty && !self.save(false) {
-                    return;
-                }
-                self.dirty = false;
-                match c {
-                    Cmd::Quit => self.quit_requested = true,
-                    _ => self.new_score(default_new_score()),
-                }
-            }
+            // answered in the alert itself (App::answer_unsaved)
+            Dialog::ConfirmClose(_) => {}
             Dialog::ClickSetup(p) => {
                 self.prefs = p;
                 crate::prefs::save(&self.prefs);

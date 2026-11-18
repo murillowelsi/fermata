@@ -1,10 +1,17 @@
 //! Files: the system's open and save windows.
 use std::path::PathBuf;
 
+#[derive(Clone, Debug)]
 pub struct Opened {
     pub name: String,
     pub bytes: Vec<u8>,
     pub path: Option<PathBuf>,
+    /// From the open window, asked for after the unsaved-changes question (false: a file that arrived by itself,
+    /// from the installed web app, which still has to ask).
+    pub picked: bool,
+    /// The browser's handle for the file (0: none, or a revert).
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub id: u32,
 }
 
 pub const OPEN_EXTS: [&str; 7] = ["fmt", "json", "enc", "ENC", "mid", "midi", "musicxml"];
@@ -16,14 +23,14 @@ mod imp {
     pub fn pick_open(desc: &str, exts: &[&str]) -> Option<Opened> {
         let p = rfd::FileDialog::new().add_filter(desc, exts).pick_file()?;
         let bytes = std::fs::read(&p).ok()?;
-        Some(Opened { name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(p) })
+        Some(Opened { name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(p), picked: true, id: 0 })
     }
 
     /// Pick any file (no type filter: the Mac's file window greys out file types it doesn't know, like .enc).
     pub fn pick_any(title: &str) -> Option<Opened> {
         let p = rfd::FileDialog::new().set_title(title).pick_file()?;
         let bytes = std::fs::read(&p).ok()?;
-        Some(Opened { name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(p) })
+        Some(Opened { name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(p), picked: true, id: 0 })
     }
 
     pub fn take_opened() -> Vec<Opened> {
@@ -58,7 +65,7 @@ mod imp {
 
     pub fn read_path(path: &PathBuf) -> Option<Opened> {
         let bytes = std::fs::read(path).ok()?;
-        Some(Opened { name: path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(path.clone()) })
+        Some(Opened { name: path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(path.clone()), picked: true, id: 0 })
     }
 }
 
@@ -80,7 +87,10 @@ mod imp {
     }
 
     pub fn take_opened() -> Vec<Opened> {
-        crate::web::opened_files().into_iter().map(|(name, bytes)| Opened { path: Some(PathBuf::from(&name)), name, bytes }).collect()
+        crate::web::opened_files()
+            .into_iter()
+            .map(|(id, name, bytes, picked)| Opened { path: Some(PathBuf::from(&name)), name, bytes, picked, id })
+            .collect()
     }
 
     /// A score ("fmt") is saved as a document (the result comes later, see `take_saved`); anything else is an export.
@@ -116,7 +126,7 @@ mod imp {
     /// Revert to Saved: the score as last opened or saved in this page.
     pub fn read_path(path: &PathBuf) -> Option<Opened> {
         let want = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        crate::web::last_saved().filter(|(n, _)| *n == want).map(|(name, bytes)| Opened { path: Some(path.clone()), name, bytes })
+        crate::web::last_saved().filter(|(n, _)| *n == want).map(|(name, bytes)| Opened { path: Some(path.clone()), name, bytes, picked: true, id: 0 })
     }
 
     /// Results of saving the score: (file name, Ok or the error).

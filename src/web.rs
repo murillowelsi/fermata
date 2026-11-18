@@ -102,11 +102,17 @@ export function is_mac() {
   return /mac/i.test(p);
 }
 
-let docHandle = null, busy = 0;
-const opened = [], saved = [];
+// docHandle: the file Save writes to again. A file that arrives only becomes it once the app has really opened it
+// (after the unsaved-changes question), through adopt().
+let docHandle = null, busy = 0, nextId = 1;
+const opened = [], saved = [], handles = new Map();
 function track(p) { busy++; return p.finally(() => { busy--; }); }
-function readInto(file, handle) {
-  return file.arrayBuffer().then((b) => { opened.push({ name: file.name, bytes: new Uint8Array(b), handle }); });
+function readInto(file, handle, picked) {
+  return file.arrayBuffer().then((b) => {
+    const id = nextId++;
+    if (handle) handles.set(id, handle);
+    opened.push({ id, name: file.name, bytes: new Uint8Array(b), picked });
+  });
 }
 function download(name, bytes) {
   const u = URL.createObjectURL(new Blob([bytes]));
@@ -118,18 +124,19 @@ export function busy_count() { return busy; }
 export function open_file(exts) {
   if (window.showOpenFilePicker) {
     track(window.showOpenFilePicker({ types: [{ description: "Scores, Encore files and MIDI", accept: { "application/octet-stream": exts } }] })
-      .then(async ([h]) => { await readInto(await h.getFile(), h); }).catch(() => {}));
+      .then(async ([h]) => { await readInto(await h.getFile(), h, true); }).catch(() => {}));
   } else {
     const i = document.createElement("input");
     i.type = "file"; i.accept = exts.join(",");
-    i.onchange = () => { if (i.files && i.files[0]) track(readInto(i.files[0], null)); };
+    i.onchange = () => { if (i.files && i.files[0]) track(readInto(i.files[0], null, true)); };
     i.click();
   }
 }
-export function take_opened() {
-  const r = opened.splice(0);
-  for (const o of r) { if (/\.fmt$/i.test(o.name)) docHandle = o.handle; else docHandle = null; }
-  return r;
+export function take_opened() { return opened.splice(0); }
+export function adopt(id, name) {
+  if (!id) return;
+  docHandle = /\.fmt$/i.test(name) ? (handles.get(id) || null) : null;
+  handles.delete(id);
 }
 export function save_doc(name, bytes, ask) {
   const copy = bytes.slice();
@@ -141,7 +148,8 @@ export function save_doc(name, bytes, ask) {
         docHandle = h; saved.push({ name: h.name, ok: true, err: "" });
       } else { download(name, copy); saved.push({ name, ok: true, err: "" }); }
     } catch (e) {
-      if (!(e && e.name === "AbortError")) saved.push({ name, ok: false, err: String((e && e.message) || e) });
+      // a closed save window comes back with an empty error: nothing saved, and nothing that waited for it goes on
+      saved.push({ name, ok: false, err: (e && e.name === "AbortError") ? "" : String((e && e.message) || e) || "unknown error" });
     }
   })());
 }
@@ -169,7 +177,7 @@ export function forget_doc() { docHandle = null; }
 if (typeof window !== "undefined" && "launchQueue" in window) {
   window.launchQueue.setConsumer(async (params) => {
     await track((async () => {
-      for (const h of params.files || []) { try { await readInto(await h.getFile(), h); } catch (e) {} }
+      for (const h of params.files || []) { try { await readInto(await h.getFile(), h, false); } catch (e) {} }
     })());
   });
 }
@@ -187,6 +195,7 @@ extern "C" {
     fn busy_count() -> u32;
     fn open_file(exts: Vec<JsValue>);
     fn take_opened() -> js_sys::Array;
+    fn adopt(id: u32, name: &str);
     fn save_doc(name: &str, bytes: &[u8], ask: bool);
     fn export_file(name: &str, bytes: &[u8], ext: &str, desc: &str);
     fn take_saved() -> js_sys::Array;
@@ -200,6 +209,8 @@ thread_local! {
     static MAC: Cell<Option<bool>> = const { Cell::new(None) };
     /// The score as last opened or saved, for Revert to Saved (the browser can't read the file back).
     static LAST_DOC: RefCell<Option<(String, Vec<u8>)>> = const { RefCell::new(None) };
+    /// The bytes of a save the browser hasn't confirmed yet.
+    static PENDING_SAVE: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
 }
 
 /// Is the page on a Mac? (asked once)
@@ -262,23 +273,35 @@ pub fn pick_file(exts: &[&str]) {
 }
 
 /// Files picked or handed over by the installed app since the last call: (name, bytes).
-pub fn opened_files() -> Vec<(String, Vec<u8>)> {
+/// A file from the open window or the installed app: (id, name, bytes, from the open window).
+pub fn opened_files() -> Vec<(u32, String, Vec<u8>, bool)> {
     let mut out = vec![];
     for v in take_opened().iter() {
-        let name = js_sys::Reflect::get(&v, &"name".into()).ok().and_then(|x| x.as_string()).unwrap_or_default();
-        let bytes = js_sys::Reflect::get(&v, &"bytes".into()).ok().and_then(|x| x.dyn_into::<js_sys::Uint8Array>().ok()).map(|a| a.to_vec()).unwrap_or_default();
-        if name.to_lowercase().ends_with(".fmt") {
-            LAST_DOC.with(|d| *d.borrow_mut() = Some((name.clone(), bytes.clone())));
-        }
-        out.push((name, bytes));
+        let get = |k: &str| js_sys::Reflect::get(&v, &k.into()).ok();
+        let id = get("id").and_then(|x| x.as_f64()).unwrap_or(0.0) as u32;
+        let name = get("name").and_then(|x| x.as_string()).unwrap_or_default();
+        let bytes = get("bytes").and_then(|x| x.dyn_into::<js_sys::Uint8Array>().ok()).map(|a| a.to_vec()).unwrap_or_default();
+        let picked = get("picked").and_then(|x| x.as_bool()).unwrap_or(false);
+        out.push((id, name, bytes, picked));
     }
     out
+}
+
+/// The app opened this file: Save now writes to it, and Revert goes back to these bytes (id 0: a revert).
+pub fn opened_document(id: u32, name: &str, bytes: &[u8]) {
+    if id == 0 {
+        return;
+    }
+    adopt(id, name);
+    let doc = name.to_lowercase().ends_with(".fmt").then(|| (name.to_string(), bytes.to_vec()));
+    LAST_DOC.with(|d| *d.borrow_mut() = doc);
 }
 
 /// Saves the score: to the same file again when `ask` is false and the browser lets us, else asks where (or
 /// downloads). The result arrives through `saved_files`.
 pub fn save_score(name: &str, bytes: &[u8], ask: bool) {
-    LAST_DOC.with(|d| *d.borrow_mut() = Some((name.to_string(), bytes.to_vec())));
+    // Revert's copy changes only once the browser says the file was written
+    PENDING_SAVE.with(|d| *d.borrow_mut() = Some(bytes.to_vec()));
     save_doc(name, bytes, ask);
 }
 
@@ -295,6 +318,11 @@ pub fn saved_files() -> Vec<(String, Result<(), String>)> {
         let name = get("name").and_then(|x| x.as_string()).unwrap_or_default();
         let ok = get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
         let err = get("err").and_then(|x| x.as_string()).unwrap_or_default();
+        if ok {
+            if let Some(b) = PENDING_SAVE.with(|d| d.borrow_mut().take()) {
+                LAST_DOC.with(|d| *d.borrow_mut() = Some((name.clone(), b)));
+            }
+        }
         out.push((name, if ok { Ok(()) } else { Err(err) }));
     }
     out

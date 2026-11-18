@@ -78,7 +78,7 @@ pub fn open(app: &mut App, name: &str) -> bool {
             "Lyric" => Some(Dialog::Lyric { target: r, line: 0, text: "Glo".into() }),
             "Expression" => Some(Dialog::Expression { text: "espress.".into(), target: r }),
             "Message" => Some(Dialog::Message("This file couldn't be opened: it isn't a Fermata or Encore-compatible score.".into())),
-            "ConfirmClose" => Some(Dialog::ConfirmClose(Cmd::Close)),
+            "ConfirmClose" => Some(Dialog::ConfirmClose(crate::app::Then::Close)),
             _ => None,
         };
     }
