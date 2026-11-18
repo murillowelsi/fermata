@@ -19,6 +19,38 @@ pub fn reader_home() -> Option<PathBuf> {
     setup::home().map(|h| h.join("home"))
 }
 
+/// What the picture chooser offers.
+pub const PICTURE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "heic", "heif", "pdf", "tif", "tiff"];
+
+/// For the progress dialog: the file's name, a line like "Photo · 3024 × 4032" or "PDF", and a small preview as PNG
+/// (made with the Mac's `sips`; elsewhere a PNG is shown itself, other pictures get the page icon).
+pub fn picture_info(p: &Path) -> (String, String, Option<Vec<u8>>) {
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let mut kind = if ext == "pdf" { "PDF".to_string() } else { "Photo".to_string() };
+    let mut thumb = None;
+    if cfg!(target_os = "macos") {
+        let q = |args: &[&str]| std::process::Command::new("/usr/bin/sips").args(args).arg(p).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+        if let Some(out) = q(&["-g", "pixelWidth", "-g", "pixelHeight"]) {
+            let num = |k: &str| out.lines().find(|l| l.contains(k)).and_then(|l| l.split(':').nth(1)).and_then(|v| v.trim().parse::<u32>().ok());
+            if let (Some(w), Some(h)) = (num("pixelWidth"), num("pixelHeight")) {
+                if ext != "pdf" {
+                    kind = format!("Photo · {w} × {h}");
+                }
+            }
+        }
+        let t = std::env::temp_dir().join(format!("fermata-omr-thumb-{}.png", std::process::id()));
+        let ok = std::process::Command::new("/usr/bin/sips").args(["-s", "format", "png", "-Z", "160"]).arg(p).arg("--out").arg(&t).output().map(|o| o.status.success()).unwrap_or(false);
+        if ok {
+            thumb = std::fs::read(&t).ok();
+            let _ = std::fs::remove_file(&t);
+        }
+    } else if ext == "png" {
+        thumb = std::fs::read(p).ok();
+    }
+    (name, kind, thumb)
+}
+
 /// The status-bar note on every score read from a photo.
 pub const CHECK_IT: &str = "Imported from photo: check it";
 
@@ -169,6 +201,14 @@ pub struct OmrJob {
     cancel: Arc<AtomicBool>,
     rx: mpsc::Receiver<Result<OmrOutput, OmrError>>,
     pub input: PathBuf,
+}
+
+/// Closing Fermata (or dropping the job) stops Audiveris too, so no reader keeps running on its own.
+impl Drop for OmrJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        let _ = self.rx.recv_timeout(Duration::from_secs(3));
+    }
 }
 
 impl OmrJob {

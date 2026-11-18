@@ -217,10 +217,20 @@ fn audiveris_reads_the_qa_pictures() {
         for (kind, ext) in [("limpa", "png"), ("foto", "jpg")] {
             let pic = dir.join(format!("imagens/{piece}-{kind}.{ext}"));
             let job = start(OmrRun { program: program.clone(), timeout: Duration::from_secs(600), home: Some(std::env::temp_dir().join("fermata-omr-test-home")) }, &pic);
-            let out = job.wait().unwrap_or_else(|e| panic!("{piece}-{kind}: {e}"));
+            let out = match job.wait() {
+                Ok(o) => o,
+                Err(e) => {
+                    let l = format!("{piece}-{kind}: not read ({e})");
+                    eprintln!("{l}");
+                    lines.push(l);
+                    continue;
+                }
+            };
             let (sc, _) = to_score(&out).unwrap();
             let (ok, total) = pitch_match(&reference(&dir, piece), &sc);
-            lines.push(format!("{piece}-{kind}: {ok}/{total} pitches ({:.1}%), {} staves, {:.1} s", 100.0 * ok as f64 / total as f64, sc.staves.len(), out.seconds));
+            let l = format!("{piece}-{kind}: {ok}/{total} pitches ({:.1}%), {} staves, {:.1} s", 100.0 * ok as f64 / total as f64, sc.staves.len(), out.seconds);
+            eprintln!("{l}");
+            lines.push(l);
             let acc = if kind == "limpa" { &mut clean } else { &mut photo };
             acc.0 += ok;
             acc.1 += total;
@@ -233,5 +243,47 @@ fn audiveris_reads_the_qa_pictures() {
     if let Ok(p) = std::env::var("FERMATA_OMR_REPORT") {
         let _ = std::fs::write(p, &report);
     }
+    assert!(!lines.iter().any(|l| l.contains("not read")), "{report}");
     assert!(pc(clean) >= 80.0 && pc(photo) >= 70.0, "{report}");
+}
+
+// --- the review after reading (F-31 UI) ----------------------------------------------------------------------------
+
+#[test]
+fn measures_whose_count_does_not_add_up_are_found_and_fixed_ones_are_not() {
+    let mut a = crate::app::App::new(true);
+    let sc = &mut a.score;
+    // measure 1: a whole note (full); measure 2: a half note only (short); measure 3: three halves (too long)
+    sc.events[0][0] = vec![Event::new(1, 0, 1, vec![Pitch::from_midi(60, false)])];
+    sc.events[0][1] = vec![Event::new(1, 0, 2, vec![Pitch::from_midi(62, false)])];
+    sc.events[0][2] = (0..3).map(|i| Event::new(1, i * 2 * TPQ, 2, vec![Pitch::from_midi(64, false)])).collect();
+    assert_eq!(a.count_problems(), vec![1, 2]);
+    // fixing measure 2 removes its mark
+    a.score.events[0][1].push(Event::new(1, 2 * TPQ, 2, vec![Pitch::from_midi(64, false)]));
+    assert_eq!(a.count_problems(), vec![2]);
+}
+
+#[test]
+fn the_photo_strip_goes_at_the_first_edit_and_with_a_new_score() {
+    let mut a = crate::app::App::new(true);
+    a.replace_score(crate::app::Then::Omr(Box::new(Score::default_score()), "Imported from x.jpg · 16 measures".into()));
+    assert!(a.photo_banner && a.photo_check && a.dirty);
+    assert_eq!(a.status, "Imported from x.jpg · 16 measures");
+    a.enter(0, 0, 0, Some(Pitch::from_midi(60, false)), 3, 0, false);
+    assert!(!a.photo_banner, "an edit ends the strip");
+    assert!(a.photo_check, "the marks stay while the score is open");
+    a.dirty = false;
+    a.replace_score(crate::app::Then::NewDefault);
+    assert!(!a.photo_check);
+}
+
+#[test]
+fn the_new_menu_key_is_ctrl_shift_i_without_conflicts() {
+    use crate::commands::{shortcut, Cmd};
+    let s = shortcut(Cmd::ImportPhoto).unwrap();
+    assert!(s.modifiers.ctrl && s.modifiers.shift && !s.modifiers.alt);
+    assert_eq!(s.logical_key, egui::Key::I);
+    let all = crate::commands::all_shortcuts();
+    let same: Vec<_> = all.iter().filter(|(k, c)| *k == s && *c != Cmd::ImportPhoto).collect();
+    assert!(same.is_empty(), "{same:?}");
 }

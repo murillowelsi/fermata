@@ -32,6 +32,7 @@ mod reader;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod ui;
+mod ui_photo;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -355,7 +356,12 @@ impl eframe::App for Shell {
             ctx.request_repaint();
             // after the last scripted mouse step, give menus and tips (0.5 s) time to appear
             let shot_frame = self.steps.iter().map(|s| s.frame + 50).max().unwrap_or(0).max(60);
-            if self.frames >= shot_frame && !self.shot_requested {
+            // development (F-31 prints): FERMATA_SHOT_DELAY=<s> waits that long; FERMATA_SHOT_AFTER_PHOTO waits until
+            // a photo has been read and opened
+            let delay = std::env::var("FERMATA_SHOT_DELAY").ok().and_then(|v| v.parse::<f64>().ok());
+            let after_photo = std::env::var_os("FERMATA_SHOT_AFTER_PHOTO").is_some();
+            let waiting = delay.is_some_and(|d| ctx.input(|i| i.time) < d) || (after_photo && (self.app.omr_busy() || matches!(self.app.dialog, Some(app::Dialog::PhotoProgress))));
+            if self.frames >= shot_frame && !self.shot_requested && !waiting {
                 self.shot_requested = true;
                 let done = self.shot_done.clone();
                 let cells = self.app.palette_cell_log.clone();
@@ -376,7 +382,7 @@ impl eframe::App for Shell {
             if self.shot_done.load(Ordering::SeqCst) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            if self.frames > 600 {
+            if self.frames > 600 && delay.is_none() && !after_photo {
                 std::process::exit(1);
             }
         }

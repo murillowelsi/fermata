@@ -220,6 +220,14 @@ pub struct SetupJob {
     rx: mpsc::Receiver<Result<PathBuf, String>>,
 }
 
+/// Closing Fermata stops the download (and deletes the partial file).
+impl Drop for SetupJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        let _ = self.rx.recv_timeout(Duration::from_secs(3));
+    }
+}
+
 impl SetupJob {
     pub fn progress(&self) -> (Stage, u64, u64) {
         let st = match self.stage.load(Ordering::SeqCst) {

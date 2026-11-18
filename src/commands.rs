@@ -4,7 +4,7 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Cmd {
     // File
-    New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, ImportMidi, ImportXml, ExportMidi, ExportXml, ExportEnc, ExportPng, ExtractPart, Quit,
+    New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, ImportMidi, ImportXml, ImportPhoto, ExportMidi, ExportXml, ExportEnc, ExportPng, ExtractPart, Quit,
     // Edit
     Undo, Redo, Cut, Copy, Paste, Clear, SelectAll, NudgeLeft, NudgeRight, NudgeUp, NudgeDown,
     // Notes
@@ -122,6 +122,8 @@ fn shortcut_with(c: Cmd, mac: bool, p: Modifiers, s2: Modifiers) -> Option<Keybo
         Revert => sc(p, Key::R),
         Print => sc(p, Key::P),
         PageSetup => sc(ps, Key::P),
+        // F-31 (the browser has no photo import, so no key there)
+        ImportPhoto => if cfg!(target_arch = "wasm32") { None } else { sc(ps, Key::I) },
         Quit => if mac { sc(p, Key::Q) } else { sc(alt, Key::F4) },
         Undo => sc(p, Key::Z),
         UndoAlt => sc(alt, Key::Backspace),
@@ -248,7 +250,7 @@ pub fn plain_key_text(c: Cmd) -> Option<&'static str> {
 pub fn all_shortcut_cmds() -> Vec<Cmd> {
     use Cmd::*;
     let mut v = vec![
-        New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, Quit, Undo, Redo, Cut, Copy, Paste, SelectAll, NudgeLeft,
+        New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, ImportPhoto, Quit, Undo, Redo, Cut, Copy, Paste, SelectAll, NudgeLeft,
         NudgeRight, NudgeUp, NudgeDown, NoteAttributes, Enharmonic, StemUp, StemDown, AddMark, RemoveMark, Tie, FlipTie, SlurAbove,
         SlurBelow, BeamGroup, BeamOnBeat, FlattenBeam, ChangePitch, ChangeDuration, ChangeVelocity, MakeChord, MakeGrace, MakeTab,
         GuessDurations, RaisePitch, LowerPitch, RaiseOctave, LowerOctave, AddMeasure, DeleteMeasure, Tempo, TimeSig, KeySig, Barline,
@@ -286,6 +288,7 @@ pub fn label(c: Cmd) -> String {
         PageSetup => "Page Setup...".into(),
         ImportMidi => "Import MIDI File...".into(),
         ImportXml => "Import MusicXML File...".into(),
+        ImportPhoto => "Import from Photo or PDF...".into(),
         ExportMidi => "Export MIDI File...".into(),
         ExportXml => "Export MusicXML...".into(),
         ExportEnc => "Export Encore File (.enc)...".into(),

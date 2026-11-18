@@ -88,6 +88,12 @@ pub enum Dialog {
     Shortcuts,
     About,
     Message(String),
+    /// F-31: the first photo import asks before downloading the reader (the picture waits).
+    PhotoFirstUse(std::path::PathBuf),
+    /// F-31: downloading the reader / reading the picture, with Cancel (content from the running job).
+    PhotoProgress,
+    /// F-31: the reader found no music (tips, Choose Another File...).
+    PhotoFail,
     ConfirmClose(Then),
     /// "Recover unsaved changes to ‹name›?" after the app ended unexpectedly (F-28).
     Recover(Box<crate::autosave::Backup>),
@@ -205,6 +211,14 @@ pub struct App {
     pub omr_setup: Option<crate::omr::setup::SetupJob>,
     #[cfg(not(target_arch = "wasm32"))]
     pub omr_waiting: Option<std::path::PathBuf>,
+    /// F-31: the picture being read (name, "Photo · 3024 × 4032", small preview as PNG bytes) for the progress dialog.
+    pub omr_picture: Option<(String, String, Option<Vec<u8>>)>,
+    /// F-31: when the download started (for the time left).
+    pub omr_started: Option<f64>,
+    /// F-31: the strip "Imported from a photo" (until the first edit, closing or ×), and the orange marks on
+    /// measures whose count doesn't add up (while this score is open).
+    pub photo_banner: bool,
+    pub photo_check: bool,
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
@@ -324,6 +338,10 @@ impl App {
             omr_setup: None,
             #[cfg(not(target_arch = "wasm32"))]
             omr_waiting: None,
+            omr_picture: None,
+            omr_started: None,
+            photo_banner: false,
+            photo_check: false,
             after_save: None,
             autosave: crate::autosave::State::new(!screenshot_mode),
             device: crate::touch::Device::Desktop,
@@ -366,6 +384,8 @@ impl App {
     }
 
     pub fn checkpoint(&mut self) {
+        // F-31: the first edit ends the "imported from a photo" strip
+        self.photo_banner = false;
         if let Ok(s) = serde_json::to_string(&self.score) {
             self.undo.push(s);
             if self.undo.len() > 200 {
@@ -1725,43 +1745,72 @@ impl App {
                 // not saved anywhere yet: Save asks where
                 self.dirty = true;
                 self.status = note;
+                self.photo_banner = true;
+                self.photo_check = true;
             }
         }
     }
 
-    /// F-31: read a score from a photo or scan with Audiveris in the background; `poll_omr` opens it when done
-    /// (through the unsaved-changes question, as a new score). Returns false (and says why) when it can't start.
+    /// File ▸ Import ▸ Import from Photo or PDF (F-31): choose the picture, then read it (the browser can't).
+    pub fn import_photo(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.omr_busy() {
+                self.dialog = Some(Dialog::PhotoProgress);
+                return;
+            }
+            if let Some(o) = crate::platform::pick_open("Photo or PDF", &crate::omr::PICTURE_EXTS) {
+                if let Some(p) = o.path {
+                    self.read_photo(p);
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.status = "Import from Photo or PDF is available in the Mac and Windows apps.".into();
+        }
+    }
+
+    /// F-31: read a score from a photo or scan in the background; `poll_omr` opens it when done (through the
+    /// unsaved-changes question, as a new score). The first time, it asks to download the reader.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn read_photo(&mut self, picture: std::path::PathBuf) -> bool {
         use crate::omr;
         if self.omr_job.is_some() || self.omr_setup.is_some() {
-            self.status = "Already reading a photo.".into();
+            self.dialog = Some(Dialog::PhotoProgress);
             return false;
         }
+        self.omr_picture = Some(omr::picture_info(&picture));
         let Some(program) = omr::find_audiveris(self.prefs.audiveris_path.as_deref()) else {
-            // first use: download the reader into Fermata's own folder, then read the picture
-            match omr::setup::start(None) {
-                Ok(job) => {
-                    self.status = job.describe();
-                    self.omr_setup = Some(job);
-                    self.omr_waiting = Some(picture);
-                    return true;
-                }
-                Err(e) => {
-                    self.dialog = Some(Dialog::Message(e));
-                    return false;
-                }
+            if omr::setup::dist().is_none() {
+                self.dialog = Some(Dialog::Message(omr::OmrError::NotInstalled.to_string()));
+                return false;
             }
+            self.dialog = Some(Dialog::PhotoFirstUse(picture));
+            return true;
         };
-        let name = picture.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        self.omr_waiting = Some(picture.clone());
         self.omr_job = Some(omr::start(omr::OmrRun { program, timeout: omr::DEFAULT_TIMEOUT, home: omr::reader_home() }, &picture));
-        self.status = format!("Reading {name} with Audiveris (about half a minute a page)...");
+        self.dialog = Some(Dialog::PhotoProgress);
         true
     }
 
-    /// (for the progress UI that waits for the Design mockup)
+    /// F-31: "Download" in the first-use question: get the reader, then read the picture.
     #[cfg(not(target_arch = "wasm32"))]
-    #[allow(dead_code)]
+    pub fn download_reader(&mut self, picture: std::path::PathBuf) {
+        match crate::omr::setup::start(None) {
+            Ok(job) => {
+                self.omr_setup = Some(job);
+                self.omr_waiting = Some(picture);
+                self.omr_started = None;
+                self.dialog = Some(Dialog::PhotoProgress);
+            }
+            Err(e) => self.dialog = Some(Dialog::Message(e)),
+        }
+    }
+
+    /// Cancel in the progress dialog: stops the download (its partial file is deleted) or the reading.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn cancel_photo(&mut self) {
         if let Some(j) = &self.omr_job {
             j.cancel();
@@ -1771,7 +1820,7 @@ impl App {
         }
     }
 
-    /// Is a photo being read? (the window keeps redrawing to notice the end)
+    /// Is a photo being read (or the reader downloaded)? The window keeps redrawing to show the progress.
     pub fn omr_busy(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         return self.omr_job.is_some() || self.omr_setup.is_some();
@@ -1781,31 +1830,70 @@ impl App {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn poll_omr(&mut self) {
+        let progress_open = matches!(self.dialog, Some(Dialog::PhotoProgress));
         if let Some(job) = &self.omr_setup {
-            match job.try_result() {
-                None => self.status = job.describe(),
-                Some(r) => {
-                    self.omr_setup = None;
-                    let pic = self.omr_waiting.take();
-                    match (r, pic) {
-                        (Ok(_), Some(p)) => {
-                            self.read_photo(p);
-                        }
-                        (Ok(_), None) => self.status = "The photo reader is ready.".into(),
-                        // a failed check or download can simply be tried again
-                        (Err(e), _) => self.dialog = Some(Dialog::Message(e)),
+            let Some(r) = job.try_result() else { return };
+            self.omr_setup = None;
+            let pic = self.omr_waiting.take();
+            match (r, pic) {
+                (Ok(_), Some(p)) => {
+                    self.read_photo(p);
+                }
+                (Ok(_), None) => self.status = "The photo reader is ready.".into(),
+                (Err(e), _) if e.contains("cancelled") => {
+                    if progress_open {
+                        self.dialog = None;
                     }
+                    self.status = e;
+                }
+                (Err(e), _) => {
+                    // no connection, or a file that failed its check: a short alert; the next try starts over
+                    let msg = if e.contains("checksum") { e } else { "Couldn't download the photo reader. Check your connection and try again.".to_string() };
+                    self.dialog = Some(Dialog::Message(msg));
                 }
             }
             return;
         }
         let Some(r) = self.omr_job.as_ref().and_then(|j| j.try_result()) else { return };
         self.omr_job = None;
-        match r.map_err(|e| e.to_string()).and_then(|out| crate::omr::to_score(&out)) {
-            Ok((sc, note)) => self.replace_score(Then::Omr(Box::new(sc), note)),
-            Err(e) if e == crate::omr::OmrError::Cancelled.to_string() => self.status = e,
-            Err(e) => self.dialog = Some(Dialog::Message(e)),
+        let picture = self.omr_waiting.take();
+        if progress_open {
+            self.dialog = None;
         }
+        match r {
+            Ok(out) => match crate::omr::to_score(&out) {
+                Ok((sc, _)) => {
+                    let file = picture.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let note = format!("Imported from {file} · {} measures", sc.measures.len());
+                    self.replace_score(Then::Omr(Box::new(sc), note));
+                }
+                Err(_) => self.dialog = Some(Dialog::PhotoFail),
+            },
+            Err(crate::omr::OmrError::Cancelled) => self.status = "Reading the photo was cancelled.".into(),
+            Err(crate::omr::OmrError::Unsupported(m)) => self.dialog = Some(Dialog::Message(m)),
+            Err(_) => self.dialog = Some(Dialog::PhotoFail),
+        }
+    }
+
+    /// F-31: measures where a voice's notes don't fill the time signature (too few or too many beats), for the
+    /// orange marks on a score read from a photo.
+    pub fn count_problems(&self) -> Vec<usize> {
+        let sc = &self.score;
+        (0..sc.measures.len())
+            .filter(|&m| {
+                let want = sc.measures[m].ticks();
+                sc.events.iter().any(|st| {
+                    let evs = &st[m];
+                    let mut voices: Vec<u8> = evs.iter().map(|e| e.voice).collect();
+                    voices.sort();
+                    voices.dedup();
+                    voices.iter().any(|&v| {
+                        let sum: u32 = evs.iter().filter(|e| e.voice == v && !e.grace).map(|e| e.ticks()).sum();
+                        sum != 0 && sum != want
+                    })
+                })
+            })
+            .collect()
     }
 
     pub fn open(&mut self) {
@@ -1872,6 +1960,8 @@ impl App {
                     remember_enc_model(&o.bytes);
                 }
                 self.score = sc;
+                self.photo_banner = false;
+                self.photo_check = false;
                 self.path = if is_native { o.path.clone() } else { None };
                 self.dirty = !is_native;
                 self.undo.clear();
@@ -1895,6 +1985,8 @@ impl App {
     }
 
     pub fn new_score(&mut self, sc: Score) {
+        self.photo_banner = false;
+        self.photo_check = false;
         #[cfg(target_arch = "wasm32")]
         crate::web::new_document();
         // the previous score's changes were answered for (saved or discarded): its backup goes
