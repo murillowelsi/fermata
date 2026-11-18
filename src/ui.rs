@@ -783,7 +783,7 @@ impl App {
                             }
                         }
                         Dialog::NewScore { .. } => {
-                            if kit::btn_primary(ui, "Create").clicked() || enter {
+                            if kit::btn_primary(ui, "Create").clicked() || enter || std::mem::take(&mut self.new_score_create) {
                                 ok = true;
                             }
                             if kit::btn(ui, "Create, then open Text Elements").clicked() {
@@ -965,18 +965,61 @@ impl App {
                         });
                     });
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("Starting Template").font(theme::font_semibold(11.5)).color(theme::t(ui).text_2));
+                        // F-29: Most used as a grid with a picture of each formation, then every other template A–Z
+                        let mut pick: Option<usize> = None;
+                        let mut create = false;
                         let k = theme::t(ui);
-                        egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(4.0).show(ui, |ui| {
-                            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                for (k, t) in TEMPLATES.iter().enumerate() {
-                                    if kit::list_row(ui, *template == k, t, 240.0).clicked() {
-                                        *template = k;
+                        let card_w = 250.0;
+                        let max_h = (ui.ctx().content_rect().height() - 190.0).max(240.0);
+                        egui::ScrollArea::vertical().id_salt("templates").max_height(max_h).show(ui, |ui| {
+                            ui.label(egui::RichText::new("Starting Template · Most used").font(theme::font_semibold(11.5)).color(k.text_2));
+                            egui::Grid::new("template_grid").num_columns(2).spacing(vec2(10.0, 10.0)).show(ui, |ui| {
+                                for (i, &t) in MOST_USED.iter().enumerate() {
+                                    let r = template_card(ui, t, *template == t, card_w);
+                                    if r.clicked() {
+                                        pick = Some(t);
+                                    }
+                                    if r.double_clicked() {
+                                        pick = Some(t);
+                                        create = true;
+                                    }
+                                    if i % 2 == 1 {
+                                        ui.end_row();
                                     }
                                 }
                             });
+                            ui.add_space(4.0);
+                            let rest: Vec<usize> = template_az();
+                            let (hr, _) = ui.allocate_exact_size(vec2(card_w * 2.0 + 10.0, 16.0), Sense::hover());
+                            ui.painter().text(hr.left_center(), Align2::LEFT_CENTER, "All templates (A–Z)", theme::font_semibold(11.5), k.text_2);
+                            ui.painter().text(hr.right_center(), Align2::RIGHT_CENTER, format!("{} more", rest.len()), theme::font(11.5), k.text_2);
+                            let row_h = if kit::touch() { 44.0 } else { 26.0 };
+                            egui::Frame::new().fill(k.field).stroke(Stroke::new(1.0, k.line)).corner_radius(9.0).inner_margin(4.0).show(ui, |ui| {
+                                egui::ScrollArea::vertical().id_salt("templates_az").max_height(row_h * 3.5).show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    for t in rest {
+                                        let r = kit::list_row_h(ui, *template == t, TEMPLATES[t], card_w * 2.0 - 8.0, row_h);
+                                        if r.clicked() {
+                                            pick = Some(t);
+                                        }
+                                        if r.double_clicked() {
+                                            pick = Some(t);
+                                            create = true;
+                                        }
+                                    }
+                                });
+                            });
                         });
+                        if let Some(t) = pick {
+                            *template = t;
+                            let (a, b, c) = template_numbers(t, *staves);
+                            (*staves, *systems, *mps) = (a, b, c);
+                            // a template with B♭ / E♭ / F instruments starts as a C score (still editable)
+                            *c_score = template_transposes(t);
+                        }
+                        if create {
+                            self.new_score_create = true;
+                        }
                     });
                 });
             }
@@ -2375,6 +2418,97 @@ pub const CHORD_GRID: [(&str, &[[Option<&str>; 7]]); 4] = [
 ];
 
 /// The chord symbol text from the Choose Chord window's choices (custom text wins).
+/// New Score ▸ All templates (A–Z): every template not in the Most used grid, Single Staves (the blank score) first.
+pub fn template_az() -> Vec<usize> {
+    let mut v: Vec<usize> = (1..TEMPLATES.len()).filter(|t| !MOST_USED.contains(t)).collect();
+    v.sort_by_key(|&t| TEMPLATES[t].to_lowercase());
+    v.insert(0, 0);
+    v
+}
+
+/// One template in the New Score grid: a picture of its staves, its name and a line about it (F-29).
+fn template_card(ui: &mut Ui, t: usize, on: bool, w: f32) -> egui::Response {
+    let k = theme::t(ui);
+    let h = 116.0;
+    let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+    let p = ui.painter();
+    let (fill, stroke) = if on {
+        (k.accent_soft, Stroke::new(2.0, k.accent))
+    } else if resp.hovered() {
+        (k.cell, Stroke::new(1.0, k.line))
+    } else {
+        (k.field, Stroke::new(1.0, k.line))
+    };
+    p.rect(r, 10.0, fill, stroke, egui::StrokeKind::Inside);
+    // the picture: the page is white in light and dark mode, as on the score
+    let pic = Rect::from_min_size(r.min + vec2(10.0, 10.0), vec2(w - 20.0, 58.0));
+    p.rect(pic, 6.0, Color32::WHITE, Stroke::new(1.0, k.line), egui::StrokeKind::Inside);
+    template_picture(p, pic.shrink2(vec2(8.0, 6.0)), t);
+    let (blurb, new) = template_blurb(t);
+    p.text(pos2(r.left() + 12.0, pic.bottom() + 15.0), Align2::LEFT_CENTER, TEMPLATES[t], theme::font_semibold(13.5), k.text);
+    p.text(pos2(r.left() + 12.0, pic.bottom() + 33.0), Align2::LEFT_CENTER, blurb, theme::font(11.5), k.text_2);
+    if new {
+        let g = p.layout_no_wrap("New".into(), theme::font_semibold(10.5), k.accent);
+        let b = Rect::from_min_size(pos2(r.right() - 14.0 - g.size().x - 12.0, pic.bottom() + 6.0), vec2(g.size().x + 12.0, 17.0));
+        p.rect_filled(b, 8.5, if on { k.field } else { k.accent_soft });
+        p.galley(b.center() - g.size() / 2.0, g, k.accent);
+    }
+    resp.on_hover_text(format!("{} – double-click to create", TEMPLATES[t]))
+}
+
+/// The staves of a template drawn by the score's own clefs, braces and brackets, in `rect`.
+pub fn template_picture(p: &egui::Painter, rect: Rect, t: usize) {
+    let staves = build_template(t, 0, 1, 1, false, false).staves;
+    let ink = Color32::from_gray(20);
+    let n = staves.len().max(1) as f32;
+    let chords = t == 18;
+    let top_room = if chords { 14.0 } else { 0.0 };
+    // staff height 4 spaces, 3 spaces between staves
+    let sp = ((rect.height() - top_room) / (n * 4.0 + (n - 1.0) * 3.0)).clamp(1.2, 3.6);
+    let block = sp * (n * 4.0 + (n - 1.0) * 3.0);
+    let y0 = rect.top() + top_room + (rect.height() - top_room - block) / 2.0;
+    let left = rect.left() + rect.width() * 0.32;
+    let right = rect.right() - 4.0;
+    let labels = staves.len() >= 3 || staves.iter().any(|s| s.bracket_with_next && s.abbrev.contains(' '));
+    let line = Stroke::new(0.8, ink);
+    let mids: Vec<f32> = (0..staves.len()).map(|i| y0 + sp * (2.0 + i as f32 * 7.0)).collect();
+    for (i, s) in staves.iter().enumerate() {
+        let mid = mids[i];
+        let lines = s.lines.max(1) as i32;
+        let gap = if lines == 5 { sp } else { 4.0 * sp / (lines - 1).max(1) as f32 };
+        for l in 0..lines {
+            let y = mid - 2.0 * sp + l as f32 * gap;
+            p.line_segment([pos2(left, y), pos2(right, y)], line);
+        }
+        if s.tab {
+            p.text(pos2(left + sp * 2.2, mid), Align2::CENTER_CENTER, "TAB", theme::font_semibold(sp * 2.4), ink);
+        } else {
+            crate::score_view::draw_clef(p, pos2(left + sp * 1.4, mid), sp, s.clef_at(0), ink);
+        }
+        let in_brace = s.brace_with_next || (i > 0 && staves[i - 1].brace_with_next);
+        if labels && !in_brace && !s.abbrev.is_empty() {
+            p.text(pos2(left - sp * 2.4 - 6.0, mid), Align2::RIGHT_CENTER, &s.abbrev, theme::font(9.5), Color32::from_gray(90));
+        }
+    }
+    if staves.len() > 1 {
+        p.line_segment([pos2(left, mids[0] - 2.0 * sp), pos2(left, mids[mids.len() - 1] + 2.0 * sp)], Stroke::new(1.0, ink));
+    }
+    for i in 0..staves.len().saturating_sub(1) {
+        let (a, b) = (mids[i] - 2.0 * sp, mids[i + 1] + 2.0 * sp);
+        if staves[i].brace_with_next {
+            crate::glyphs::brace(p, pos2(left - sp * 0.6, a), pos2(left - sp * 0.6, b), sp, ink);
+        } else if staves[i].bracket_with_next {
+            crate::glyphs::bracket(p, pos2(left - sp * 0.8, a), pos2(left - sp * 0.8, b), sp, ink);
+        }
+    }
+    if chords {
+        let w = right - left - sp * 6.0;
+        for (j, c) in ["C", "Am7", "F", "G7"].iter().enumerate() {
+            p.text(pos2(left + sp * 6.0 + w * j as f32 / 4.0, rect.top() + 6.0), Align2::LEFT_CENTER, *c, theme::font_semibold(10.5), ink);
+        }
+    }
+}
+
 pub fn chord_text(root: &str, kind: &str, bass: &str, custom: &str) -> String {
     if !custom.trim().is_empty() {
         return custom.trim().to_string();
