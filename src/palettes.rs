@@ -748,7 +748,7 @@ impl App {
     fn palette_panel(&mut self, ui: &mut Ui, i: usize) {
         let k = theme::t(ui);
         let def = palette_def(i, self.tuplet_ratio);
-        let (rects, grid_size) = grid_layout(&def);
+        let (_, grid_size) = grid_layout(&def);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let size = vec2(panel_width(ui.ctx(), i, grid_size.x), grid_size.y);
         // header: the dot closes the palette (it shows × under the mouse); a double-click on the name folds it
@@ -776,10 +776,18 @@ impl App {
         if self.pal_collapsed[i] {
             return;
         }
-        let (area, _) = ui.allocate_exact_size(size, Sense::hover());
+        self.palette_cells(ui, i, &def, size.x);
+    }
+
+    /// The cells of one palette, centred in `width`. True when a cell was picked.
+    fn palette_cells(&mut self, ui: &mut Ui, i: usize, def: &PalDef, width: f32) -> bool {
+        let k = theme::t(ui);
+        let (rects, grid_size) = grid_layout(def);
+        let mut picked = false;
+        let (area, _) = ui.allocate_exact_size(vec2(width.max(grid_size.x), grid_size.y), Sense::hover());
         let grid = Rect::from_min_size(pos2(area.center().x - grid_size.x / 2.0, area.top()), grid_size);
         let painter = ui.painter().clone();
-        let scales = group_scales(&painter, &def);
+        let scales = group_scales(&painter, def);
         let m = margin(def.w, def.h);
         let guides = std::env::var("FERMATA_PALETTE_GUIDES").is_ok_and(|v| v == "1");
         for (n, (c, r)) in def.cells.iter().zip(rects).enumerate() {
@@ -826,6 +834,7 @@ impl App {
             let resp = crate::kit::tip(resp, name, &key.replace("Shift+", "⇧"));
             if resp.clicked() {
                 self.pick_item(c.item.clone());
+                picked = true;
             }
             if c.item == Item::Tuplet && (resp.double_clicked() || resp.secondary_clicked()) {
                 let (a, b) = self.tuplet_ratio;
@@ -833,7 +842,95 @@ impl App {
                 self.dialog = Some(Dialog::Tuplet { notes: a, in_time: b });
             }
         }
+        picked
     }
+
+    /// Tablet (F-25): the rail on the left with the 11 palettes, same order and names. A tap opens a palette
+    /// (or closes the open one).
+    pub fn palette_rail(&mut self, ui: &mut Ui) {
+        let k = theme::t(ui);
+        ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
+        ui.add_space(8.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for i in 0..11 {
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
+                let on = self.rail_sel == Some(i);
+                let p = ui.painter();
+                let tile = r.shrink2(vec2(6.0, 2.0));
+                if on {
+                    p.rect_filled(tile, 10.0, k.accent_soft);
+                    p.rect_filled(Rect::from_min_size(pos2(r.left(), tile.top() + 10.0), vec2(3.0, tile.height() - 20.0)), 1.5, k.accent);
+                } else if resp.is_pointer_button_down_on() {
+                    p.rect_filled(tile, 10.0, k.cell_press);
+                }
+                let ink = if on { k.accent } else { k.text };
+                // the palette's own symbol, the same drawing as in its cells
+                let def = palette_def(i, self.tuplet_ratio);
+                if let Some(Some(c)) = def.cells.get(RAIL_ICON[i]) {
+                    let cell = Rect::from_center_size(pos2(r.center().x, r.top() + 24.0), vec2(34.0, 30.0));
+                    if let Sym::Swatch(rgb) = c.sym {
+                        p.circle_filled(cell.center(), 9.0, Color32::from_rgb(rgb.0, rgb.1, rgb.2));
+                    } else {
+                        let sp = (nominal(c.group) * 0.8).min(group_scales(p, &def).get(c.group).copied().unwrap_or(6.0));
+                        let (shapes, _) = fitted(p, &c.sym, cell, sp, ink);
+                        p.extend(shapes);
+                    }
+                }
+                p.text(pos2(r.center().x, r.bottom() - 12.0), egui::Align2::CENTER_CENTER, RAIL_NAMES[i], theme::font_medium(11.0), if on { k.accent } else { k.text_2 });
+                if resp.clicked() {
+                    self.rail_sel = if on { None } else { Some(i) };
+                }
+            }
+        });
+    }
+
+    /// Tablet: the open palette beside the rail, pinned (`pinned`: lying on its side, or "Pin" pressed) or over
+    /// the page. True when a cell was picked (a palette over the page then closes).
+    pub fn rail_palette(&mut self, ui: &mut Ui, i: usize, pinned: bool, landscape: bool) -> bool {
+        let k = theme::t(ui);
+        let def = touch_def(palette_def(i, self.tuplet_ratio));
+        let (_, grid) = grid_layout(&def);
+        ui.spacing_mut().item_spacing = vec2(0.0, 6.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.set_min_height(36.0);
+            ui.label(egui::RichText::new(PALETTES[i]).font(theme::font_semibold(14.0)).color(k.text_2));
+            ui.label(egui::RichText::new(theme::shortcut_glyphs(crate::commands::Cmd::Palette(i))).font(theme::font(12.0)).color(k.text_3));
+            if landscape {
+                ui.label(egui::RichText::new("·  fixada").font(theme::font(12.0)).color(k.text_3));
+            } else {
+                let (txt, to) = if pinned { ("Soltar", false) } else { ("Fixar ⇥", true) };
+                if ui.add(egui::Label::new(egui::RichText::new(txt).font(theme::font_semibold(14.0)).color(k.accent)).sense(Sense::click())).clicked() {
+                    self.rail_pinned = to;
+                }
+            }
+        });
+        let mut picked = false;
+        egui::ScrollArea::vertical().auto_shrink([true, false]).show(ui, |ui| {
+            picked = self.palette_cells(ui, i, &def, grid.x);
+            ui.add_space(12.0);
+        });
+        picked
+    }
+}
+
+/// The rail's short names (the menus and shortcuts keep the full ones).
+const RAIL_NAMES: [&str; 11] = ["Notes", "Clefs", "Graphics", "Tools", "Dynam.", "Marks 1", "Marks 2", "Symbols", "Guitar", "Expr.", "Colors"];
+/// The cell each palette shows as its icon in the rail: quarter note, treble clef, text, crescendo, f, trill,
+/// accent, fermata, i, dolce, red.
+const RAIL_ICON: [usize; 11] = [7, 0, 1, 1, 8, 0, 2, 0, 1, 6, 1];
+
+/// A palette for fingers: cells of at least 44 × 44 pt, symbols fitted by the same rule.
+pub fn touch_def(mut d: PalDef) -> PalDef {
+    d.w = d.w.max(44.0);
+    d.h = d.h.max(44.0);
+    d
+}
+
+/// Width of the pinned palette beside the rail.
+pub fn rail_palette_width(i: usize, tuplet: (u8, u8)) -> f32 {
+    let (_, grid) = grid_layout(&touch_def(palette_def(i, tuplet)));
+    grid.x.max(150.0) + 24.0
 }
 
 /// Checks a screenshot of the palettes: in every cell, pixels between the cell's edge and its inner area (with 1
@@ -958,6 +1055,28 @@ mod tests {
                 }
             });
         }
+    }
+
+    /// F-25: on a tablet every cell is at least 44 × 44 pt and every symbol still fits its cell.
+    #[test]
+    fn touch_cells_are_44_pt_and_symbols_fit() {
+        with_painter(false, |p| {
+            for (i, name) in PALETTES.iter().enumerate() {
+                let def = touch_def(palette_def(i, (3, 2)));
+                let (rects, _) = grid_layout(&def);
+                let scales = group_scales(p, &def);
+                let m = margin(def.w, def.h);
+                for (c, r) in def.cells.iter().zip(rects) {
+                    let (Some(c), Some(r)) = (c, r) else { continue };
+                    assert!(r.width() >= 44.0 && r.height() >= 44.0, "{name}: {r:?}");
+                    if matches!(c.sym, Sym::Swatch(_)) {
+                        continue;
+                    }
+                    let (_, b) = fitted(p, &c.sym, r, scales[c.group], Color32::BLACK);
+                    assert!(r.shrink(m).expand(0.5).contains_rect(b), "{name} {:?}", c.sym);
+                }
+            }
+        });
     }
 
     #[test]

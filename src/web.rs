@@ -97,6 +97,23 @@ export function midi_stop() {
   }
 }
 export function now_ms() { return performance.now(); }
+// The device (F-25): is the main pointer a finger, and the window size in points. ?device=desktop|touch|reader
+// forces a layout, to try the tablet and phone layouts on a computer.
+let coarseQuery = null, safeProbe = null;
+export function device_info() {
+  if (!coarseQuery) coarseQuery = matchMedia("(pointer: coarse)");
+  const forced = new URLSearchParams(location.search).get("device") || "";
+  return [forced, coarseQuery.matches ? "1" : "0", String(window.innerWidth), String(window.innerHeight)].join(" ");
+}
+// the iPhone's home bar: room kept free at the bottom (0 elsewhere)
+export function safe_bottom() {
+  if (!safeProbe) {
+    safeProbe = document.createElement("div");
+    safeProbe.style.cssText = "position:fixed;left:0;bottom:0;width:0;height:0;visibility:hidden;padding-bottom:env(safe-area-inset-bottom)";
+    document.body.appendChild(safeProbe);
+  }
+  return parseFloat(getComputedStyle(safeProbe).paddingBottom) || 0;
+}
 export function is_mac() {
   const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   return /mac/i.test(p);
@@ -191,6 +208,8 @@ extern "C" {
     fn midi_playing() -> bool;
     fn midi_stop();
     fn now_ms() -> f64;
+    fn device_info() -> String;
+    fn safe_bottom() -> f64;
     fn is_mac() -> bool;
     fn busy_count() -> u32;
     fn open_file(exts: Vec<JsValue>);
@@ -361,4 +380,27 @@ pub fn title(t: &str) {
 /// Opens a page of the site (a path relative to the app's folder) in a new tab.
 pub fn open_page(rel: &str) {
     open_tab(rel);
+}
+
+/// Which layout this screen gets (F-25): asked every frame, so turning the tablet or resizing the window
+/// switches at once.
+pub fn device() -> crate::touch::Device {
+    use crate::touch::Device;
+    let info = device_info();
+    let mut it = info.split(' ');
+    let forced = it.next().unwrap_or("");
+    let coarse = it.next() == Some("1");
+    let w: f32 = it.next().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
+    let h: f32 = it.next().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
+    match forced {
+        "desktop" => Device::Desktop,
+        "touch" => Device::Touch,
+        "reader" => Device::Reader,
+        _ => crate::touch::classify(coarse, w, h),
+    }
+}
+
+/// Room to keep free under the reader's play bar (the iPhone's home bar), in points.
+pub fn safe_area_bottom() -> f32 {
+    safe_bottom() as f32
 }

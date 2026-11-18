@@ -6,6 +6,32 @@ use egui::emath::Numeric;
 use egui::{pos2, vec2, Align2, Color32, Rect, Response, Sense, Stroke, Ui};
 use std::ops::RangeInclusive;
 
+thread_local!(static TOUCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+
+/// The tablet layout (F-25, browser only): targets of 44 pt for fingers. Set once a frame from the app's device;
+/// always off in the desktop apps and with a mouse.
+pub fn set_touch(on: bool) {
+    TOUCH.with(|t| t.set(on));
+}
+pub fn touch() -> bool {
+    TOUCH.with(|t| t.get())
+}
+/// Height of a menu item: 24 pt, or 44 pt for fingers.
+pub fn item_h() -> f32 {
+    if touch() {
+        44.0
+    } else {
+        24.0
+    }
+}
+fn item_font() -> f32 {
+    if touch() {
+        15.0
+    } else {
+        13.0
+    }
+}
+
 pub const BTN_H: f32 = 26.0;
 pub const BTN_MIN_W: f32 = 80.0;
 const RADIUS: f32 = 7.0;
@@ -397,7 +423,7 @@ pub fn status_line(ui: &mut Ui, color: Color32, text: &str) {
 pub fn menu_style(style: &mut egui::Style) {
     let k = theme::of(style.visuals.dark_mode);
     style.spacing.button_padding = vec2(24.0, 3.0);
-    style.spacing.interact_size.y = 24.0;
+    style.spacing.interact_size.y = item_h();
     style.spacing.item_spacing.y = 0.0;
     style.spacing.menu_margin = egui::Margin::same(5);
     let w = &mut style.visuals.widgets;
@@ -429,12 +455,12 @@ pub fn menu_look(ui: &mut Ui) {
 /// A menu item: ✓ column on the left, label, shortcut in grey on the right; blue under the mouse.
 pub fn menu_item(ui: &mut Ui, label: &str, shortcut: &str, checked: bool, enabled: bool) -> Response {
     let k = theme::t(ui);
-    let lg = ui.painter().layout_no_wrap(label.to_string(), theme::font(13.0), Color32::PLACEHOLDER);
-    let sg = ui.painter().layout_no_wrap(shortcut.to_string(), theme::font(12.5), Color32::PLACEHOLDER);
+    let lg = ui.painter().layout_no_wrap(label.to_string(), theme::font(item_font()), Color32::PLACEHOLDER);
+    let sg = ui.painter().layout_no_wrap(shortcut.to_string(), theme::font(item_font() - 0.5), Color32::PLACEHOLDER);
     let desired = 24.0 + lg.size().x + if shortcut.is_empty() { 16.0 } else { 28.0 + sg.size().x + 8.0 };
     let w = if ui.is_sizing_pass() { desired } else { ui.available_width().max(desired) };
     let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), sense);
+    let (r, resp) = ui.allocate_exact_size(vec2(w, item_h()), sense);
     let hl = enabled && (resp.hovered() || resp.has_focus());
     let (fg, fg2) = if !enabled {
         (k.text_3, k.text_3)

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Fermata</title>
 <meta name="description" content="Fermata, a free music notation editor, in the browser.">
 <meta name="theme-color" content="#F2F2F0" media="(prefers-color-scheme: light)">
@@ -11,9 +11,13 @@
 <link rel="icon" type="image/png" href="icons/favicon-64.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="Fermata">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #F2F2F0; }
-  #fermata_canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; }
+  /* touch screens: the app handles pinch and scrolling itself; no text selection or callout on a long press */
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  #fermata_canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; touch-action: none; }
   #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
              font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #5C5C60; }
   #loading img { width: 96px; height: 96px; }

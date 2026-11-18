@@ -191,6 +191,27 @@ pub struct App {
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
+    /// The browser on a touch screen (F-25): desktop, tablet (fingers) or phone (reader). Always Desktop in the
+    /// desktop apps.
+    pub device: crate::touch::Device,
+    /// The press on the score: did a second finger join it (tablet).
+    pub gesture: crate::touch::Gesture,
+    /// The score and undo depth when the first finger went down, to cancel what it started.
+    pub gesture_undo: Option<(Score, usize)>,
+    /// The fingers on the screen now (from the touch events).
+    pub touch_ids: std::collections::HashSet<u64>,
+    /// Tablet: the palette open from the rail, and whether it stays pinned beside the page (always when the
+    /// tablet lies on its side).
+    pub rail_sel: Option<usize>,
+    pub rail_pinned: bool,
+    /// Phone reader: the "⋯" sheet (and its Export rows), where playback starts again after a pause, whether the
+    /// zoom was pinched by hand (otherwise the page fits the width), and until when the fit hint shows.
+    pub reader_menu: bool,
+    pub reader_export: bool,
+    pub reader_pos: usize,
+    pub reader_user_zoom: bool,
+    pub reader_hint_until: f64,
+    pub reader_was_playing: bool,
     pub scroll_to_cursor: bool,
     /// System the view last scrolled to while following playback.
     pub follow_sys: Option<usize>,
@@ -269,6 +290,18 @@ impl App {
             pending_cmd: None,
             after_new_wizard: false,
             after_save: None,
+            device: crate::touch::Device::Desktop,
+            gesture: Default::default(),
+            gesture_undo: None,
+            touch_ids: Default::default(),
+            rail_sel: None,
+            rail_pinned: false,
+            reader_menu: false,
+            reader_export: false,
+            reader_pos: 0,
+            reader_user_zoom: false,
+            reader_hint_until: 0.0,
+            reader_was_playing: false,
             scroll_to_cursor: false,
             follow_sys: None,
             midi: None,
@@ -1536,7 +1569,9 @@ impl App {
 
     /// Replace the current score, asking first when it has unsaved changes (Save / Don't Save / Cancel).
     pub fn replace_score(&mut self, then: Then) {
-        if self.dirty {
+        // the phone's reader edits nothing, so there is nothing to lose (an imported MIDI file only counts as
+        // unsaved because it isn't a Fermata file yet)
+        if self.dirty && self.device != crate::touch::Device::Reader {
             self.dialog = Some(Dialog::ConfirmClose(then));
         } else {
             self.run_then(then);
@@ -1659,6 +1694,14 @@ impl App {
                 self.sel_measures = None;
                 self.cursor = (0, 0, 0);
                 self.status = format!("Opened {}", o.name);
+                // the reader: a new score stops what was playing and fits the width again, with the hint
+                if self.device == crate::touch::Device::Reader {
+                    self.stop_sound();
+                    self.reader_was_playing = false;
+                }
+                self.reader_user_zoom = false;
+                self.reader_hint_until = 0.0;
+                self.reader_pos = 0;
             }
             Err(e) => self.dialog = Some(Dialog::Message(e)),
         }

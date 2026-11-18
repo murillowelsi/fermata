@@ -58,6 +58,12 @@ impl App {
                 v.corner_radius = egui::CornerRadius::same(5);
             }
         }
+        // fingers: 44 pt titles with a larger font (F-25)
+        if kit::touch() {
+            ui.spacing_mut().interact_size.y = kit::item_h();
+            ui.spacing_mut().button_padding = vec2(14.0, 11.0);
+            ui.style_mut().text_styles.insert(egui::TextStyle::Button, theme::font(16.0));
+        }
         // egui marks the title of the open menu as "selected"
         ui.visuals_mut().selection.bg_fill = k.accent;
         ui.visuals_mut().selection.stroke = Stroke::new(1.0, k.accent_fg);
@@ -349,7 +355,7 @@ impl App {
                 self.pending_cmd = Some(Cmd::ZoomOut);
             }
             let k = theme::t(ui);
-            let (zr, _) = ui.allocate_exact_size(vec2(50.0, 28.0), Sense::hover());
+            let (zr, _) = ui.allocate_exact_size(vec2(if kit::touch() { 62.0 } else { 50.0 }, 28.0), Sense::hover());
             ui.painter().text(zr.center(), Align2::CENTER_CENTER, format!("{:.0}%", self.zoom / 1.35 * 100.0), theme::font_medium(13.0), k.text);
             // a click zooms in, a right-click zooms out, as the original's zoom button did
             let zi = tip(icon_button(ui, Icon::ZoomIn, false), "Zoom In", &shortcut_text(Cmd::ZoomIn));
@@ -402,6 +408,8 @@ impl App {
                     let heard = if last == 255 { "no notes yet".to_string() } else { format!("last note {}", Pitch::from_midi(last as i32, false).name()) };
                     (format!("MIDI in: {} ({heard})", mm.names.join(", ")), k.ok)
                 }
+                // a tablet without Web MIDI (iPad): the notes sound in the app
+                _ if kit::touch() && !crate::reader::has_midi() => ("Som do app (sem MIDI no iPad)".to_string(), k.text_3),
                 _ => (web_midi_note().unwrap_or("No MIDI keyboard").to_string(), k.text_3),
             };
             let (dr, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
@@ -453,7 +461,9 @@ impl App {
             if self.qwerty || self.rec.is_some() {
                 status_sep(ui);
             }
-            ui.add(egui::Label::new(egui::RichText::new(&self.status).font(f).color(k.text_3)).truncate());
+            // a tablet starts with how the fingers work instead of the mouse hint
+            let msg = if kit::touch() && self.status.starts_with("Ready.") { "Toque: escreve · 2 dedos: rola e amplia · toque longo: menu" } else { self.status.as_str() };
+            ui.add(egui::Label::new(egui::RichText::new(msg).font(f).color(k.text_3)).truncate());
         });
     }
 
@@ -2126,7 +2136,7 @@ fn web_midi_note() -> Option<&'static str> {
 fn bar_sep(ui: &mut Ui) {
     let k = theme::t(ui);
     ui.add_space(6.0);
-    let (r, _) = ui.allocate_exact_size(vec2(1.0, 20.0), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(1.0, if kit::touch() { 30.0 } else { 20.0 }), Sense::hover());
     ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, k.line));
     ui.add_space(6.0);
 }
@@ -2151,7 +2161,9 @@ fn status_tag(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) {
 /// A framed box on the toolbar (field colour, thin ring, rounded), hovered a shade darker.
 fn bar_box(ui: &mut Ui, w: f32) -> (Rect, egui::Response) {
     let k = theme::t(ui);
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
+    // fingers: 44 pt tall and a little wider (F-25)
+    let (w, h) = if kit::touch() { (w * 1.1, 44.0) } else { (w, 26.0) };
+    let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     let fill = if resp.is_pointer_button_down_on() { theme::blend(k.field, k.cell_press) } else if resp.hovered() { theme::blend(k.field, k.cell) } else { k.field };
     ui.painter().rect(r, 7.0, fill, Stroke::new(1.0, k.line_2), egui::StrokeKind::Inside);
     (r, resp)
@@ -2217,7 +2229,8 @@ pub enum Icon {
 /// A toolbar icon button (30×28). `on` marks the current tool or a running state (playing, recording, click on).
 fn icon_button(ui: &mut Ui, icon: Icon, on: bool) -> egui::Response {
     let k = theme::t(ui);
-    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 28.0), Sense::click());
+    let size = if kit::touch() { vec2(44.0, 44.0) } else { vec2(30.0, 28.0) };
+    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     let p = ui.painter_at(r.expand(1.0));
     if on {
         p.rect(r, 7.0, k.accent_soft, Stroke::new(1.0, theme::alpha(k.accent, 0.35)), egui::StrokeKind::Inside);

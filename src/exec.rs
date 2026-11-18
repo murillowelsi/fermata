@@ -377,6 +377,10 @@ impl App {
                 }
             }
             Redraw => {}
+            // the tablet's rail shows one palette at a time: the same key opens or closes it there
+            Palette(i) if self.device == crate::touch::Device::Touch => {
+                self.rail_sel = if self.rail_sel == Some(i) { None } else { Some(i) };
+            }
             Palette(i) => {
                 self.palettes[i] = !self.palettes[i];
                 self.floating_hidden = false;

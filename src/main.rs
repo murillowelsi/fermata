@@ -21,6 +21,8 @@ mod platform;
 mod rec;
 mod score_view;
 mod theme;
+mod touch;
+mod reader;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod ui;
@@ -146,12 +148,28 @@ impl eframe::App for Shell {
                 if web::busy() {
                     ctx.request_repaint_after(std::time::Duration::from_millis(50));
                 }
-                web::unsaved_changes(a.dirty);
+                web::unsaved_changes(a.dirty && a.device != touch::Device::Reader);
                 web::title(&a.title());
             }
         }
+        // the browser on a touch screen: tablet or phone layout, asked again every frame (turning, resizing)
+        #[cfg(target_arch = "wasm32")]
+        {
+            let d = web::device();
+            if d != a.device {
+                a.device = d;
+                a.reader_hint_until = 0.0;
+                // a held finger becomes a right click after 0.5 s (egui's default, for the mouse, is 0.8 s)
+                let hold = if d == touch::Device::Desktop { 0.8 } else { touch::LONG_PRESS };
+                ctx.options_mut(|o| o.input_options.max_click_duration = hold);
+            }
+        }
+        kit::set_touch(a.device == touch::Device::Touch);
         a.poll_opened();
-        a.handle_shortcuts(&ctx);
+        // the reader edits nothing: no editing keys
+        if a.device != touch::Device::Reader {
+            a.handle_shortcuts(&ctx);
+        }
         if let Some(c) = a.pending_cmd.take() {
             a.exec(c);
         }
@@ -171,20 +189,66 @@ impl eframe::App for Shell {
             a.palette_cell_log = Some(vec![]);
             egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |_| {});
             a.palettes_ui(&ctx);
+        } else if a.device == touch::Device::Reader {
+            a.reader_ui(ui);
+            a.dialogs(&ctx);
         } else {
             if a.palette_cell_log.is_some() {
                 a.palette_cell_log = Some(vec![]);
             }
+            let fingers = a.device == touch::Device::Touch;
             egui::Panel::top("menus").frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| a.menu_bar(ui));
             // the toolbar (Windows ▸ Toolbar shows or hides it): voice, tools, transport, zoom and the measure
             if a.toolbar_open {
                 egui::Panel::top("score_toolbar")
-                    .exact_size(44.0)
+                    .exact_size(if fingers { 58.0 } else { 44.0 })
                     .frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(10, 0)))
                     .show(ui, |ui| a.score_toolbar(ui));
             }
-            egui::Panel::bottom("status").exact_size(24.0).frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| a.status_bar(ui));
+            egui::Panel::bottom("status").exact_size(if fingers { 30.0 } else { 24.0 }).frame(egui::Frame::new().fill(k.win).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| a.status_bar(ui));
+            // the tablet: the palettes in a rail on the left; the open one pinned beside it when the tablet lies on
+            // its side (or "Pin" was pressed), else over the page
+            let landscape = ctx.content_rect().width() > ctx.content_rect().height();
+            let mut overlay = None;
+            if fingers {
+                egui::Panel::left("palette_rail").exact_size(78.0).resizable(false).frame(egui::Frame::new().fill(k.win)).show(ui, |ui| a.palette_rail(ui));
+                if let Some(i) = a.rail_sel {
+                    if landscape || a.rail_pinned {
+                        let w = palettes::rail_palette_width(i, a.tuplet_ratio);
+                        egui::Panel::left("rail_palette")
+                            .exact_size(w)
+                            .resizable(false)
+                            .frame(egui::Frame::new().fill(k.pal_bg).inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 0 }))
+                            .show(ui, |ui| {
+                                a.rail_palette(ui, i, true, landscape);
+                            });
+                    } else {
+                        overlay = Some(i);
+                    }
+                }
+            }
             egui::CentralPanel::default().frame(egui::Frame::new().fill(k.canvas)).show(ui, |ui| a.score_area(ui));
+            if let Some(i) = overlay {
+                let top = ctx.content_rect().top() + 44.0 + if a.toolbar_open { 58.0 } else { 0.0 } + 8.0;
+                let shadow = egui::Shadow { offset: [0, 8], blur: 26, spread: 0, color: k.shadow };
+                let shown = egui::Area::new(egui::Id::unique("rail_overlay")).fixed_pos(egui::pos2(78.0 + 8.0, top)).order(egui::Order::Foreground).show(&ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(k.pal_bg_opaque())
+                        .corner_radius(14.0)
+                        .shadow(shadow)
+                        .inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 })
+                        .show(ui, |ui| {
+                            ui.set_max_height(ctx.content_rect().bottom() - top - 48.0);
+                            a.rail_palette(ui, i, false, false)
+                        })
+                        .inner
+                });
+                // a palette over the page closes once something is picked, or with a tap elsewhere
+                let tapped_outside = ctx.input(|inp| inp.pointer.any_pressed() && inp.pointer.press_origin().is_some_and(|p| !shown.response.rect.contains(p) && p.x > 78.0));
+                if (shown.inner && !a.rail_pinned) || tapped_outside {
+                    a.rail_sel = None;
+                }
+            }
             // red warning over the score when something didn't fit in the bar
             if let Some((msg, t, _)) = a.warn.clone() {
                 let age = t.elapsed().as_secs_f32();
@@ -208,7 +272,9 @@ impl eframe::App for Shell {
                     a.warn = None;
                 }
             }
-            a.palettes_ui(&ctx);
+            if !fingers {
+                a.palettes_ui(&ctx);
+            }
             a.side_windows(&ctx);
             a.dialogs(&ctx);
         }

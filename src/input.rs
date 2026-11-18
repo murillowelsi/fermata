@@ -275,21 +275,48 @@ impl App {
     /// The scrolling page area with the score.
     pub fn score_area(&mut self, ui: &mut Ui) {
         let play = self.play_position();
+        let reader = self.device == crate::touch::Device::Reader;
+        let fingers = self.device != crate::touch::Device::Desktop;
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-            let any_left = !self.floating_hidden && self.palettes.iter().enumerate().any(|(i, o)| *o && [0usize, 1, 2, 3, 10].contains(&i));
+            // the phone's reader: the page fits the width until it is pinched (F-25)
+            if reader && !self.reader_user_zoom {
+                self.zoom = ((ui.clip_rect().width() - 16.0) / self.score.layout.page_w).clamp(0.3, 5.0);
+            }
+            let any_left = !fingers && !self.floating_hidden && self.palettes.iter().enumerate().any(|(i, o)| *o && [0usize, 1, 2, 3, 10].contains(&i));
             // room for the palettes on the left; with space to spare the page sits in the middle of the window
-            let left = if any_left { if self.palettes[1] || self.palettes[2] || self.palettes[3] { 196.0 } else { 104.0 } } else { 24.0 };
+            // (on a tablet the palettes have their own column; the phone shows only the page)
+            let left = if any_left { if self.palettes[1] || self.palettes[2] || self.palettes[3] { 196.0 } else { 104.0 } } else if reader { 8.0 } else { 24.0 };
             let page_w = self.score.layout.page_w * self.zoom;
             let centred = if self.linear { left } else { ((ui.clip_rect().width() - page_w) / 2.0).max(left) };
-            let origin = ui.min_rect().min + vec2(centred, 16.0);
+            let origin = ui.min_rect().min + vec2(centred, if reader { 8.0 } else { 16.0 });
             let geo = sv::layout(&self.score, origin, self.zoom, self.linear);
             // the scrollable area reaches the right edge of the page (plus a margin), wherever the page sits
             let size = vec2(centred + geo.size.x - geo.sp * 4.0 + 24.0, geo.size.y + 32.0);
-            let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
+            // the reader only taps (to choose where playback starts): one finger scrolls the page
+            let (rect, resp) = ui.allocate_exact_size(size, if reader { Sense::click() } else { Sense::click_and_drag() });
+            // two fingers: scroll and zoom (the same zoom as Z and Shift+Z), keeping the point between the fingers
+            // in place; they never write
+            if fingers {
+                if let Some(mt) = ui.input(|i| i.multi_touch()) {
+                    let old = self.zoom;
+                    let new = (old * mt.zoom_delta).clamp(0.3, 5.0);
+                    if (new - old).abs() > 1e-4 {
+                        self.zoom = new;
+                        self.reader_user_zoom |= reader;
+                        let rel = mt.center_pos - ui.min_rect().min;
+                        ui.scroll_with_delta(-rel * (new / old - 1.0));
+                    }
+                    // in the reader the page already follows the first finger
+                    if !reader {
+                        ui.scroll_with_delta(mt.translation_delta);
+                    }
+                    ui.ctx().request_repaint();
+                }
+            }
             let painter = ui.painter_at(rect.expand(2000.0).intersect(ui.clip_rect()));
             // follow playback / cursor scrolling: scroll once when the playing system changes, and only if that
             // system isn't already in view (asking every frame made the last page bounce up and down)
-            let following = matches!((play, self.score.playback.follow), (Some(_), true));
+            let following = matches!((play, self.score.playback.follow || reader), (Some(_), true));
             if !following && play.is_none() {
                 self.follow_sys = None;
             }
@@ -317,7 +344,7 @@ impl App {
             }
 
             let pointer = resp.hover_pos();
-            let ghost = if self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.drag.is_none() {
+            let ghost = if !reader && self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.drag.is_none() {
                 pointer.and_then(|p| sv::locate(&self.score, &geo, p, self.grid())).map(|mut l| {
                     let rest = matches!(self.item, Item::Rest(_));
                     let tuplet = self.cur_tuplet_opt();
@@ -347,7 +374,8 @@ impl App {
                 let st = DrawState {
                     selected: &self.selected,
                     sel_graphics: &self.sel_graphics,
-                    cursor: Some(self.cursor),
+                    // the reader has no insertion cursor
+                    cursor: if reader { None } else { Some(self.cursor) },
                     play_tick: play,
                     show_voice: self.show_voice,
                     show_control_points: self.control_points,
@@ -377,8 +405,94 @@ impl App {
             geo.notes = hits;
             geo.graphics = ghits;
             self.geo = geo;
-            self.mouse(ui, &resp);
+            if reader {
+                // a tap chooses the measure playback starts from (nothing is edited)
+                if resp.clicked() {
+                    if let Some(l) = resp.interact_pointer_pos().and_then(|p| sv::locate(&self.score, &self.geo, p, self.grid())) {
+                        self.cursor = (l.staff, l.measure, 0);
+                        self.reader_pos = l.measure;
+                    }
+                }
+            } else if self.device == crate::touch::Device::Touch {
+                self.touch_mouse(ui, &resp, &painter);
+            } else {
+                self.mouse(ui, &resp);
+            }
         });
+    }
+
+    /// The tablet: the tool follows one finger; a second finger turns the press into scrolling and zooming, and
+    /// when it lands within 120 ms it undoes what the first finger started, without an undo step (F-25).
+    fn touch_mouse(&mut self, ui: &mut Ui, resp: &egui::Response, painter: &egui::Painter) {
+        // the most fingers on the screen at any moment of this frame (several touch events can arrive in one frame)
+        let (mut fingers, pressed, now) = (self.touch_ids.len(), ui.input(|i| i.pointer.primary_pressed()), ui.input(|i| i.time));
+        // (a release frame still counts the fingers it had, so the gesture resets only on the next frame)
+        ui.input(|i| {
+            for e in &i.events {
+                if let egui::Event::Touch { id, phase, .. } = e {
+                    match phase {
+                        egui::TouchPhase::Start => {
+                            self.touch_ids.insert(id.0);
+                        }
+                        egui::TouchPhase::End | egui::TouchPhase::Cancel => {
+                            self.touch_ids.remove(&id.0);
+                        }
+                        egui::TouchPhase::Move => {}
+                    }
+                    fingers = fingers.max(self.touch_ids.len());
+                }
+            }
+        });
+        if pressed && !self.gesture.multi {
+            self.gesture_undo = Some((self.score.clone(), self.undo.len()));
+        }
+        let (act, blocked) = self.gesture.step(now, pressed, fingers);
+        match act {
+            crate::touch::FingerAct::Cancel => {
+                if let Some((sc, n)) = self.gesture_undo.take() {
+                    self.score = sc;
+                    self.undo.truncate(n);
+                }
+                self.drag = None;
+            }
+            crate::touch::FingerAct::Stop => self.drag = None,
+            crate::touch::FingerAct::Normal => {}
+        }
+        if blocked {
+            return;
+        }
+        // with the pencil, the finger may slide to the right line or space before lifting: the note goes where
+        // it lifts (a slide is a drag, not a tap)
+        let slide_note = self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_));
+        if slide_note && resp.drag_stopped() && self.drag.is_none() {
+            if let Some(p) = resp.interact_pointer_pos().or(ui.ctx().pointer_latest_pos()) {
+                let mods = ui.input(|i| i.modifiers);
+                self.click(p, mods);
+            }
+        }
+        // the long press (a right click) shows a ring filling up under the finger
+        let ring = ui.input(|i| {
+            let p = &i.pointer;
+            match (p.press_start_time(), p.press_origin(), p.latest_pos()) {
+                (Some(t0), Some(o), Some(at)) if p.primary_down() && o.distance(at) < 6.0 => Some((at, ((i.time - t0) / crate::touch::LONG_PRESS) as f32)),
+                _ => None,
+            }
+        });
+        if let Some((at, f)) = ring {
+            if resp.rect.contains(at) && f > 0.2 && f < 1.0 {
+                let k = crate::theme::t(ui);
+                let r = 26.0;
+                painter.circle_stroke(at, r, Stroke::new(3.0, crate::theme::alpha(k.accent, 0.25)));
+                let n = 32;
+                let pts: Vec<egui::Pos2> = (0..=n).map(|j| {
+                    let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * f * j as f32 / n as f32;
+                    at + vec2(a.cos(), a.sin()) * r
+                }).collect();
+                painter.add(egui::Shape::line(pts, Stroke::new(3.0, k.accent)));
+                ui.ctx().request_repaint();
+            }
+        }
+        self.mouse(ui, resp);
     }
 
     fn hit_note(&self, p: egui::Pos2) -> Option<sv::NoteHit> {
