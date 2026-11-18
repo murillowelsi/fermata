@@ -5,7 +5,7 @@ use crate::midi_in::MidiMsg;
 use crate::model::*;
 use crate::score_view::NoteRef;
 use std::collections::HashMap;
-use std::time::Instant;
+use crate::clock::Instant;
 
 pub struct RecState {
     /// When beat 1 of the start measure sounds (after the count-in).

@@ -151,7 +151,7 @@ fn path() -> Option<PathBuf> {
 pub const VERSION: u32 = 4;
 
 pub fn load() -> Prefs {
-    let mut p = path().map(|p| load_from(&p)).unwrap_or_default();
+    let mut p = load_raw();
     if p.version < VERSION {
         // earlier versions sent the click to the computer, then to channel 16; it now uses the drum channel
         // a Clavinova in MIDI Accord mode only plays channel 1: send everything there, click included
@@ -166,17 +166,46 @@ pub fn load() -> Prefs {
     p
 }
 
+/// The saved settings: a file on the desktop, the page's localStorage in the browser.
+fn load_raw() -> Prefs {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        path().map(|p| load_from(&p)).unwrap_or_default()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_storage().and_then(|s| s.get_item(WEB_KEY).ok().flatten()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+const WEB_KEY: &str = "fermata.prefs";
+
+#[cfg(target_arch = "wasm32")]
+fn web_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok()?
+}
+
 /// The settings in a file (defaults when it's missing or unreadable).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn load_from(path: &std::path::Path) -> Prefs {
     std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 pub fn save(p: &Prefs) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let (Some(s), Ok(j)) = (web_storage(), serde_json::to_string(p)) {
+            let _ = s.set_item(WEB_KEY, &j);
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     if let Some(path) = path() {
         save_to(p, &path);
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn save_to(p: &Prefs, path: &std::path::Path) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);

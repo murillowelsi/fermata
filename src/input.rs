@@ -825,7 +825,7 @@ pub fn dyn_velocity_in(pb: &PlaybackSettings, d: &str) -> u8 {
     let i = DYNAMICS.iter().position(|x| *x == d).unwrap_or(13);
     let (lo, hi) = pb.dyn_ranges.get(i).copied().unwrap_or((72, 88));
     if pb.humanize && hi > lo {
-        let r = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|t| t.subsec_nanos()).unwrap_or(0);
+        let r = crate::clock::subsec_nanos();
         lo + (r % (hi - lo + 1) as u32) as u8
     } else {
         ((lo as u16 + hi as u16) / 2) as u8

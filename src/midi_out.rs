@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use crate::clock::Instant;
+use std::time::Duration;
 
 pub type SharedConn = Arc<Mutex<Option<midir::MidiOutputConnection>>>;
 
@@ -138,6 +139,10 @@ impl MidiOut {
         if conn.lock().map(|g| g.is_none()).unwrap_or(true) {
             return false;
         }
+        // the browser build has no threads; timed MIDI out there is future work (Web MIDI send timestamps)
+        if cfg!(target_arch = "wasm32") {
+            return false;
+        }
         std::thread::spawn(move || {
             let send = |b: &[u8]| {
                 if let Ok(mut g) = conn.lock() {
@@ -200,6 +205,10 @@ impl MidiOut {
 
     /// Play the score's notes from `from` seconds. Instruments, volume and pan go first, per channel.
     pub fn play(&mut self, notes: &[PlayNote], setup: Vec<(u8, Vec<u8>)>, from: f64, qpm: f64) {
+        // the browser build has no threads to time the messages with (see `test`)
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         self.stop();
         let mut msgs: Vec<Msg> = vec![];
         for n in notes {
@@ -331,6 +340,9 @@ impl MidiOut {
             } else {
                 return;
             }
+        }
+        if cfg!(target_arch = "wasm32") {
+            return;
         }
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(450));

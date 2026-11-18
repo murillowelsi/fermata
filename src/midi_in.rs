@@ -6,7 +6,7 @@ use crate::midi_out::SharedConn;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+use crate::clock::Instant;
 
 #[derive(Clone, Copy, Debug)]
 pub struct MidiMsg {

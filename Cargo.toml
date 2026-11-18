@@ -16,5 +16,22 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 cpal = "0.18"
 winit = "0.30"
 
+# the browser build (F-23 spike): Web MIDI comes through midir, Web Audio through cpal's wasm-bindgen backend
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.18", features = ["wasm-bindgen"] }
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-time = "1"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Storage", "Blob", "Url"] }
+
 [profile.release]
 opt-level = 2
+
+# the browser build (F-23 spike): smaller download; the desktop release profile is unchanged
+[profile.web]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

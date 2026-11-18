@@ -9,6 +9,7 @@ pub struct Opened {
 
 pub const OPEN_EXTS: [&str; 7] = ["fmt", "json", "enc", "ENC", "mid", "midi", "musicxml"];
 
+#[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::*;
 
@@ -58,6 +59,76 @@ mod imp {
     pub fn read_path(path: &PathBuf) -> Option<Opened> {
         let bytes = std::fs::read(path).ok()?;
         Some(Opened { name: path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), bytes, path: Some(path.clone()) })
+    }
+}
+
+/// The browser: files come in through the page's file picker (asynchronously, picked up by `take_opened` on a
+/// later frame) and go out as downloads. There is no file system to write back to.
+#[cfg(target_arch = "wasm32")]
+mod imp {
+    use super::*;
+    use std::cell::RefCell;
+    use wasm_bindgen::JsCast;
+
+    thread_local! {
+        static OPENED: RefCell<Vec<Opened>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn pick(dialog: rfd::AsyncFileDialog) {
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(h) = dialog.pick_file().await {
+                let bytes = h.read().await;
+                OPENED.with(|o| o.borrow_mut().push(Opened { name: h.file_name(), bytes, path: None }));
+            }
+        });
+    }
+
+    pub fn pick_open(desc: &str, exts: &[&str]) -> Option<Opened> {
+        pick(rfd::AsyncFileDialog::new().add_filter(desc, exts));
+        None
+    }
+
+    pub fn pick_any(title: &str) -> Option<Opened> {
+        pick(rfd::AsyncFileDialog::new().set_title(title));
+        None
+    }
+
+    pub fn take_opened() -> Vec<Opened> {
+        OPENED.with(|o| std::mem::take(&mut *o.borrow_mut()))
+    }
+
+    /// Hands the bytes to the browser as a download named `name`.
+    fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
+        let err = |e: wasm_bindgen::JsValue| format!("{e:?}");
+        let arr = js_sys::Uint8Array::from(bytes);
+        let parts = js_sys::Array::of1(&arr);
+        let blob = web_sys::Blob::new_with_u8_array_sequence(&parts).map_err(err)?;
+        let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?;
+        let doc = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
+        let a: web_sys::HtmlAnchorElement = doc.create_element("a").map_err(err)?.dyn_into().map_err(|_| "no anchor")?;
+        a.set_href(&url);
+        a.set_download(name);
+        a.click();
+        let _ = web_sys::Url::revoke_object_url(&url);
+        Ok(())
+    }
+
+    pub fn save_as(default_name: &str, ext: &str, _desc: &str, bytes: &[u8]) -> Result<Option<PathBuf>, String> {
+        let name = format!("{default_name}.{ext}");
+        download(&name, bytes)?;
+        Ok(Some(PathBuf::from(name)))
+    }
+
+    pub fn pick_save_path(default_name: &str, ext: &str, _desc: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(format!("{default_name}.{ext}")))
+    }
+
+    pub fn save_to(path: &PathBuf, bytes: &[u8]) -> Result<(), String> {
+        download(&path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "score.fmt".into()), bytes)
+    }
+
+    pub fn read_path(_path: &PathBuf) -> Option<Opened> {
+        None
     }
 }
 

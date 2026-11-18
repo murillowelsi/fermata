@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
 mod audio;
+mod clock;
 mod commands;
 mod devshots;
 mod enc;
@@ -53,6 +54,19 @@ fn write_palette_check(img: &egui::ColorImage, path: &std::path::Path, ppp: f32,
 }
 
 fn save_png(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), String> {
+    // the browser: a download
+    #[cfg(target_arch = "wasm32")]
+    {
+        platform::save_to(&path.to_path_buf(), &platform::png_bytes(img))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        save_png_file(img, path)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_png_file(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -239,6 +253,35 @@ impl eframe::App for Shell {
     }
 }
 
+/// The browser build (F-23 spike): the same app in a <canvas id="fermata_canvas"> of index.html.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use wasm_bindgen::JsCast;
+    wasm_bindgen_futures::spawn_local(async {
+        let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+        let Some(canvas) = doc.get_element_by_id("fermata_canvas").and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok()) else { return };
+        let started = eframe::WebRunner::new()
+            .start(
+                canvas,
+                eframe::WebOptions::default(),
+                Box::new(|cc| {
+                    theme::install(&cc.egui_ctx, None);
+                    cc.egui_ctx.set_theme(prefs::load().appearance.preference());
+                    let app = app::App::new(false);
+                    Ok(Box::new(Shell { app, frames: 0, shot_path: None, shot_requested: false, shot_done: Arc::new(AtomicBool::new(false)), sheet: false, steps: vec![] }))
+                }),
+            )
+            .await;
+        if let Some(el) = doc.get_element_by_id("loading") {
+            match started {
+                Ok(()) => el.remove(),
+                Err(e) => el.set_text_content(Some(&format!("Fermata couldn't start: {e:?}"))),
+            }
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut shot = None;

@@ -166,7 +166,7 @@ pub struct App {
     pub midi: Option<crate::midi_in::MidiIn>,
     pub rec: Option<crate::rec::RecState>,
     pub rec_settings: crate::rec::RecSettings,
-    pub last_step: Option<(std::time::Instant, NoteRef)>,
+    pub last_step: Option<(crate::clock::Instant, NoteRef)>,
     pub pending_open: Vec<(u8, usize, u64, bool)>,
     /// The original-format file the score came from, used as the model when saving back to .enc.
     pub enc_model: Option<Vec<u8>>,
@@ -176,7 +176,7 @@ pub struct App {
     /// How far (absolute ticks from the start measure) old notes have been cleared during this take.
     pub rec_cleared: u64,
     /// A warning shown over the score (text, when, the measure to flash red as staff/measure).
-    pub warn: Option<(String, std::time::Instant, Option<(usize, usize)>)>,
+    pub warn: Option<(String, crate::clock::Instant, Option<(usize, usize)>)>,
     pub prefs: crate::prefs::Prefs,
 }
 
@@ -709,7 +709,7 @@ impl App {
         let need_txt = if (need - need.round()).abs() < 0.01 { format!("{}", need.round() as i32) } else { format!("{need:.2}").trim_end_matches('0').trim_end_matches('.').to_string() };
         let msg = format!("Doesn't fit: measure {} is {}/{} ({} beats) and this would need {} beats. Nothing was changed.", m + 1, mi.num, mi.den, mi.num, need_txt);
         self.status = msg.clone();
-        self.warn = Some((msg, std::time::Instant::now(), Some((s, m))));
+        self.warn = Some((msg, crate::clock::Instant::now(), Some((s, m))));
     }
 
     /// Time Signature: sets num/den on the measures `from..=to` (1-based). If any of them holds more than the new
@@ -738,7 +738,7 @@ impl App {
     pub fn warn_time_signature(&mut self, s: usize, m: usize, num: u8, den: u8) {
         let msg = format!("Measure {} has more beats than {num}/{den}. Nothing was changed.", m + 1);
         self.status = msg.clone();
-        self.warn = Some((msg, std::time::Instant::now(), Some((s, m))));
+        self.warn = Some((msg, crate::clock::Instant::now(), Some((s, m))));
     }
 
     /// After an edit, any note running past its bar line undoes the edit and shows the warning.
