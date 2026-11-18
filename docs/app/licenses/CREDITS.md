@@ -41,8 +41,15 @@ files are from its `extras/ttf/` folder, unchanged.
 | rfd 0.15 | MIT |
 | cpal 0.18 | Apache-2.0 |
 | winit 0.30 | Apache-2.0 |
+| miniz_oxide 0.8 (only to decompress `.mxl` files; already in the app through `png`) | MIT OR Zlib OR Apache-2.0 |
 
 Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).
+
+## File formats
+
+The MusicXML reader (`src/musicxml.rs`), its XML parser and its ZIP reader are Fermata's own code, written from the
+public MusicXML 4.0 specification (W3C Music Notation Community Group) and the ZIP format note (PKWARE APPNOTE).
+The test files in `tests/musicxml/` were written by the Fermata team; `tests/corpus/` holds scores made by the team.
 
 ## Compatibility
 

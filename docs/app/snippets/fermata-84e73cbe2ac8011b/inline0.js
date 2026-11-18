@@ -86,6 +86,42 @@ export function midi_stop() {
   }
 }
 export function now_ms() { return performance.now(); }
+export function is_hidden() { return typeof document !== "undefined" && document.hidden; }
+// Automatic backups (F-28): IndexedDB "fermata", store "autosave" (id -> JSON); the heartbeat of the tab that owns
+// a copy in localStorage "fermata.alive.<id>". Copies whose heartbeat is old were left behind.
+let bkDb = null;
+const bkFound = [];
+function bkOpen() {
+  if (!bkDb) bkDb = new Promise((ok, no) => {
+    if (!window.indexedDB) { no(new Error("no IndexedDB")); return; }
+    const r = indexedDB.open("fermata", 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("autosave")) r.result.createObjectStore("autosave"); };
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  });
+  return bkDb;
+}
+function bkStore(mode) { return bkOpen().then((db) => db.transaction("autosave", mode).objectStore("autosave")); }
+export function backup_alive(id) { try { localStorage.setItem("fermata.alive." + id, String(Date.now())); } catch (e) {} }
+export function backup_put(id, json) { backup_alive(id); bkStore("readwrite").then((s) => s.put(json, id)).catch(() => {}); }
+export function backup_delete(id) {
+  try { localStorage.removeItem("fermata.alive." + id); } catch (e) {}
+  bkStore("readwrite").then((s) => s.delete(id)).catch(() => {});
+}
+export function backup_scan(staleMs) {
+  bkStore("readonly").then((s) => {
+    const req = s.openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      let beat = null;
+      try { beat = parseFloat(localStorage.getItem("fermata.alive." + c.key)); } catch (e) {}
+      if (!(beat > 0) || Date.now() - beat > staleMs) bkFound.push(c.value);
+      c.continue();
+    };
+  }).catch(() => {});
+}
+export function backup_found() { return bkFound.splice(0); }
 // The device (F-25): is the main pointer a finger, and the window size in points. ?device=desktop|touch|reader
 // forces a layout, to try the tablet and phone layouts on a computer.
 let coarseQuery = null, safeProbe = null;
