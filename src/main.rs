@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
 mod audio;
+mod autosave;
 mod clock;
 mod commands;
 mod devshots;
@@ -79,6 +80,11 @@ fn save_png_file(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), S
 }
 
 impl eframe::App for Shell {
+    // closing normally: the automatic backup isn't needed any more (F-28)
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.app.autosave_exit();
+    }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         devshots::inject(&self.steps, self.frames, raw_input);
     }
@@ -179,6 +185,16 @@ impl eframe::App for Shell {
         }
         kit::set_touch(a.device == touch::Device::Touch);
         a.poll_opened();
+        // automatic backup and recovery (F-28): a minute after a change, and when the window loses focus
+        {
+            let (now, focused) = ctx.input(|i| (i.time, i.focused && i.viewport().focused.unwrap_or(true)));
+            #[cfg(target_arch = "wasm32")]
+            let focused = focused && !web::page_hidden();
+            a.autosave_tick(now, focused);
+            if a.autosave.enabled && a.dirty {
+                ctx.request_repaint_after(std::time::Duration::from_secs(5));
+            }
+        }
         // the reader edits nothing: no editing keys
         if a.device != touch::Device::Reader {
             a.handle_shortcuts(&ctx);

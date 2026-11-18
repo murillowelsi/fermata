@@ -97,6 +97,42 @@ export function midi_stop() {
   }
 }
 export function now_ms() { return performance.now(); }
+export function is_hidden() { return typeof document !== "undefined" && document.hidden; }
+// Automatic backups (F-28): IndexedDB "fermata", store "autosave" (id -> JSON); the heartbeat of the tab that owns
+// a copy in localStorage "fermata.alive.<id>". Copies whose heartbeat is old were left behind.
+let bkDb = null;
+const bkFound = [];
+function bkOpen() {
+  if (!bkDb) bkDb = new Promise((ok, no) => {
+    if (!window.indexedDB) { no(new Error("no IndexedDB")); return; }
+    const r = indexedDB.open("fermata", 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("autosave")) r.result.createObjectStore("autosave"); };
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  });
+  return bkDb;
+}
+function bkStore(mode) { return bkOpen().then((db) => db.transaction("autosave", mode).objectStore("autosave")); }
+export function backup_alive(id) { try { localStorage.setItem("fermata.alive." + id, String(Date.now())); } catch (e) {} }
+export function backup_put(id, json) { backup_alive(id); bkStore("readwrite").then((s) => s.put(json, id)).catch(() => {}); }
+export function backup_delete(id) {
+  try { localStorage.removeItem("fermata.alive." + id); } catch (e) {}
+  bkStore("readwrite").then((s) => s.delete(id)).catch(() => {});
+}
+export function backup_scan(staleMs) {
+  bkStore("readonly").then((s) => {
+    const req = s.openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      let beat = null;
+      try { beat = parseFloat(localStorage.getItem("fermata.alive." + c.key)); } catch (e) {}
+      if (!(beat > 0) || Date.now() - beat > staleMs) bkFound.push(c.value);
+      c.continue();
+    };
+  }).catch(() => {});
+}
+export function backup_found() { return bkFound.splice(0); }
 // The device (F-25): is the main pointer a finger, and the window size in points. ?device=desktop|touch|reader
 // forces a layout, to try the tablet and phone layouts on a computer.
 let coarseQuery = null, safeProbe = null;
@@ -295,6 +331,14 @@ extern "C" {
     fn midi_playing() -> bool;
     fn midi_stop();
     fn now_ms() -> f64;
+    fn is_hidden() -> bool;
+    pub fn backup_alive(id: &str);
+    pub fn backup_put(id: &str, json: &str);
+    pub fn backup_delete(id: &str);
+    #[wasm_bindgen(js_name = backup_scan)]
+    fn backup_scan_js(stale_ms: f64);
+    #[wasm_bindgen(js_name = backup_found)]
+    fn backup_found_js() -> js_sys::Array;
     fn device_info() -> String;
     fn safe_bottom() -> f64;
     fn is_mac() -> bool;
@@ -535,4 +579,17 @@ pub fn open_target(r: egui::Rect) {
 pub fn publish_open_targets(zoom: f32, keys: bool) {
     let flat: Vec<f32> = OPEN_TARGETS.with(|t| t.borrow_mut().drain(..).flat_map(|r| [r.left(), r.top(), r.width(), r.height()]).collect());
     set_open_targets(&flat, zoom, keys);
+}
+
+/// The tab is in the background (on a phone or tablet the app may be closed without warning from there).
+pub fn page_hidden() -> bool {
+    is_hidden()
+}
+
+/// Automatic backups in IndexedDB (F-28; see `autosave.rs`).
+pub fn backup_scan(stale_ms: f64) {
+    backup_scan_js(stale_ms);
+}
+pub fn backup_found() -> Vec<String> {
+    backup_found_js().iter().filter_map(|v| v.as_string()).collect()
 }
