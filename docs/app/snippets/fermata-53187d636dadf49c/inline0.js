@@ -86,6 +86,23 @@ export function midi_stop() {
   }
 }
 export function now_ms() { return performance.now(); }
+// The device (F-25): is the main pointer a finger, and the window size in points. ?device=desktop|touch|reader
+// forces a layout, to try the tablet and phone layouts on a computer.
+let coarseQuery = null, safeProbe = null;
+export function device_info() {
+  if (!coarseQuery) coarseQuery = matchMedia("(pointer: coarse)");
+  const forced = new URLSearchParams(location.search).get("device") || "";
+  return [forced, coarseQuery.matches ? "1" : "0", String(window.innerWidth), String(window.innerHeight)].join(" ");
+}
+// the iPhone's home bar: room kept free at the bottom (0 elsewhere)
+export function safe_bottom() {
+  if (!safeProbe) {
+    safeProbe = document.createElement("div");
+    safeProbe.style.cssText = "position:fixed;left:0;bottom:0;width:0;height:0;visibility:hidden;padding-bottom:env(safe-area-inset-bottom)";
+    document.body.appendChild(safeProbe);
+  }
+  return parseFloat(getComputedStyle(safeProbe).paddingBottom) || 0;
+}
 export function is_mac() {
   const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   return /mac/i.test(p);
