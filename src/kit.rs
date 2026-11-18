@@ -190,10 +190,10 @@ pub fn chip_sized(ui: &mut Ui, on: bool, text: &str, min_w: f32, h: f32) -> Resp
     resp
 }
 
-/// A row of a choice list (the New Score templates): blue when chosen.
-pub fn list_row(ui: &mut Ui, on: bool, text: &str, width: f32) -> Response {
+/// A row of a choice list (New Score ▸ All templates): blue when chosen; 26 pt high, or 44 pt for fingers.
+pub fn list_row_h(ui: &mut Ui, on: bool, text: &str, width: f32, h: f32) -> Response {
     let k = theme::t(ui);
-    let (r, resp) = ui.allocate_exact_size(vec2(width, 26.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
     if on {
         ui.painter().rect_filled(r, 5.0, k.accent);
     } else if resp.hovered() {

@@ -188,6 +188,8 @@ pub struct App {
     pub lyric_line: usize,
     pub pending_cmd: Option<Cmd>,
     pub after_new_wizard: bool,
+    /// New Score: a template was double-clicked (= Create).
+    pub new_score_create: bool,
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
@@ -298,6 +300,7 @@ impl App {
             lyric_line: 0,
             pending_cmd: None,
             after_new_wizard: false,
+            new_score_create: false,
             after_save: None,
             device: crate::touch::Device::Desktop,
             gesture: Default::default(),
@@ -1791,7 +1794,7 @@ pub fn default_new_score() -> Score {
     build_template(0, 2, 5, 3, false, false)
 }
 
-pub const TEMPLATES: [&str; 22] = [
+pub const TEMPLATES: [&str; 24] = [
     "Single Staves",
     "Piano",
     "Voice-Piano",
@@ -1814,12 +1817,67 @@ pub const TEMPLATES: [&str; 22] = [
     "Marching Band",
     "Orchestra",
     "String Quartet",
+    // F-29
+    "Choir 4 Stave SATB",
+    "Wind Band (small)",
 ];
+
+/// New Score ▸ Most used: the templates shown as a grid with a picture of their staves (F-29), in this order.
+pub const MOST_USED: [usize; 8] = [1, 8, 22, 18, 2, 21, 11, 23];
+
+/// One line under a template's name in the grid, and whether it is new (badge).
+pub fn template_blurb(t: usize) -> (&'static str, bool) {
+    match t {
+        1 => ("Treble + bass, braced", false),
+        8 => ("S/A and T/B on 2 staves", false),
+        22 => ("One staff per voice", true),
+        18 => ("Melody with chord symbols", false),
+        2 => ("Voice + piano grand staff", false),
+        21 => ("Vn 1, Vn 2, Va, Vc", false),
+        11 => ("Notation + 6-line tab", false),
+        23 => ("Fl, Cl, Sax, Tpt, Tbn", true),
+        _ => ("", false),
+    }
+}
+
+/// The numbers a template fills in New Score: (staves per system, systems per page, measures per system). Single
+/// Staves keeps the staves already typed.
+pub fn template_numbers(t: usize, staves_now: usize) -> (usize, usize, usize) {
+    if t == 0 {
+        return (staves_now, 5, 4);
+    }
+    let n = build_template(t, 0, 1, 1, false, false).staves.len();
+    let systems = match n {
+        1 => 8,
+        2 => 5,
+        3 => 4,
+        4 | 5 => 3,
+        6 => 2,
+        _ => 1,
+    };
+    (n, systems, 4)
+}
 
 fn st(name: &str, clef: Clef, prog: u8, tr: i8) -> Staff {
     let mut s = Staff::new(name, clef, prog);
     s.transpose = tr;
     s
+}
+
+/// A staff with its short name (shown from the second system on).
+fn sta(name: &str, abbrev: &str, clef: Clef, prog: u8, tr: i8) -> Staff {
+    let mut s = st(name, clef, prog, tr);
+    s.abbrev = abbrev.into();
+    s
+}
+
+/// Brackets a run of staves (a section of a score): bracket and bar lines through, from the first to the last.
+fn bracket_group(v: &mut [Staff]) {
+    let n = v.len();
+    for s in v.iter_mut().take(n.saturating_sub(1)) {
+        s.bracket_with_next = true;
+        s.barline_to_next = true;
+    }
 }
 
 fn grand(name: &str, prog: u8) -> Vec<Staff> {
@@ -1842,7 +1900,7 @@ pub fn build_template(t: usize, staves: usize, systems: usize, mps: usize, c_sco
         }
         1 => grand("Piano", 0),
         2 => {
-            let mut v = vec![st("Voice", Clef::Treble, 52, 0)];
+            let mut v = vec![sta("Voice", "Vo.", Clef::Treble, 52, 0)];
             v.extend(grand("Piano", 0));
             v
         }
@@ -1890,10 +1948,10 @@ pub fn build_template(t: usize, staves: usize, systems: usize, mps: usize, c_sco
             st("Cello", Clef::Bass, 42, 0),
         ],
         7 | 8 | 9 => {
-            let mut s = st("Soprano Alto", Clef::Treble, 52, 0);
+            let mut s = sta("Soprano Alto", "S. A.", Clef::Treble, 52, 0);
             s.bracket_with_next = true;
             s.barline_to_next = true;
-            let mut v = vec![s, st("Tenor Bass", Clef::Bass, 52, 0)];
+            let mut v = vec![s, sta("Tenor Bass", "T. B.", Clef::Bass, 52, 0)];
             if t == 7 {
                 v.extend(grand("Keyboard", 0));
             }
@@ -1976,8 +2034,57 @@ pub fn build_template(t: usize, staves: usize, systems: usize, mps: usize, c_sco
             st("Cello", Clef::Bass, 42, 0),
             st("Contrabass", Clef::Bass, 43, -12),
         ],
-        _ => vec![st("Violin I", Clef::Treble, 40, 0), st("Violin II", Clef::Treble, 40, 0), st("Viola", Clef::Alto, 41, 0), st("Cello", Clef::Bass, 42, 0)],
+        // F-29: one staff per voice, bracketed (voices keep their own bar lines between staves, as in choral scores)
+        22 => {
+            let mut v = vec![
+                sta("Soprano", "S.", Clef::Treble, 52, 0),
+                sta("Alto", "A.", Clef::Treble, 52, 0),
+                sta("Tenor", "T.", Clef::Treble8vb, 52, 0),
+                sta("Bass", "B.", Clef::Bass, 52, 0),
+            ];
+            for s in v.iter_mut().take(3) {
+                s.bracket_with_next = true;
+            }
+            v
+        }
+        // F-29: woodwinds and brass bracketed by section; clarinet and trumpet in B♭, alto sax in E♭ (written pitch)
+        23 => {
+            let mut wood = vec![
+                sta("Flute", "Fl.", Clef::Treble, 73, 0),
+                sta("Clarinet in Bb", "Cl.", Clef::Treble, 71, -2),
+                sta("Alto Sax", "A. Sax", Clef::Treble, 65, -9),
+            ];
+            let mut brass = vec![sta("Trumpet in Bb", "Tpt.", Clef::Treble, 56, -2), sta("Trombone", "Tbn.", Clef::Bass, 57, 0)];
+            bracket_group(&mut wood);
+            bracket_group(&mut brass);
+            wood.extend(brass);
+            wood
+        }
+        _ => {
+            let mut v = vec![
+                sta("Violin I", "Vn. I", Clef::Treble, 40, 0),
+                sta("Violin II", "Vn. II", Clef::Treble, 40, 0),
+                sta("Viola", "Va.", Clef::Alto, 41, 0),
+                sta("Cello", "Vc.", Clef::Bass, 42, 0),
+            ];
+            bracket_group(&mut v);
+            v
+        }
     };
+    // the staves typed in New Score: fewer drops the last staves, more adds single staves (0 = as the template is)
+    if t != 0 && staves > 0 && staves != v.len() {
+        let n = staves.clamp(1, 32);
+        v.truncate(n);
+        if let Some(last) = v.last_mut() {
+            last.brace_with_next = false;
+            last.bracket_with_next = false;
+            last.barline_to_next = false;
+        }
+        while v.len() < n {
+            let i = v.len();
+            v.push(st(&format!("Staff {}", i + 1), Clef::Treble, 0, 0));
+        }
+    }
     for (i, s) in v.iter_mut().enumerate() {
         if !s.drum {
             s.channel = (i % 15) as u8 + if i >= 9 { 1 } else { 0 };
@@ -2236,5 +2343,95 @@ mod unsaved_tests {
         a.dialog = None;
         a.answer_unsaved(t, Answer::DontSave);
         assert!(a.quit_requested);
+    }
+}
+
+#[cfg(test)]
+mod f29_tests {
+    //! F-29: New Score templates (Most used grid, two new templates).
+    use super::*;
+
+    fn staves(t: usize) -> Vec<Staff> {
+        build_template(t, 0, 5, 4, false, false).staves
+    }
+
+    #[test]
+    fn the_grid_has_the_eight_templates_of_the_spec() {
+        let names: Vec<&str> = MOST_USED.iter().map(|&t| TEMPLATES[t]).collect();
+        assert_eq!(names, ["Piano", "Choir 2 Stave SATB", "Choir 4 Stave SATB", "Lead Sheet", "Voice-Piano", "String Quartet", "Guitar + Tab", "Wind Band (small)"]);
+        assert!(MOST_USED.iter().all(|&t| !template_blurb(t).0.is_empty()));
+        // the A–Z list has every other template once, Single Staves first
+        let az = crate::ui::template_az();
+        assert_eq!(az.len(), 16);
+        assert_eq!(az[0], 0);
+        assert_eq!(az.len() + MOST_USED.len(), TEMPLATES.len());
+        assert!(az.iter().all(|t| !MOST_USED.contains(t)));
+    }
+
+    #[test]
+    fn choir_4_stave_satb() {
+        let v = staves(22);
+        let got: Vec<(&str, &str, Clef, i8, u8)> = v.iter().map(|s| (s.name.as_str(), s.abbrev.as_str(), s.clef_at(0), s.transpose, s.program)).collect();
+        assert_eq!(
+            got,
+            vec![("Soprano", "S.", Clef::Treble, 0, 52), ("Alto", "A.", Clef::Treble, 0, 52), ("Tenor", "T.", Clef::Treble8vb, 0, 52), ("Bass", "B.", Clef::Bass, 0, 52)]
+        );
+        // one bracket over the four, no brace; voices keep their own bar lines
+        assert_eq!(v.iter().map(|s| s.bracket_with_next).collect::<Vec<_>>(), [true, true, true, false]);
+        assert!(v.iter().all(|s| !s.brace_with_next && !s.barline_to_next));
+        // each voice on its own MIDI channel
+        let ch: std::collections::HashSet<u8> = v.iter().map(|s| s.channel).collect();
+        assert_eq!(ch.len(), 4);
+    }
+
+    #[test]
+    fn wind_band_small() {
+        let v = staves(23);
+        let got: Vec<(&str, Clef, i8, u8)> = v.iter().map(|s| (s.abbrev.as_str(), s.clef_at(0), s.transpose, s.program)).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Fl.", Clef::Treble, 0, 73),  // Flute
+                ("Cl.", Clef::Treble, -2, 71), // Clarinet in B♭ sounds a major 2nd lower
+                ("A. Sax", Clef::Treble, -9, 65), // Alto Sax in E♭ sounds a major 6th lower
+                ("Tpt.", Clef::Treble, -2, 56), // Trumpet in B♭
+                ("Tbn.", Clef::Bass, 0, 57),   // Trombone in C, bass clef
+            ]
+        );
+        // woodwinds and brass bracketed separately, bar lines through each section only
+        assert_eq!(v.iter().map(|s| s.bracket_with_next).collect::<Vec<_>>(), [true, true, false, true, false]);
+        assert_eq!(v.iter().map(|s| s.barline_to_next).collect::<Vec<_>>(), [true, true, false, true, false]);
+        // a written C on the clarinet plays B♭3, on the sax E♭3
+        assert_eq!(60 + v[1].transpose as i32, 58);
+        assert_eq!(60 + v[2].transpose as i32, 51);
+        assert!(v.iter().all(|s| s.channel != 9 && !s.drum));
+    }
+
+    #[test]
+    fn choosing_a_template_fills_the_numbers_and_they_stay_editable() {
+        assert_eq!(template_numbers(23, 2), (5, 3, 4));
+        assert_eq!(template_numbers(22, 2), (4, 3, 4));
+        assert_eq!(template_numbers(1, 7), (2, 5, 4));
+        assert_eq!(template_numbers(0, 7), (7, 5, 4), "Single Staves keeps the typed staves");
+        // the filled numbers give the template as it is
+        let (n, sy, mp) = template_numbers(23, 2);
+        let sc = build_template(23, n, sy, mp, false, false);
+        assert_eq!(sc.staves.len(), 5);
+        assert_eq!((sc.layout.systems_per_page, sc.layout.measures_per_system, sc.measures.len()), (3, 4, 12));
+        // edited: fewer staves drop the last ones (no bracket left hanging), more add single staves
+        let sc = build_template(23, 4, 3, 4, false, false);
+        assert_eq!(sc.staves.iter().map(|s| s.abbrev.as_str()).collect::<Vec<_>>(), ["Fl.", "Cl.", "A. Sax", "Tpt."]);
+        assert!(!sc.staves[3].bracket_with_next && !sc.staves[3].barline_to_next);
+        let sc = build_template(22, 6, 3, 4, false, false);
+        assert_eq!(sc.staves.len(), 6);
+        assert_eq!(sc.staves[5].name, "Staff 6");
+    }
+
+    #[test]
+    fn the_default_new_score_is_unchanged() {
+        let sc = default_new_score();
+        assert_eq!(sc.staves.len(), 2);
+        assert!(sc.staves[0].brace_with_next);
+        assert_eq!((sc.layout.systems_per_page, sc.layout.measures_per_system), (5, 3));
     }
 }
