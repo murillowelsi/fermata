@@ -93,6 +93,25 @@ impl App {
                 ctx.request_repaint_after(std::time::Duration::from_millis(500));
             }
         }
+        // the phone has no status bar: the sound held by the browser gets its own hint over the page (F-27)
+        #[cfg(target_arch = "wasm32")]
+        let notice = (self.status == crate::web::TAP_FOR_SOUND && crate::web::sound_blocked())
+            || (self.status == crate::web::SILENT_HINT && crate::web::now() < self.notice_until);
+        #[cfg(not(target_arch = "wasm32"))]
+        let notice = false;
+        if notice {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            egui::Area::new(egui::Id::unique("reader_tap_sound"))
+                .fixed_pos(pos2(page.center().x, page.top() + 60.0))
+                .pivot(Align2::CENTER_TOP)
+                .order(egui::Order::Foreground)
+                .interactable(false)
+                .show(&ctx, |ui| {
+                    egui::Frame::new().fill(k.accent).corner_radius(18.0).inner_margin(egui::Margin::symmetric(16, 9)).show(ui, |ui| {
+                        ui.label(egui::RichText::new(&self.status).font(theme::font_medium(14.0)).color(k.accent_fg));
+                    });
+                });
+        }
         if self.reader_menu {
             self.reader_sheet(&ctx);
         }

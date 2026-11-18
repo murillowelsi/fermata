@@ -200,6 +200,12 @@ pub struct App {
     pub gesture_undo: Option<(Score, usize)>,
     /// The fingers on the screen now (from the touch events).
     pub touch_ids: std::collections::HashSet<u64>,
+    /// The browser: the silent-mode hint was shown this session, and until when (page clock, ms) the reader shows
+    /// it over the page.
+    #[cfg(target_arch = "wasm32")]
+    pub silent_hint_shown: bool,
+    #[cfg(target_arch = "wasm32")]
+    pub notice_until: f64,
     /// The browser: Export Encore File asked for a model .enc, which arrives through the file picker.
     #[cfg(target_arch = "wasm32")]
     pub awaiting_enc_model: bool,
@@ -297,6 +303,10 @@ impl App {
             gesture: Default::default(),
             gesture_undo: None,
             touch_ids: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            silent_hint_shown: false,
+            #[cfg(target_arch = "wasm32")]
+            notice_until: 0.0,
             #[cfg(target_arch = "wasm32")]
             awaiting_enc_model: false,
             rail_sel: None,
@@ -1034,6 +1044,14 @@ impl App {
         self.timemap = tm;
         let qpm = self.score.tempo_at(measure) as f64;
         let ext = self.play_notes(notes, start, qpm, true);
+        // the browser on an iPhone or iPad that can't play through its silent mode: say so once (F-27)
+        #[cfg(target_arch = "wasm32")]
+        if !ext && !self.silent_hint_shown && crate::web::needs_silent_hint() {
+            self.silent_hint_shown = true;
+            self.notice_until = crate::web::now() + 6000.0;
+            self.status = crate::web::SILENT_HINT.into();
+            return;
+        }
         self.status = if ext {
             format!("Playing from measure {} on {}. Space stops.", measure + 1, self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_default())
         } else {
@@ -1157,6 +1175,11 @@ impl App {
             }
         } else {
             self.audio_mut().audition(midi, prog, vel);
+            // the browser: iOS may still hold the sound until a tap
+            #[cfg(target_arch = "wasm32")]
+            if crate::web::sound_blocked() {
+                self.status = crate::web::TAP_FOR_SOUND.into();
+            }
         }
     }
 

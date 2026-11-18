@@ -38,17 +38,57 @@
   }
 </style>
 <script>
-  // Sound: browsers start audio suspended until the person clicks or types. Keep the contexts the app creates and
-  // resume them on the first (and any later) gesture.
+  // Sound: browsers keep audio suspended until the person taps, clicks or types, and on iPhone and iPad (F-27) only
+  // a resume() or a sound started inside the tap itself counts; the app's own logic runs a frame later. So every
+  // tap, click and key press resumes the app's audio contexts right in the event handler and, the first time,
+  // plays a silent sample, which is what unlocks iOS. Also:
+  // - the audio session is "playback", so a music app keeps sounding with the iPad's silent mode on (Safari 16.4+);
+  // - on iPhone and iPad the context runs at the device's own rate (the app's sound is resampled), avoiding a
+  //   fixed rate that some iOS versions play silently;
+  // - after a call or another app ("interrupted") or coming back to the page, the next tap resumes again;
+  // - window.fermataAudioState() tells the app whether the sound is running, to ask for a tap when it isn't.
   (function () {
     const Base = window.AudioContext || window.webkitAudioContext;
     if (!Base) return;
     const made = [];
-    class TrackedAudioContext extends Base { constructor(...a) { super(...a); made.push(this); } }
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || ((navigator.platform || "") === "MacIntel" && navigator.maxTouchPoints > 1);
+    class TrackedAudioContext extends Base {
+      constructor(opts) {
+        if (ios && opts && typeof opts === "object") { opts = Object.assign({}, opts); delete opts.sampleRate; }
+        super(opts);
+        made.push(this);
+      }
+    }
     window.AudioContext = TrackedAudioContext;
     window.webkitAudioContext = TrackedAudioContext;
-    const resume = () => { for (const c of made) if (c.state !== "running") c.resume().catch(() => {}); };
-    for (const ev of ["pointerdown", "keydown", "touchend"]) addEventListener(ev, resume, true);
+    const session = () => { try { if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback"; } catch (e) {} };
+    session();
+    const unlock = () => {
+      session();
+      for (const c of made) {
+        if (c.state === "closed") continue;
+        if (c.state !== "running") { try { const p = c.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+        if (!c.__fermataUnlocked || c.state !== "running") {
+          try {
+            const s = c.createBufferSource();
+            s.buffer = c.createBuffer(1, 1, c.sampleRate);
+            s.connect(c.destination);
+            s.start(0);
+            c.__fermataUnlocked = true;
+          } catch (e) {}
+        }
+      }
+    };
+    for (const ev of ["touchend", "pointerup", "pointerdown", "mousedown", "click", "keydown"]) addEventListener(ev, unlock, true);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) for (const c of made) if (c.state !== "running" && c.state !== "closed") { try { c.resume().catch(() => {}); } catch (e) {} }
+    });
+    // iOS without the audio session API (before 16.4): the silent mode mutes web audio, so the app tells the person
+    window.fermataSilentHint = () => ios && !navigator.audioSession;
+    window.fermataAudioState = () => {
+      const live = made.filter((c) => c.state !== "closed");
+      return live.length ? live[live.length - 1].state : "none";
+    };
   })();
 </script>
 </head>

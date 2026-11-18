@@ -99,6 +99,12 @@ impl eframe::App for Shell {
                     ctx.set_theme(a.prefs.appearance.preference());
                 }
                 a.apply_prefs();
+                // the browser: make the sound now, before any tap, so the first tap can wake it up from inside the
+                // tap (iOS ignores a sound woken later, from the app's frame) (F-27)
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = a.audio_mut();
+                }
             }
             // MIDI out: find the chosen ports (a piano switched on later is picked up)
             let out_scan = a.midi_out.as_ref().map(|m| m.last_scan.map(|t| t.elapsed().as_secs_f32() > 2.0).unwrap_or(true)).unwrap_or(false);
@@ -149,6 +155,13 @@ impl eframe::App for Shell {
                     ctx.request_repaint_after(std::time::Duration::from_millis(50));
                 }
                 web::unsaved_changes(a.dirty && a.device != touch::Device::Reader);
+                // the app's own sound is playing but the browser still holds it: ask for a tap (F-27)
+                if a.audio.as_ref().is_some_and(|x| x.is_playing()) && web::sound_blocked() {
+                    if a.status != web::TAP_FOR_SOUND {
+                        a.status = web::TAP_FOR_SOUND.into();
+                    }
+                    ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                }
                 web::title(&a.title());
             }
         }

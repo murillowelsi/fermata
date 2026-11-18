@@ -466,6 +466,36 @@ pub fn title(t: &str) {
     });
 }
 
+/// The state of the app's sound in the browser: "running", "suspended" (no tap yet, or iOS blocked it),
+/// "interrupted" (iOS: a call or another app), or "none" (not created yet). See index.html.
+pub fn audio_state() -> String {
+    web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"fermataAudioState".into()).ok())
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call0(&JsValue::NULL).ok())
+        .and_then(|v| v.as_string())
+        .unwrap_or_else(|| "none".into())
+}
+
+/// The app's sound exists but the browser keeps it silent until the next tap (F-27).
+pub fn sound_blocked() -> bool {
+    matches!(audio_state().as_str(), "suspended" | "interrupted")
+}
+
+/// What to tell the person when the sound is blocked.
+pub const TAP_FOR_SOUND: &str = "Tap the screen to turn on the sound.";
+
+/// iPhone or iPad without the audio session API: its silent mode mutes the app, and nothing can change that.
+pub const SILENT_HINT: &str = "No sound? Turn off Silent Mode on your device.";
+pub fn needs_silent_hint() -> bool {
+    web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"fermataSilentHint".into()).ok())
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call0(&JsValue::NULL).ok())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
 /// Opens a page of the site (a path relative to the app's folder) in a new tab.
 pub fn open_page(rel: &str) {
     open_tab(rel);
