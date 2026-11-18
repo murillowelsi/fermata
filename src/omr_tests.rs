@@ -203,12 +203,14 @@ fn audiveris_outputs_saved_by_the_qa_open_as_one_piano() {
     }
 }
 
-/// The real thing: Audiveris on the QA's six pictures, timed, with the pitch score against the reference. Runs only
-/// when Audiveris is installed (usual places or FERMATA_AUDIVERIS) and the pictures are there; ~25 s a picture.
+/// The real thing: Audiveris on the QA's six pictures, timed, with the pitch score against the reference; ~25 s a
+/// picture. Runs only when asked for with FERMATA_AUDIVERIS (the program or its .app) and the pictures are there: a
+/// reader downloaded into the person's Fermata folder must not turn the release tests into minutes of Java.
 #[test]
 fn audiveris_reads_the_qa_pictures() {
-    let (Some(program), Some(dir)) = (find_audiveris(None), samples()) else {
-        eprintln!("Audiveris or the QA pictures not found: skipped");
+    let program = std::env::var_os("FERMATA_AUDIVERIS").and_then(|p| program_in(Path::new(&p)));
+    let (Some(program), Some(dir)) = (program, samples()) else {
+        eprintln!("FERMATA_AUDIVERIS not set or the QA pictures not found: skipped");
         return;
     };
     let mut lines = vec![];

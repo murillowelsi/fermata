@@ -30,6 +30,17 @@ drawings (`src/glyphs.rs`); moving the page to Bravura is task F-03.
 Inter was downloaded from the project's official release (`Inter-4.1.zip`, GitHub release v4.1); the three TTF
 files are from its `extras/ttf/` folder, unchanged.
 
+## Sound (F-30)
+
+Playback, auditioning and the metronome use the **GeneralUser GS 2.0.3** General MIDI SoundFont by S. Christian
+Collins (schristiancollins.com, github.com/mrbumpy409/GeneralUser-GS), shipped unchanged beside the app
+(`GeneralUser-GS.sf2`; Mac: inside Fermata.app/Contents/Resources, Windows: beside fermata.exe). Its licence
+(`licenses/GeneralUser-GS-LICENSE.txt`, "License v2.0") allows using it without restriction for music, private or
+commercial, and in software projects. The author notes that he can't be 100% sure where every sample came from,
+though none came from commercial packages. The file isn't kept in git: `tools/fetch_soundfont.sh` downloads it from
+the official repository at a fixed commit and checks its SHA-256. Without it (or if it is damaged) the built-in
+synthesizer plays, as before.
+
 ## Libraries
 
 | Crate | Licence |
@@ -41,6 +52,7 @@ files are from its `extras/ttf/` folder, unchanged.
 | rfd 0.15 | MIT |
 | cpal 0.18 | Apache-2.0 |
 | winit 0.30 | Apache-2.0 |
+| rustysynth 1.3 (SoundFont synthesizer, F-30) | MIT |
 | miniz_oxide 0.8 (only to decompress `.mxl` files; already in the app through `png`) | MIT OR Zlib OR Apache-2.0 |
 
 Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).

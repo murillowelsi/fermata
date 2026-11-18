@@ -71,6 +71,15 @@ struct SynthState {
     voices: Vec<Voice>,
     master: f32,
     pending: Vec<PlayNote>,
+    /// F-30: the SoundFont synthesizer once loaded (None: the built-in sound plays).
+    gm: Option<crate::soundfont::GmSynth>,
+    /// Loaded while something was sounding: switched in at the next silence, never in the middle of a note.
+    gm_ready: Option<crate::soundfont::GmSynth>,
+    /// Seconds since the sound started (runs also when not playing), and the note-offs due on that clock.
+    clock: f64,
+    offs: Vec<(f64, u8, i32)>,
+    /// A MIDI keyboard's notes: (on, key, instrument, velocity).
+    live: Vec<(bool, i32, u8, u8)>,
 }
 
 /// A handle other threads (the MIDI input) can use to sound notes without waiting for the screen.
@@ -80,6 +89,10 @@ pub struct SynthHandle(Arc<Mutex<SynthState>>);
 impl SynthHandle {
     pub fn note_on(&self, midi: i32, program: u8, vel: u8) {
         if let Ok(mut s) = self.0.lock() {
+            if s.gm.is_some() {
+                s.live.push((true, midi, program, vel));
+                return;
+            }
             let mut v = start_voice(&PlayNote { at: 0.0, len: 1.0e9, midi, vel: vel as f32 / 127.0, program, gain: 1.0, pan: 0.0, drum: false, ..Default::default() });
             v.key = Some(midi);
             s.voices.push(v);
@@ -87,6 +100,10 @@ impl SynthHandle {
     }
     pub fn note_off(&self, midi: i32) {
         if let Ok(mut s) = self.0.lock() {
+            if s.gm.is_some() {
+                s.live.push((false, midi, 0, 0));
+                return;
+            }
             for v in s.voices.iter_mut() {
                 if v.key == Some(midi) && v.len > v.age {
                     v.len = v.age;
@@ -186,6 +203,7 @@ impl Audio {
         match stream {
             Ok(stream) => {
                 let _ = stream.play();
+                attach_soundfont(&state, sr);
                 Audio { state, _stream: Some(stream), sample_rate: sr, error: None }
             }
             Err(e) => Audio { state, _stream: None, sample_rate: sr, error: Some(e.to_string()) },
@@ -195,6 +213,7 @@ impl Audio {
     pub fn play(&self, mut notes: Vec<PlayNote>, from: f64, master: f32) {
         notes.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap());
         if let Ok(mut s) = self.state.lock() {
+            gm_stop(&mut s);
             s.next = notes.iter().position(|n| n.at >= from).unwrap_or(notes.len());
             s.notes = notes;
             s.time = from;
@@ -205,6 +224,7 @@ impl Audio {
     }
     pub fn stop(&self) {
         if let Ok(mut s) = self.state.lock() {
+            gm_stop(&mut s);
             s.playing = false;
             for v in s.voices.iter_mut() {
                 if v.len > v.age {
@@ -222,6 +242,11 @@ impl Audio {
     pub fn time(&self) -> f64 {
         self.state.lock().map(|s| s.time).unwrap_or(0.0)
     }
+    /// Is the SoundFont playing (rather than the built-in sound)?
+    #[allow(dead_code)]
+    pub fn using_soundfont(&self) -> bool {
+        self.state.lock().map(|s| s.gm.is_some()).unwrap_or(false)
+    }
     /// Sound one note right away (auditioning).
     pub fn audition(&self, midi: i32, program: u8, vel: u8) {
         if let Ok(mut s) = self.state.lock() {
@@ -235,7 +260,150 @@ fn start_voice(n: &PlayNote) -> Voice {
     Voice { freq, phase: 0.0, phase2: 0.0, age: 0.0, len: n.len.max(0.03), vel: n.vel, program: n.program, gain: n.gain, pan: n.pan, drum: n.drum, noise: 0x12345 ^ n.midi as u32, done: false, key: None }
 }
 
+/// F-30: once the bank is read (soundfont::preload), make its synthesizer for this output's sample rate.
+fn attach_soundfont(state: &Arc<Mutex<SynthState>>, sr: f64) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::soundfont::preload();
+        let st = state.clone();
+        std::thread::spawn(move || {
+            for _ in 0..2400 {
+                match crate::soundfont::bank() {
+                    None => std::thread::sleep(std::time::Duration::from_millis(25)),
+                    Some(Err(_)) => return,
+                    Some(Ok(sf)) => {
+                        match crate::soundfont::GmSynth::new(&sf, sr) {
+                            Ok(g) => {
+                                if let Ok(mut s) = st.lock() {
+                                    s.gm_ready = Some(g);
+                                }
+                            }
+                            Err(e) => eprintln!("SoundFont: {e}"),
+                        }
+                        return;
+                    }
+                }
+            }
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = (state, sr);
+}
+
+/// Stop everything the SoundFont is sounding (release tails ring out).
+fn gm_stop(s: &mut SynthState) {
+    if let Some(g) = s.gm.as_mut() {
+        g.all_off();
+    }
+    s.offs.clear();
+}
+
+/// One score note (or pedal, or click) on the SoundFont, with its note-off on the clock.
+fn gm_start(g: &mut crate::soundfont::GmSynth, offs: &mut Vec<(f64, u8, i32)>, n: &PlayNote, off_at: f64) {
+    use crate::soundfont::click_key;
+    if let Some((cc, val)) = n.cc {
+        if !n.drum {
+            g.controller(n.channel, cc, val);
+        }
+        return;
+    }
+    let (ch, key, vel) = if n.click {
+        // the computer's click: wood blocks on the drum kit; a click set to a channel and key plays that
+        if n.port >= 2 { (9u8, click_key(n.midi >= 96), n.vel * n.gain) } else { (n.channel & 15, n.midi, n.vel * n.gain) }
+    } else if n.drum {
+        g.set_channel(9, 0, (n.gain * 127.0) as u8, n.pan);
+        (9, n.midi, n.vel)
+    } else {
+        let ch = if n.channel & 15 == 9 { 0 } else { n.channel & 15 };
+        g.set_channel(ch, n.program, (n.gain * 127.0) as u8, n.pan);
+        (ch, n.midi, n.vel)
+    };
+    g.note_on(ch, key, vel);
+    offs.push((off_at, ch, key));
+}
+
+/// F-30: the SoundFont's level against the built-in sound (RMS of estudo-em-sol: -38.5 dBFS against -33.5).
+const GM_GAIN: f32 = 1.8;
+
+/// F-30: the SoundFont path of `render`, in blocks of 64 frames (1.3 ms): notes start at the block where their time
+/// falls, as the built-in sound's per-sample start is not audible at this size.
+fn render_gm(s: &mut SynthState, data: &mut [f32], channels: usize, sr: f64) {
+    use crate::soundfont::LIVE_CHANNEL;
+    let Some(mut g) = s.gm.take() else { return };
+    let dt = 1.0 / sr;
+    let channels = channels.max(1);
+    for n in std::mem::take(&mut s.pending) {
+        g.set_channel(LIVE_CHANNEL, n.program, 127, 0.0);
+        g.note_on(LIVE_CHANNEL, n.midi, n.vel);
+        s.offs.push((s.clock + n.len, LIVE_CHANNEL, n.midi));
+    }
+    for (on, key, prog, vel) in std::mem::take(&mut s.live) {
+        if on {
+            g.set_channel(LIVE_CHANNEL, prog, 127, 0.0);
+            g.note_on(LIVE_CHANNEL, key, vel as f32 / 127.0);
+        } else {
+            g.note_off(LIVE_CHANNEL, key);
+        }
+    }
+    let master = s.master;
+    let frames = data.len() / channels;
+    let mut done = 0;
+    while done < frames {
+        let n = (frames - done).min(64);
+        if s.playing {
+            while s.next < s.notes.len() && s.notes[s.next].at <= s.time {
+                let note = &s.notes[s.next];
+                let off_at = s.clock + (note.at - s.time).max(0.0) + note.len.max(0.03);
+                gm_start(&mut g, &mut s.offs, note, off_at);
+                s.next += 1;
+            }
+        }
+        let now = s.clock;
+        s.offs.retain(|&(t, ch, k)| {
+            if t <= now {
+                g.note_off(ch, k);
+                false
+            } else {
+                true
+            }
+        });
+        let (l, r) = g.render(n);
+        for i in 0..n {
+            // as loud as the built-in sound (measured on the study: +5 dB), with a soft limit for full scores
+            let (a, b) = ((l[i] * master * GM_GAIN).tanh(), (r[i] * master * GM_GAIN).tanh());
+            let f = &mut data[(done + i) * channels..(done + i + 1) * channels];
+            if channels >= 2 {
+                f[0] = a;
+                f[1] = b;
+                for x in f.iter_mut().skip(2) {
+                    *x = 0.0;
+                }
+            } else {
+                f[0] = (a + b) * 0.5;
+            }
+        }
+        s.clock += n as f64 * dt;
+        if s.playing {
+            s.time += n as f64 * dt;
+            if s.next >= s.notes.len() && s.offs.is_empty() {
+                s.playing = false;
+            }
+        }
+        done += n;
+    }
+    s.gm = Some(g);
+}
+
 fn render(s: &mut SynthState, data: &mut [f32], channels: usize, sr: f64) {
+    // F-30: the SoundFont takes over at the first silence after it is ready
+    if s.gm.is_none() && s.gm_ready.is_some() && !s.playing && s.voices.is_empty() {
+        s.gm = s.gm_ready.take();
+    }
+    if s.gm.is_some() {
+        render_gm(s, data, channels, sr);
+        return;
+    }
+    s.clock += (data.len() / channels.max(1)) as f64 / sr;
     let dt = 1.0 / sr;
     let pend: Vec<PlayNote> = s.pending.drain(..).collect();
     for n in pend {
@@ -505,4 +673,26 @@ pub(crate) fn tie_extension(score: &Score, s: usize, m: usize, e: &Event, p: &Pi
         }
     }
     total
+}
+
+/// Render notes without a sound device (development: `--render-wav`, and tests): interleaved stereo at `sr`, with
+/// the SoundFont when `gm` is given, otherwise the built-in sound. Stops `tail` seconds after the last note ends.
+pub fn render_offline(notes: Vec<PlayNote>, sr: f64, master: f32, gm: Option<crate::soundfont::GmSynth>, tail: f64) -> Vec<f32> {
+    let mut notes = notes;
+    notes.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap());
+    let mut s = SynthState { master, gm, notes, playing: true, ..Default::default() };
+    let mut out = vec![];
+    let mut buf = vec![0f32; 512 * 2];
+    let mut after = 0.0;
+    while after < tail {
+        render(&mut s, &mut buf, 2, sr);
+        out.extend_from_slice(&buf);
+        if !s.playing {
+            after += 512.0 / sr;
+        }
+        if out.len() as f64 > sr * 2.0 * 1200.0 {
+            break;
+        }
+    }
+    out
 }

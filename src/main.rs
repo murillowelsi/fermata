@@ -26,6 +26,7 @@ mod musicxml;
 mod palettes;
 mod platform;
 mod rec;
+mod soundfont;
 mod score_view;
 mod smufl;
 mod theme;
@@ -463,6 +464,48 @@ fn omr_cli(picture: &str, out: &str) -> Result<String, String> {
     Ok(format!("{out}: {} staves, {} measures, {notes} notes. {note}", sc.staves.len(), sc.measures.len()))
 }
 
+/// `--render-wav`: the score as the built-in playback hears it (no click), 44.1 kHz 16-bit stereo.
+#[cfg(not(target_arch = "wasm32"))]
+fn render_wav(score: &str, out: &str, builtin: bool) -> Result<String, String> {
+    let sc = io::open(std::path::Path::new(score))?;
+    let (notes, _, _) = audio::build(&sc, 0);
+    let sr = 44100.0;
+    let gm = if builtin {
+        None
+    } else {
+        let p = soundfont::find().ok_or("SoundFont not found (tools/fetch_soundfont.sh)")?;
+        let t = std::time::Instant::now();
+        let sf = soundfont::parse(&std::fs::read(&p).map_err(|e| e.to_string())?)?;
+        eprintln!("SoundFont read in {} ms", t.elapsed().as_millis());
+        Some(soundfont::GmSynth::new(&sf, sr)?)
+    };
+    let t = std::time::Instant::now();
+    let pcm = audio::render_offline(notes, sr, sc.playback.master_volume, gm, 1.5);
+    let took = t.elapsed().as_secs_f64();
+    let secs = pcm.len() as f64 / 2.0 / sr;
+    let mut w = Vec::with_capacity(44 + pcm.len() * 2);
+    let data_len = (pcm.len() * 2) as u32;
+    w.extend(b"RIFF");
+    w.extend((36 + data_len).to_le_bytes());
+    w.extend(b"WAVEfmt ");
+    w.extend(16u32.to_le_bytes());
+    w.extend(1u16.to_le_bytes());
+    w.extend(2u16.to_le_bytes());
+    w.extend((sr as u32).to_le_bytes());
+    w.extend((sr as u32 * 4).to_le_bytes());
+    w.extend(4u16.to_le_bytes());
+    w.extend(16u16.to_le_bytes());
+    w.extend(b"data");
+    w.extend(data_len.to_le_bytes());
+    let mut peak = 0f32;
+    for x in &pcm {
+        peak = peak.max(x.abs());
+        w.extend(((x.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    std::fs::write(out, w).map_err(|e| e.to_string())?;
+    Ok(format!("{out}: {secs:.1} s of audio rendered in {took:.2} s ({:.0}x real time), peak {peak:.2}, {}", secs / took.max(1e-9), if builtin { "built-in sound" } else { "SoundFont" }))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -538,6 +581,19 @@ fn main() -> eframe::Result<()> {
             omr_picture = Some(std::path::PathBuf::from(&args[i + 1]));
             i += 2;
             continue;
+        }
+        // development (F-30): play a score without a sound device into a WAV file, with the SoundFont or the
+        // built-in sound ("builtin"), and say how much faster than real time it rendered
+        if args[i] == "--render-wav" && i + 2 < args.len() {
+            let builtin = args.get(i + 3).map(|a| a == "builtin").unwrap_or(false);
+            match render_wav(&args[i + 1], &args[i + 2], builtin) {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
         }
         if args[i] == "--click-selftest" {
             click_selftest();
@@ -857,6 +913,8 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx, force_theme);
+            // F-30: start reading the SoundFont now, so it is ready by the first note
+            soundfont::preload();
             // the saved View ▸ Appearance, from the first frame (screenshots keep the system look or --theme)
             if force_theme.is_none() && !screenshot_mode {
                 cc.egui_ctx.set_theme(prefs::load().appearance.preference());
