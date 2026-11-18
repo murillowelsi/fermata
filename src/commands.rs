@@ -55,14 +55,30 @@ pub fn shortcut(c: Cmd) -> Option<KeyboardShortcut> {
     if cfg!(target_os = "macos") && c == Cmd::Quit {
         return sc(Modifiers::MAC_CMD, Key::Q);
     }
+    // the browser off the Mac: Chrome and Edge keep Ctrl+N, Ctrl+Shift+N, Ctrl+W, Ctrl+T and Ctrl+Shift+T for
+    // themselves, so those commands take Ctrl+Alt+Shift keys there (menus show them); the installed app is unchanged
+    #[cfg(target_arch = "wasm32")]
+    if !crate::web::on_mac() {
+        if let Some(s) = web_alternative(c) {
+            return Some(s);
+        }
+    }
     shortcut_with(c, false, primary(), secondary())
+}
+
+/// Whether the keys follow the Mac: the Mac app, or the browser on a Mac (same keys, same symbols in menus).
+pub fn on_mac() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return crate::web::on_mac();
+    #[cfg(not(target_arch = "wasm32"))]
+    return cfg!(target_os = "macos");
 }
 
 /// On the Mac, the Mac Encore chart's Cmd keys still work too (Cmd+S, Cmd+Z, Cmd+T...), alongside the Ctrl ones.
 /// The Mac chart's Ctrl keys (Ctrl+M Add Measure, Ctrl+T Time Signature...) are left out: in the Windows layout
 /// those keys belong to other commands.
 pub fn mac_shortcut(c: Cmd) -> Option<KeyboardShortcut> {
-    if !cfg!(target_os = "macos") {
+    if !on_mac() {
         return None;
     }
     let m = shortcut_with(c, true, Modifiers::MAC_CMD, Modifiers::CTRL)?;
@@ -193,6 +209,20 @@ fn shortcut_with(c: Cmd, mac: bool, p: Modifiers, s2: Modifiers) -> Option<Keybo
         ClickOnOff => sc(p, Key::F),
         AutoGuessBeam => sc(ps, Key::G),
         AutoSpace => sc(ps, Key::A),
+        _ => None,
+    }
+}
+
+/// The browser off the Mac: the keys used instead of the ones the browser keeps (all free in the Windows keys).
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn web_alternative(c: Cmd) -> Option<KeyboardShortcut> {
+    let cas = Modifiers::CTRL | Modifiers::ALT | Modifiers::SHIFT;
+    match c {
+        Cmd::New => sc(cas, Key::E),
+        Cmd::NewDefault => sc(cas, Key::D),
+        Cmd::Close => sc(cas, Key::W),
+        Cmd::Tie => sc(cas, Key::T),
+        Cmd::FlipTie => sc(cas, Key::Y),
         _ => None,
     }
 }
@@ -374,5 +404,21 @@ pub fn label(c: Cmd) -> String {
         CopyAlt => "Copy".into(),
         PasteAlt => "Paste".into(),
         AlignSpacingPrev => "Align Spacing (previous settings)".into(),
+    }
+}
+
+#[cfg(test)]
+mod web_alternative_tests {
+    use super::*;
+
+    /// The browser's replacements for the keys Chrome and Edge keep must be free in the Windows keys.
+    #[test]
+    fn web_alternatives_are_free_in_the_windows_keys() {
+        let taken: Vec<KeyboardShortcut> = all_shortcut_cmds().into_iter().filter_map(|c| shortcut_with(c, false, primary(), secondary())).collect();
+        for c in [Cmd::New, Cmd::NewDefault, Cmd::Close, Cmd::Tie, Cmd::FlipTie] {
+            let alt = web_alternative(c).unwrap();
+            assert!(!taken.contains(&alt), "{c:?}: {alt:?} is already used");
+        }
+        assert!(web_alternative(Cmd::Save).is_none());
     }
 }

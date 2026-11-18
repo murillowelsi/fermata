@@ -1,6 +1,8 @@
 //! The app icon "Traço" (F-14): a white fermata drawn as a single-weight arch over a dot, on the blue #007AFF.
 //! The pictures are the approved PNGs in `assets/AppIcon.iconset/`, made from `assets/icone-traco-light.svg`;
 //! if the icon changes, regenerate them from that source, not here.
+// not used by the browser build
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 /// 256 px, for the window and the Dock while the app runs.
 const ICON_256: &[u8] = include_bytes!("../assets/AppIcon.iconset/icon_256x256.png");

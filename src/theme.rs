@@ -157,9 +157,19 @@ pub fn of(dark: bool) -> &'static Tokens {
 
 // ---------------- fonts ----------------
 
+#[cfg(not(target_arch = "wasm32"))]
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
+#[cfg(not(target_arch = "wasm32"))]
 const INTER_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Inter-Medium.ttf");
+#[cfg(not(target_arch = "wasm32"))]
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+// the browser downloads the app: Inter cut to Latin, punctuation, arrows and the key symbols (tools/subset_web_fonts.sh)
+#[cfg(target_arch = "wasm32")]
+const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/web/Inter-Regular.ttf");
+#[cfg(target_arch = "wasm32")]
+const INTER_MEDIUM: &[u8] = include_bytes!("../assets/fonts/web/Inter-Medium.ttf");
+#[cfg(target_arch = "wasm32")]
+const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/web/Inter-SemiBold.ttf");
 
 pub const REGULAR: &str = "inter";
 pub const MEDIUM: &str = "inter-medium";
@@ -331,7 +341,7 @@ fn key_glyph(k: egui::Key) -> String {
 /// ("Ctrl+Shift+T", "Alt+Shift+N"), as Windows menus show them.
 pub fn combo_glyphs(s: &egui::KeyboardShortcut) -> String {
     let m = s.modifiers;
-    if !cfg!(target_os = "macos") {
+    if !crate::commands::on_mac() {
         let mut t = String::new();
         for (on, w) in [(m.ctrl || (m.command && !m.mac_cmd), "Ctrl+"), (m.alt, "Alt+"), (m.shift, "Shift+")] {
             if on {
@@ -364,7 +374,7 @@ pub fn combo_glyphs(s: &egui::KeyboardShortcut) -> String {
 
 /// Plain-key shortcuts ("Space", "Shift+Z") written with the same symbols ("Space", "⇧Z"); as words off the Mac.
 fn plain_glyphs(s: &str) -> String {
-    if !cfg!(target_os = "macos") {
+    if !crate::commands::on_mac() {
         return s.to_string();
     }
     match s {

@@ -1,5 +1,7 @@
 //! Development helpers for screenshots (`--dialog NAME`, `--clicks`, `--hover`): open any of the 36 dialogs or
 //! the floating windows, and move or click the mouse at given frames, so menus, submenus and tips can be pictured.
+// the browser build has no command-line flags for these
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 use crate::app::{App, Dialog};
 use crate::commands::Cmd;
 use crate::model::*;

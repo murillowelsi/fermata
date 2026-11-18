@@ -21,6 +21,8 @@ mod platform;
 mod rec;
 mod score_view;
 mod theme;
+#[cfg(target_arch = "wasm32")]
+mod web;
 mod ui;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -57,7 +59,8 @@ fn save_png(img: &egui::ColorImage, path: &std::path::Path) -> Result<(), String
     // the browser: a download
     #[cfg(target_arch = "wasm32")]
     {
-        platform::save_to(&path.to_path_buf(), &platform::png_bytes(img))
+        platform::export_download(path, &platform::png_bytes(img));
+        Ok(())
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -132,6 +135,19 @@ impl eframe::App for Shell {
                 ctx.request_repaint();
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            }
+            // the browser: redraw right after any input (a note entered or a menu opened shows at once) and while a
+            // file picker or a save is still under way
+            #[cfg(target_arch = "wasm32")]
+            {
+                if ctx.input(|i| !i.events.is_empty() || i.pointer.any_down()) {
+                    ctx.request_repaint();
+                }
+                if web::busy() {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                }
+                web::unsaved_changes(a.dirty);
+                web::title(&a.title());
             }
         }
         a.poll_opened();
@@ -734,6 +750,7 @@ fn midi_selftest() {
 }
 
 #[cfg(not(unix))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn midi_selftest() {
     println!("self-test runs on macOS/Linux only");
 }
@@ -823,6 +840,7 @@ fn rec_selftest() {
 }
 
 #[cfg(not(unix))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn rec_selftest() {}
 
 /// Records for two seconds with the click on, into a virtual piano, and lists the click messages it received.
@@ -861,6 +879,7 @@ fn click_selftest() {
 }
 
 #[cfg(not(unix))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn click_selftest() {}
 
 /// Long notes: a chord held ~3.75 beats must be a whole note; one held 3 beats a dotted half plus a quarter rest.
@@ -912,4 +931,5 @@ fn long_selftest() {
 }
 
 #[cfg(not(unix))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn long_selftest() {}

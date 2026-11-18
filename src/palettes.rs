@@ -18,8 +18,16 @@ use std::sync::OnceLock;
 
 // ---------------- Bravura ----------------
 
+#[cfg(not(target_arch = "wasm32"))]
 pub const BRAVURA: &[u8] = include_bytes!("../assets/fonts/Bravura.otf");
+#[cfg(not(target_arch = "wasm32"))]
 const BRAVURA_META: &str = include_str!("../assets/fonts/Bravura.json");
+// the browser: only the palettes' glyphs and their boxes, a Bravura subset renamed "Fermata Palette Glyphs" as the
+// OFL asks of a modified version (tools/subset_web_fonts.sh)
+#[cfg(target_arch = "wasm32")]
+pub const BRAVURA: &[u8] = include_bytes!("../assets/fonts/web/FermataPaletteGlyphs.otf");
+#[cfg(target_arch = "wasm32")]
+const BRAVURA_META: &str = include_str!("../assets/fonts/web/FermataPaletteGlyphs.json");
 pub const BRAVURA_FAMILY: &str = "bravura";
 
 /// The SMuFL glyphs the palettes use: code point and SMuFL name (the key into the metadata).

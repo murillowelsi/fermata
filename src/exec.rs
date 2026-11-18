@@ -460,6 +460,11 @@ impl App {
                 }
             }
             MidiSetup => self.dialog = Some(Dialog::MidiSetup(self.prefs.clone())),
+            // the browser: the step-by-step guide is the site's page for the computer in use (its text speaks of
+            // the desktop app)
+            #[cfg(target_arch = "wasm32")]
+            ClavinovaGuide => crate::web::open_page(if crate::web::on_mac() { "../mac/" } else { "../windows/" }),
+            #[cfg(not(target_arch = "wasm32"))]
             ClavinovaGuide => self.dialog = Some(Dialog::ClavinovaGuide),
             ClickSetup => self.dialog = Some(Dialog::ClickSetup(self.prefs.clone())),
             JumpToMeasure => self.dialog = Some(Dialog::JumpTo { measure: cm + 1 }),

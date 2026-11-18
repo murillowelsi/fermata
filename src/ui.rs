@@ -82,8 +82,11 @@ impl App {
                 for c in [Print, PageSetup] {
                     self.mi(ui, c);
                 }
-                ui.separator();
-                self.mi(ui, Quit);
+                // the browser: closing the tab or the installed app's window ends it; there's nothing to quit
+                if !cfg!(target_arch = "wasm32") {
+                    ui.separator();
+                    self.mi(ui, Quit);
+                }
             });
             ui.menu_button("Edit", |ui| {
                 for c in [Undo, Redo] {
@@ -399,7 +402,7 @@ impl App {
                     let heard = if last == 255 { "no notes yet".to_string() } else { format!("last note {}", Pitch::from_midi(last as i32, false).name()) };
                     (format!("MIDI in: {} ({heard})", mm.names.join(", ")), k.ok)
                 }
-                _ => ("No MIDI keyboard".to_string(), k.text_3),
+                _ => (web_midi_note().unwrap_or("No MIDI keyboard").to_string(), k.text_3),
             };
             let (dr, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
             ui.painter().circle_filled(dr.center(), 3.5, dot);
@@ -1247,6 +1250,9 @@ impl App {
                 let outs: Vec<String> = self.midi_out.as_ref().map(|m| m.available.clone()).unwrap_or_default();
                 let ins: Vec<String> = self.midi.as_ref().map(|m| m.available.clone()).unwrap_or_default();
                 let none_out = "None (built-in sound)";
+                if let Some(note) = web_midi_note() {
+                    kit::status_line(ui, theme::t(ui).warn, note);
+                }
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 20.0;
                     ui.vertical(|ui| {
@@ -2091,6 +2097,21 @@ pub fn tip(resp: egui::Response, name: &str, keys: &str) -> egui::Response {
 /// A red-text button inside a window's content (Delete Cursor Staff).
 fn button_danger_inline(ui: &mut Ui, text: &str) -> egui::Response {
     kit::btn_danger(ui, text)
+}
+
+/// In the browser, why there may be no MIDI: no Web MIDI (Safari) or the site isn't allowed to use it.
+#[cfg(target_arch = "wasm32")]
+fn web_midi_note() -> Option<&'static str> {
+    match crate::web::midi_status().as_str() {
+        "unsupported" => Some("No MIDI in this browser: use Chrome or Edge to connect the piano"),
+        "denied" => Some("MIDI is blocked for this page: allow MIDI devices in the browser's site settings"),
+        _ => None,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn web_midi_note() -> Option<&'static str> {
+    None
 }
 
 /// The thin divider between toolbar groups.

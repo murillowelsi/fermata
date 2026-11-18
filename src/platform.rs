@@ -62,73 +62,66 @@ mod imp {
     }
 }
 
-/// The browser: files come in through the page's file picker (asynchronously, picked up by `take_opened` on a
-/// later frame) and go out as downloads. There is no file system to write back to.
+/// The browser (see `web.rs`): files come in through the browser's file picker or the installed app's file
+/// handlers, picked up by `take_opened` on a later frame; saving writes to the same file where the File System
+/// Access API exists, else downloads. Exports always ask where (or download).
 #[cfg(target_arch = "wasm32")]
 mod imp {
     use super::*;
-    use std::cell::RefCell;
-    use wasm_bindgen::JsCast;
 
-    thread_local! {
-        static OPENED: RefCell<Vec<Opened>> = const { RefCell::new(Vec::new()) };
-    }
-
-    fn pick(dialog: rfd::AsyncFileDialog) {
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Some(h) = dialog.pick_file().await {
-                let bytes = h.read().await;
-                OPENED.with(|o| o.borrow_mut().push(Opened { name: h.file_name(), bytes, path: None }));
-            }
-        });
-    }
-
-    pub fn pick_open(desc: &str, exts: &[&str]) -> Option<Opened> {
-        pick(rfd::AsyncFileDialog::new().add_filter(desc, exts));
+    pub fn pick_open(_desc: &str, exts: &[&str]) -> Option<Opened> {
+        crate::web::pick_file(exts);
         None
     }
 
-    pub fn pick_any(title: &str) -> Option<Opened> {
-        pick(rfd::AsyncFileDialog::new().set_title(title));
+    pub fn pick_any(_title: &str) -> Option<Opened> {
+        crate::web::pick_file(&OPEN_EXTS);
         None
     }
 
     pub fn take_opened() -> Vec<Opened> {
-        OPENED.with(|o| std::mem::take(&mut *o.borrow_mut()))
+        crate::web::opened_files().into_iter().map(|(name, bytes)| Opened { path: Some(PathBuf::from(&name)), name, bytes }).collect()
     }
 
-    /// Hands the bytes to the browser as a download named `name`.
-    fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
-        let err = |e: wasm_bindgen::JsValue| format!("{e:?}");
-        let arr = js_sys::Uint8Array::from(bytes);
-        let parts = js_sys::Array::of1(&arr);
-        let blob = web_sys::Blob::new_with_u8_array_sequence(&parts).map_err(err)?;
-        let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?;
-        let doc = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
-        let a: web_sys::HtmlAnchorElement = doc.create_element("a").map_err(err)?.dyn_into().map_err(|_| "no anchor")?;
-        a.set_href(&url);
-        a.set_download(name);
-        a.click();
-        let _ = web_sys::Url::revoke_object_url(&url);
-        Ok(())
-    }
-
-    pub fn save_as(default_name: &str, ext: &str, _desc: &str, bytes: &[u8]) -> Result<Option<PathBuf>, String> {
+    /// A score ("fmt") is saved as a document (the result comes later, see `take_saved`); anything else is an export.
+    pub fn save_as(default_name: &str, ext: &str, desc: &str, bytes: &[u8]) -> Result<Option<PathBuf>, String> {
         let name = format!("{default_name}.{ext}");
-        download(&name, bytes)?;
-        Ok(Some(PathBuf::from(name)))
+        if ext == "fmt" {
+            crate::web::save_score(&name, bytes, true);
+            Ok(None)
+        } else {
+            crate::web::export(&name, bytes, ext, desc);
+            Ok(Some(PathBuf::from(name)))
+        }
     }
 
     pub fn pick_save_path(default_name: &str, ext: &str, _desc: &str) -> Option<PathBuf> {
         Some(PathBuf::from(format!("{default_name}.{ext}")))
     }
 
+    /// Save again: the same file when the browser allows, else a download with the same name.
     pub fn save_to(path: &PathBuf, bytes: &[u8]) -> Result<(), String> {
-        download(&path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "score.fmt".into()), bytes)
+        let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "score.fmt".into());
+        crate::web::save_score(&name, bytes, false);
+        Ok(())
     }
 
-    pub fn read_path(_path: &PathBuf) -> Option<Opened> {
-        None
+    /// An export of something that isn't the score (the page image).
+    pub fn export_download(path: &std::path::Path, bytes: &[u8]) {
+        let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "page.png".into());
+        let ext = path.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "png".into());
+        crate::web::export(&name, bytes, &ext, "Page image");
+    }
+
+    /// Revert to Saved: the score as last opened or saved in this page.
+    pub fn read_path(path: &PathBuf) -> Option<Opened> {
+        let want = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        crate::web::last_saved().filter(|(n, _)| *n == want).map(|(name, bytes)| Opened { path: Some(path.clone()), name, bytes })
+    }
+
+    /// Results of saving the score: (file name, Ok or the error).
+    pub fn take_saved() -> Vec<(String, Result<(), String>)> {
+        crate::web::saved_files()
     }
 }
 

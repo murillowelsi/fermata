@@ -72,6 +72,7 @@ pub enum Dialog {
     MidiPlayback,
     MidiSetup(crate::prefs::Prefs),
     ClickSetup(crate::prefs::Prefs),
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     ClavinovaGuide,
     JumpTo { measure: usize },
     PageSetup { w: f32, h: f32, margin: f32, staff_space: f32, staff_gap: f32, system_gap: f32 },
@@ -82,6 +83,7 @@ pub enum Dialog {
     ChordSymbol { root: String, kind: String, bass: String, custom: String, target: NoteRef },
     TextGraphic { text: String, index: usize, size: f32, bold: bool },
     Lyric { target: NoteRef, line: usize, text: String },
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Expression { text: String, target: NoteRef },
     Shortcuts,
     About,
@@ -1508,6 +1510,18 @@ impl App {
         for o in crate::platform::take_opened() {
             self.load_opened(o);
         }
+        // the browser saves in the background: the score becomes "saved" when the browser says so
+        #[cfg(target_arch = "wasm32")]
+        for (name, res) in crate::platform::take_saved() {
+            match res {
+                Ok(()) => {
+                    self.path = Some(PathBuf::from(&name));
+                    self.dirty = false;
+                    self.status = format!("Saved {name}");
+                }
+                Err(e) => self.dialog = Some(Dialog::Message(format!("Couldn't save: {e}"))),
+            }
+        }
     }
 
     pub fn open_path(&mut self, p: PathBuf) {
@@ -1542,6 +1556,8 @@ impl App {
     }
 
     pub fn new_score(&mut self, sc: Score) {
+        #[cfg(target_arch = "wasm32")]
+        crate::web::new_document();
         self.score = sc;
         self.path = None;
         self.dirty = false;

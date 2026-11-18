@@ -2,11 +2,13 @@
 //! Clavinova, on two ports "A" and "B" like the original's MIDI Setup. Timing runs on its own thread; stopping or
 //! starting elsewhere first releases every sounding note and the sustain pedal, so nothing hangs.
 use crate::audio::PlayNote;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use crate::clock::Instant;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 pub type SharedConn = Arc<Mutex<Option<midir::MidiOutputConnection>>>;
@@ -29,6 +31,15 @@ struct Player {
     join: Option<JoinHandle<()>>,
 }
 
+/// The browser's player: no threads; the page hands the whole performance to the browser's MIDI scheduler
+/// (`web::play_midi`) and keeps only the clock, for the playback cursor.
+#[cfg(target_arch = "wasm32")]
+struct WebPlayer {
+    /// Page clock (ms) at the moment `from` (seconds into the score).
+    t0_ms: f64,
+    from: f64,
+}
+
 pub struct MidiOut {
     /// Chosen port names for A and B (None = built-in sound).
     pub chosen: [Option<String>; 2],
@@ -43,6 +54,8 @@ pub struct MidiOut {
     pub error: Option<String>,
     pub last_scan: Option<Instant>,
     player: Option<Player>,
+    #[cfg(target_arch = "wasm32")]
+    web_player: Option<WebPlayer>,
 }
 
 fn all_off(conns: &[SharedConn; 2]) {
@@ -71,6 +84,8 @@ impl MidiOut {
             error: None,
             last_scan: None,
             player: None,
+            #[cfg(target_arch = "wasm32")]
+            web_player: None,
         }
     }
 
@@ -139,10 +154,26 @@ impl MidiOut {
         if conn.lock().map(|g| g.is_none()).unwrap_or(true) {
             return false;
         }
-        // the browser build has no threads; timed MIDI out there is future work (Web MIDI send timestamps)
-        if cfg!(target_arch = "wasm32") {
-            return false;
+        // the browser: the four notes go out at once, each with its own Web MIDI timestamp
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Some(name) = self.connected[port.min(1)].clone() else { return false };
+            let t = crate::web::now();
+            let mut n = 0;
+            for b in [&[0xb0u8, 0, 0][..], &[0xb0, 32, 0], &[0xc0, 0], &[0xb0, 7, 110]] {
+                n += crate::web::send_midi(&name, b, 0.0) as u64;
+            }
+            for (i, k) in [60u8, 64, 67, 72].into_iter().enumerate() {
+                let at = t + i as f64 * 350.0;
+                n += crate::web::send_midi(&name, &[0x90, k, 100], at) as u64;
+                n += crate::web::send_midi(&name, &[0x80, k, 0], at + 350.0) as u64;
+            }
+            sent.fetch_add(n, Ordering::Relaxed);
+            let _ = conn;
+            n > 0
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
         std::thread::spawn(move || {
             let send = |b: &[u8]| {
                 if let Ok(mut g) = conn.lock() {
@@ -164,6 +195,7 @@ impl MidiOut {
             }
         });
         true
+        }
     }
 
     /// Text describing what the program sees, to send when asking for help.
@@ -205,10 +237,6 @@ impl MidiOut {
 
     /// Play the score's notes from `from` seconds. Instruments, volume and pan go first, per channel.
     pub fn play(&mut self, notes: &[PlayNote], setup: Vec<(u8, Vec<u8>)>, from: f64, qpm: f64) {
-        // the browser build has no threads to time the messages with (see `test`)
-        if cfg!(target_arch = "wasm32") {
-            return;
-        }
         self.stop();
         let mut msgs: Vec<Msg> = vec![];
         for n in notes {
@@ -231,6 +259,30 @@ impl MidiOut {
             msgs.push(Msg { at: n.at + n.len.max(0.02), port: n.port, bytes: vec![0x80 | ch, key, 0], order: 0 });
         }
         msgs.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap().then(a.order.cmp(&b.order)));
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = qpm;
+            for (port, b) in &setup {
+                self.send_web(*port, b, 0.0);
+            }
+            let t0_ms = crate::web::now() + 30.0;
+            let timed: Vec<(f64, u8, &[u8])> =
+                msgs.iter().map(|m| (t0_ms + (m.at - from) * 1000.0, m.port.min(1), m.bytes.as_slice())).collect();
+            for m in &timed {
+                if let Some(c) = self.sent.get(m.1 as usize).filter(|_| self.connected[m.1 as usize].is_some()) {
+                    c.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            let name = |i: usize| self.connected[i].clone().unwrap_or_default();
+            crate::web::play_midi(&name(0), &name(1), &timed);
+            self.web_player = Some(WebPlayer { t0_ms, from });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.play_thread(msgs, setup, from, qpm);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn play_thread(&mut self, msgs: Vec<Msg>, setup: Vec<(u8, Vec<u8>)>, from: f64, qpm: f64) {
         let conns = self.conns.clone();
         let sent = self.sent.clone();
         let sync = self.transmit_sync;
@@ -307,7 +359,23 @@ impl MidiOut {
         self.player = Some(Player { stop, done, t0, from, join: Some(join) });
     }
 
+    /// The browser: one port's message, now (`at_ms` 0) or at a page-clock time.
+    #[cfg(target_arch = "wasm32")]
+    fn send_web(&self, port: u8, bytes: &[u8], at_ms: f64) {
+        let i = (port as usize).min(1);
+        if let Some(name) = &self.connected[i] {
+            if crate::web::send_midi(name, bytes, at_ms) {
+                self.sent[i].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
     pub fn stop(&mut self) {
+        // the browser: its scheduler drops what it can and releases the notes it started
+        #[cfg(target_arch = "wasm32")]
+        if self.web_player.take().is_some() {
+            crate::web::stop_midi();
+        }
         if let Some(mut p) = self.player.take() {
             p.stop.store(true, Ordering::Relaxed);
             if let Some(j) = p.join.take() {
@@ -323,10 +391,18 @@ impl MidiOut {
     }
 
     pub fn is_playing(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.web_player.is_some() {
+            return crate::web::midi_is_playing();
+        }
         self.player.as_ref().map(|p| !p.done.load(Ordering::Relaxed)).unwrap_or(false)
     }
 
     pub fn time(&self) -> f64 {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(p) = &self.web_player {
+            return p.from + (crate::web::now() - p.t0_ms) / 1000.0;
+        }
         self.player.as_ref().map(|p| p.from + p.t0.elapsed().as_secs_f64()).unwrap_or(0.0)
     }
 
@@ -341,9 +417,14 @@ impl MidiOut {
                 return;
             }
         }
-        if cfg!(target_arch = "wasm32") {
-            return;
+        // the browser: the note-off goes with a timestamp instead of a sleeping thread
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(name) = &self.connected[(port as usize).min(1)] {
+                crate::web::send_midi(name, &[0x80 | ch, key, 0], crate::web::now() + 450.0);
+            }
         }
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(450));
             if let Ok(mut g) = conn.lock() {
