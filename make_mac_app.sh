@@ -44,6 +44,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# F-30: the General MIDI SoundFont (GeneralUser GS, ~32 MB) and its licence, in Resources where the app looks first
+sh tools/fetch_soundfont.sh
+cp assets/soundfont/GeneralUser-GS.sf2 "$APP/Contents/Resources/"
+mkdir -p "$APP/Contents/Resources/licenses"
+cp licenses/GeneralUser-GS-LICENSE.txt "$APP/Contents/Resources/licenses/"
+
 # ad-hoc signature so macOS will run it (first launch: right-click > Open)
 codesign --force --deep -s - "$APP"
 echo "Built $APP"
