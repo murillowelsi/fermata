@@ -30,6 +30,7 @@ impl App {
                 self.dialog = Some(Dialog::PageSetup { w: l.page_w, h: l.page_h, margin: l.margin, staff_space: l.staff_space, staff_gap: l.staff_gap, system_gap: l.system_gap });
             }
             ImportMidi => self.replace_score(Then::ImportMidi),
+            ImportXml => self.replace_score(Then::ImportXml),
             ExportMidi => {
                 let b = crate::io::midi_bytes(&self.score);
                 self.export_bytes("mid", "MIDI file", &b);

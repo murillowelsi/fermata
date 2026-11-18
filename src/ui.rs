@@ -15,7 +15,7 @@ impl App {
     fn mi(&mut self, ui: &mut Ui, c: Cmd) {
         let r = kit::menu_item(ui, &commands::label(c), &shortcut_text(c), false, true);
         // nothing unsaved: Open and Import go straight to the file window (the browser opens it from the tap)
-        if matches!(c, Cmd::Open | Cmd::ImportMidi) && !self.dirty {
+        if matches!(c, Cmd::Open | Cmd::ImportMidi | Cmd::ImportXml) && !self.dirty {
             crate::platform::open_target(r.rect);
         }
         if r.clicked() {
@@ -87,7 +87,10 @@ impl App {
                         self.mi(ui, c);
                     }
                 });
-                ui.menu_button("Import", |ui| self.mi(ui, ImportMidi));
+                ui.menu_button("Import", |ui| {
+                    self.mi(ui, ImportMidi);
+                    self.mi(ui, ImportXml);
+                });
                 self.mi(ui, ExtractPart);
                 ui.separator();
                 for c in [Print, PageSetup] {
@@ -883,7 +886,7 @@ impl App {
                     Dialog::ConfirmClose(then) => {
                         // macOS order: Don't Save on the left; Cancel and Save on the right (Esc = Cancel, Enter = Save)
                         let dont = kit::btn(ui, "Don't Save");
-                        if matches!(then, Then::Open | Then::ImportMidi) {
+                        if matches!(then, Then::Open | Then::ImportMidi | Then::ImportXml) {
                             crate::platform::open_target(dont.rect);
                         }
                         if dont.clicked() {

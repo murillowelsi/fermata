@@ -1039,6 +1039,7 @@ dependencies = [
  "image",
  "js-sys",
  "midir",
+ "miniz_oxide 0.8.9",
  "rfd",
  "serde",
  "serde_json",
