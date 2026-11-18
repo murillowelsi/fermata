@@ -81,6 +81,11 @@ pub fn natural(p: &Painter, c: Pos2, sp: f32, col: Color32) {
     accidental(p, c, sp, 0, col);
 }
 
+/// How far an accidental's ink reaches above its line or space.
+pub fn accidental_height_above(sp: f32, alter: i8) -> f32 {
+    s::bbox(accidental_name(alter)).1.y * sp
+}
+
 /// The ink width of an accidental.
 pub fn accidental_width(sp: f32, alter: i8) -> f32 {
     let (sw, ne) = s::bbox(accidental_name(alter));
@@ -106,6 +111,15 @@ pub fn time_sig_digit(p: &Painter, c: Pos2, sp: f32, txt: &str, col: Color32) {
     const D: [&str; 10] = ["timeSig0", "timeSig1", "timeSig2", "timeSig3", "timeSig4", "timeSig5", "timeSig6", "timeSig7", "timeSig8", "timeSig9"];
     let names: Vec<&str> = txt.chars().filter_map(|ch| ch.to_digit(10)).map(|d| D[d as usize]).collect();
     s::draw_run(p, &names, c.x, c.y, sp, col);
+}
+
+/// The width of a dynamic as `dynamic` draws it.
+pub fn dynamic_width(sp: f32, t: &str) -> f32 {
+    let names: Option<Vec<&str>> = t.chars().map(s::dynamic_glyph).collect();
+    match names {
+        Some(n) if !n.is_empty() => n.iter().map(|g| s::advance(g)).sum::<f32>() * sp,
+        _ => t.chars().count() as f32 * sp * 0.9,
+    }
 }
 
 /// A dynamic ("p", "mf", "sfz") with the font's dynamic letters, centred on `c`; other words in italic-looking text.
@@ -269,6 +283,13 @@ pub fn mark(p: &Painter, c: Pos2, sp: f32, m: crate::model::Mark, above: bool, c
             p.add(PathShape::line(pts, PathStroke::new(sp * 0.12, col)));
             return sp * 3.2;
         }
+    };
+    // segno and coda at the size of text marks (about 1.75 spaces tall), not at the font's full size
+    let sp = if matches!(m, Segno | Coda) {
+        let (sw, ne) = s::bbox(name);
+        sp * 1.75 / (ne.y - sw.y)
+    } else {
+        sp
     };
     let (sw, ne) = s::bbox(name);
     let h = (ne.y - sw.y) * sp;

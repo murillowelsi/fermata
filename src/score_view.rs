@@ -514,6 +514,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
         }
     }
 
+    let mut dyn_rects: Vec<Rect> = vec![];
     for sys in &geo.systems {
         // selection of measures
         if let Some((a, b)) = st.sel_measures {
@@ -860,7 +861,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                             p.circle_filled(pos2(x + sp * (1.0 + d as f32 * 0.6), y - sp * 0.5), sp * 0.18, c);
                         }
                         out_hits.push(NoteHit { r, pitch: None, rect: Rect::from_center_size(pos2(x, y), vec2(sp * 1.6, sp * 3.0)) });
-                        draw_event_extras(p, score, e, x, mid, y, y, true, sp, c, s, m);
+                        draw_event_extras(p, score, e, x, mid, y, y, true, sp, c, s, m, &mut dyn_rects);
                         continue;
                     }
                     let n = match nl.get(&i) {
@@ -891,8 +892,10 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     }
                     acc_list.sort_by_key(|a| -e.pitches[a.0].step);
                     let mut last_y = f32::MIN;
+                    let mut acc_top = f32::MAX;
                     for (k, alter, forced) in acc_list {
                         let y = n.ys[k];
+                        acc_top = acc_top.min(y - g::accidental_height_above(sp, alter));
                         if (y - last_y).abs() < sp * 2.5 && last_y != f32::MIN {
                             acc_x -= sp * 1.1;
                         } else {
@@ -963,8 +966,8 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         }
                     }
                     let (ytop, ybot) = n.ys.iter().fold((f32::MAX, f32::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
-                    draw_marks(p, e, x, ytop, ybot, n.up, n.stem_end, mid, sp, c);
-                    draw_event_extras(p, score, e, x, mid, ytop, ybot, n.up, sp, c, s, m);
+                    draw_marks(p, e, x, ytop, ybot, n.up, n.stem_end, mid, sp, c, acc_top);
+                    draw_event_extras(p, score, e, x, mid, ytop, ybot, n.up, sp, c, s, m, &mut dyn_rects);
                 }
                 // cursor
                 if let Some((cs, cm, ct)) = st.cursor {
@@ -1154,8 +1157,11 @@ fn draw_barline(p: &Painter, score: &Score, sys: &SysGeo, mg: &MeasGeo, b: Barli
     }
 }
 
-fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, stem_end: f32, mid: f32, sp: f32, c: Color32) {
-    let mut above_y = (if up { stem_end.min(ytop) } else { ytop }).min(mid - 2.0 * sp) - sp * 1.0;
+/// `acc_top`: the top of the note's highest accidental (f32::MAX without one): marks above clear it too.
+#[allow(clippy::too_many_arguments)]
+fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, stem_end: f32, mid: f32, sp: f32, c: Color32, acc_top: f32) {
+    // above the stem, the staff and the accidentals (an ornament is wider than the note and would cross them)
+    let mut above_y = (if up { stem_end.min(ytop) } else { ytop }).min(mid - 2.0 * sp).min(acc_top - sp * 0.3) - sp * 1.0;
     let mut below_y = (if up { ybot } else { stem_end.max(ybot) }).max(mid + 2.0 * sp) + sp * 1.0;
     // a quarter space clear of the notehead (the mark's near edge is half a space past these points)
     let close_above = ytop - sp * 1.25;
@@ -1194,11 +1200,24 @@ fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, st
     }
 }
 
-fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _ytop: f32, _ybot: f32, _up: bool, sp: f32, c: Color32, _s: usize, _m: usize) {
+/// `dyn_rects`: the dynamics already drawn on the page; a dynamic that would touch one goes a row lower.
+#[allow(clippy::too_many_arguments)]
+fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _ytop: f32, _ybot: f32, _up: bool, sp: f32, c: Color32, _s: usize, _m: usize, dyn_rects: &mut Vec<Rect>) {
     let bottom = mid + 2.0 * sp;
     let top = mid - 2.0 * sp;
     if let Some(d) = &e.dynamic {
-        dynamic_text(p, pos2(x, bottom + sp * 3.0), sp, d, c);
+        let w = g::dynamic_width(sp, d);
+        let mut y = bottom + sp * 3.0;
+        let mut r = Rect::from_center_size(pos2(x, y), vec2(w, sp * 2.0));
+        for _ in 0..3 {
+            if !dyn_rects.iter().any(|o| o.expand2(vec2(sp * 1.2, 0.0)).intersects(r)) {
+                break;
+            }
+            y += sp * 2.2;
+            r = Rect::from_center_size(pos2(x, y), vec2(w, sp * 2.0));
+        }
+        dyn_rects.push(r);
+        dynamic_text(p, pos2(x, y), sp, d, c);
     }
     for (i, l) in e.lyric.iter().enumerate() {
         if !l.is_empty() {
