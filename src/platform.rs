@@ -21,7 +21,8 @@ pub fn open_target(_r: egui::Rect) {
     crate::web::open_target(_r);
 }
 
-pub const OPEN_EXTS: [&str; 7] = ["fmt", "json", "enc", "ENC", "mid", "midi", "musicxml"];
+pub const OPEN_EXTS: [&str; 9] = ["fmt", "json", "enc", "ENC", "mid", "midi", "musicxml", "xml", "mxl"];
+pub const XML_EXTS: [&str; 3] = ["musicxml", "xml", "mxl"];
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {

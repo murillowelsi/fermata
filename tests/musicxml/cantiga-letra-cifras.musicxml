@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by hand by the Fermata team (F-07 tests): melody, words and chords are our own. Free to use. -->
+<score-partwise version="4.0">
+  <movement-title>Cantiga da manhã</movement-title>
+  <identification><creator type="composer">Fermata Dev 2</creator><creator type="lyricist">Fermata Dev 2</creator></identification>
+  <part-list>
+    <part-group type="start" number="1"><group-symbol>bracket</group-symbol><group-barline>yes</group-barline></part-group>
+    <score-part id="V"><part-name>Voz</part-name><midi-instrument id="V-I1"><midi-channel>1</midi-channel><midi-program>53</midi-program></midi-instrument></score-part>
+    <score-part id="T"><part-name>Trompete em Si♭</part-name><part-abbreviation>Tpt.</part-abbreviation>
+      <midi-instrument id="T-I1"><midi-channel>2</midi-channel><midi-program>57</midi-program></midi-instrument></score-part>
+    <part-group type="stop" number="1"/>
+  </part-list>
+  <part id="V">
+    <measure number="0" implicit="yes">
+      <attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+      <direction placement="above"><direction-type><rehearsal>A</rehearsal></direction-type></direction>
+      <direction placement="above"><direction-type><words font-style="italic">dolce</words></direction-type><sound tempo="84"/></direction>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>begin</syllabic><text>Can</text></lyric>
+        <lyric number="2"><syllabic>begin</syllabic><text>So</text></lyric></note>
+    </measure>
+    <measure number="1">
+      <harmony><root><root-step>C</root-step></root><kind>major</kind></harmony>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>end</syllabic><text>ta</text></lyric>
+        <lyric number="2"><syllabic>end</syllabic><text>pra</text></lyric></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>single</syllabic><text>o</text></lyric>
+        <lyric number="2"><syllabic>single</syllabic><text>o</text></lyric></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>begin</syllabic><text>ga</text></lyric>
+        <lyric number="2"><syllabic>begin</syllabic><text>ven</text></lyric></note>
+    </measure>
+    <measure number="2">
+      <harmony><root><root-step>A</root-step></root><kind>minor-seventh</kind></harmony>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>half</type>
+        <lyric number="1"><syllabic>end</syllabic><text>lo,</text></lyric>
+        <lyric number="2"><syllabic>end</syllabic><text>to</text></lyric></note>
+      <harmony><root><root-step>F</root-step></root><kind text="maj7">major-seventh</kind></harmony>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>begin</syllabic><text>nas</text></lyric>
+        <lyric number="2"><syllabic>begin</syllabic><text>so</text></lyric></note>
+    </measure>
+    <measure number="3">
+      <harmony><root><root-step>D</root-step></root><kind>minor-seventh</kind></harmony>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>end</syllabic><text>ce</text></lyric>
+        <lyric number="2"><syllabic>end</syllabic><text>bre</text></lyric></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>single</syllabic><text>o</text></lyric>
+        <lyric number="2"><syllabic>single</syllabic><text>o</text></lyric></note>
+      <harmony><root><root-step>G</root-step></root><kind>dominant</kind></harmony>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type>
+        <lyric number="1"><syllabic>begin</syllabic><text>di</text></lyric>
+        <lyric number="2"><syllabic>single</syllabic><text>mar</text><extend type="start"/></lyric></note>
+    </measure>
+    <measure number="4">
+      <harmony><root><root-step>C</root-step></root><kind>major</kind><bass><bass-step>E</bass-step></bass></harmony>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/>
+        <lyric number="1"><syllabic>end</syllabic><text>a</text></lyric>
+        <lyric number="2"><extend type="stop"/></lyric></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+  <part id="T">
+    <measure number="0" implicit="yes">
+      <attributes><divisions>2</divisions><key><fifths>2</fifths></key><time><beats>3</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef>
+        <transpose><diatonic>-1</diatonic><chromatic>-2</chromatic></transpose></attributes>
+      <note><rest/><duration>2</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="1">
+      <direction placement="above"><direction-type><bracket type="start" line-end="down" number="1"/></direction-type></direction>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/></note>
+    </measure>
+    <measure number="2">
+      <direction placement="above"><direction-type><bracket type="stop" line-end="down" number="1"/></direction-type></direction>
+      <note><pitch><step>F</step><alter>1</alter><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/></note>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>half</type></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><voice>1</voice><type>quarter</type></note>
+    </measure>
+    <measure number="4">
+      <figured-bass><figure><figure-number>6</figure-number></figure></figured-bass>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>6</duration><voice>1</voice><type>half</type><dot/></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>

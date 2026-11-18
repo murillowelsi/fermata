@@ -103,6 +103,8 @@ pub enum Then {
     /// The open window (File > Open), shown after the answer.
     Open,
     ImportMidi,
+    /// File > Import > MusicXML (.musicxml, .xml, .mxl).
+    ImportXml,
     /// Revert to Saved: asks with its own text (there is nothing to save, only changes to lose).
     Revert(PathBuf),
     /// A file that arrived by itself: the installed web app's file handlers and Launch Queue.
@@ -1669,7 +1671,7 @@ impl App {
                 {
                     self.awaiting_enc_model = false;
                 }
-                if let Some(o) = crate::platform::pick_open("Scores, Encore files and MIDI", &crate::platform::OPEN_EXTS) {
+                if let Some(o) = crate::platform::pick_open("Scores, Encore files, MIDI and MusicXML", &crate::platform::OPEN_EXTS) {
                     self.load_opened(o);
                 }
             }
@@ -1679,6 +1681,15 @@ impl App {
                     self.awaiting_enc_model = false;
                 }
                 if let Some(o) = crate::platform::pick_open("MIDI", &["mid", "midi"]) {
+                    self.load_opened(o);
+                }
+            }
+            Then::ImportXml => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.awaiting_enc_model = false;
+                }
+                if let Some(o) = crate::platform::pick_open("MusicXML", &crate::platform::XML_EXTS) {
                     self.load_opened(o);
                 }
             }
@@ -1738,12 +1749,13 @@ impl App {
     }
 
     pub fn load_opened(&mut self, o: crate::platform::Opened) {
-        match crate::io::open_bytes(&o.name, &o.bytes) {
-            Ok(sc) => {
+        match crate::io::open_bytes_noted(&o.name, &o.bytes) {
+            Ok((sc, note)) => {
                 #[cfg(target_arch = "wasm32")]
                 crate::web::opened_document(o.id, &o.name, &o.bytes);
                 let ext = o.name.rsplit('.').next().unwrap_or("").to_lowercase();
-                let is_native = !matches!(ext.as_str(), "mid" | "midi" | "enc");
+                // an imported file (MIDI, Encore, MusicXML) is saved as a new Fermata score
+                let is_native = !matches!(ext.as_str(), "mid" | "midi" | "enc" | "musicxml" | "xml" | "mxl") && note.is_none();
                 if ext == "enc" {
                     self.enc_model = Some(o.bytes.clone());
                     remember_enc_model(&o.bytes);
@@ -1757,7 +1769,7 @@ impl App {
                 self.sel_graphics.clear();
                 self.sel_measures = None;
                 self.cursor = (0, 0, 0);
-                self.status = format!("Opened {}", o.name);
+                self.status = note.unwrap_or_else(|| format!("Opened {}", o.name));
                 // the reader: a new score stops what was playing and fits the width again, with the hint
                 if self.device == crate::touch::Device::Reader {
                     self.stop_sound();
@@ -2204,7 +2216,7 @@ mod unsaved_tests {
 
     #[test]
     fn every_command_that_replaces_the_score_asks() {
-        for c in [Cmd::Open, Cmd::ImportMidi, Cmd::NewDefault, Cmd::Close, Cmd::Quit] {
+        for c in [Cmd::Open, Cmd::ImportMidi, Cmd::ImportXml, Cmd::NewDefault, Cmd::Close, Cmd::Quit] {
             let mut a = edited();
             let before = a.score.clone();
             a.exec(c);

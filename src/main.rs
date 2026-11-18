@@ -16,6 +16,7 @@ mod midi_in;
 mod midi_out;
 mod prefs;
 mod model;
+mod musicxml;
 mod palettes;
 mod platform;
 mod rec;

@@ -204,8 +204,23 @@ fn fonts() -> FontDefinitions {
     // Bravura (SMuFL) for the palettes' music symbols
     f.font_data.insert("Bravura".to_owned(), Arc::new(FontData::from_static(crate::palettes::BRAVURA)));
     f.families.insert(FontFamily::Name(crate::palettes::BRAVURA_FAMILY.into()), vec!["Bravura".to_owned()]);
+    // ♭ ♮ ♯ in any text ("Clarinet in B♭", "Sonata em Si♭", "F♯m"): neither Inter nor egui's fonts have them, so
+    // Bravura's own text accidentals come last in every family (only characters no other font has reach it, so
+    // nothing that shows today changes). Its glyphs sit on the staff line, smaller than letters: scaled and raised.
+    let text_acc = FontData::from_static(crate::palettes::BRAVURA).tweak(egui::FontTweak { scale: TEXT_ACC_SCALE, y_offset_factor: TEXT_ACC_Y, ..Default::default() });
+    f.font_data.insert(TEXT_ACC_FONT.to_owned(), Arc::new(text_acc));
+    for list in f.families.values_mut() {
+        if !list.iter().any(|n| n == "Bravura") {
+            list.push(TEXT_ACC_FONT.to_owned());
+        }
+    }
     f
 }
+
+/// The font that draws ♭ ♮ ♯ inside text, and how it is fitted to the letters around it.
+const TEXT_ACC_FONT: &str = "Bravura (text accidentals)";
+const TEXT_ACC_SCALE: f32 = 1.45;
+const TEXT_ACC_Y: f32 = 0.16;
 
 // ---------------- egui style ----------------
 

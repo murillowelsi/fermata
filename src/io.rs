@@ -9,7 +9,22 @@ pub fn score_bytes(score: &Score) -> Result<Vec<u8>, String> {
 
 /// Open a score from a file's name and contents.
 pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Score, String> {
+    open_bytes_noted(name, bytes).map(|x| x.0)
+}
+
+/// Open a score, with a line for the status bar when the file was converted (MusicXML: what was left out).
+pub fn open_bytes_noted(name: &str, bytes: &[u8]) -> Result<(Score, Option<String>), String> {
     let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    if crate::musicxml::is_musicxml(name, bytes) && !bytes.starts_with(b"MThd") {
+        let file = name.rsplit(['/', '\\']).next().unwrap_or(name);
+        let imp = crate::musicxml::import(name, bytes)?;
+        let note = imp.summary(file);
+        return Ok((imp.score, Some(note)));
+    }
+    open_plain(&ext, bytes).map(|s| (s, None))
+}
+
+fn open_plain(ext: &str, bytes: &[u8]) -> Result<Score, String> {
     if ext == "mid" || ext == "midi" || bytes.starts_with(b"MThd") {
         return import_midi(bytes);
     }

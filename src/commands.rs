@@ -4,7 +4,7 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Cmd {
     // File
-    New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, ImportMidi, ExportMidi, ExportXml, ExportEnc, ExportPng, ExtractPart, Quit,
+    New, NewDefault, Open, Close, Save, SaveAs, Revert, Print, PageSetup, ImportMidi, ImportXml, ExportMidi, ExportXml, ExportEnc, ExportPng, ExtractPart, Quit,
     // Edit
     Undo, Redo, Cut, Copy, Paste, Clear, SelectAll, NudgeLeft, NudgeRight, NudgeUp, NudgeDown,
     // Notes
@@ -285,6 +285,7 @@ pub fn label(c: Cmd) -> String {
         Print => "Print / Export Page Image...".into(),
         PageSetup => "Page Setup...".into(),
         ImportMidi => "Import MIDI File...".into(),
+        ImportXml => "Import MusicXML File...".into(),
         ExportMidi => "Export MIDI File...".into(),
         ExportXml => "Export MusicXML...".into(),
         ExportEnc => "Export Encore File (.enc)...".into(),
