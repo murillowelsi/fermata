@@ -2,8 +2,8 @@
 1 ICON "fermata.ico"
 
 1 VERSIONINFO
-FILEVERSION     0,3,4,0
-PRODUCTVERSION  0,3,4,0
+FILEVERSION     0,3,5,0
+PRODUCTVERSION  0,3,5,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -11,8 +11,8 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "Fermata - music notation editor"
       VALUE "ProductName", "Fermata"
-      VALUE "FileVersion", "0.3.4"
-      VALUE "ProductVersion", "0.3.4"
+      VALUE "FileVersion", "0.3.5"
+      VALUE "ProductVersion", "0.3.5"
       VALUE "OriginalFilename", "fermata.exe"
     END
   END

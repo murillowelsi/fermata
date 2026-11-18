@@ -143,3 +143,6 @@ dialog.zoom form { text-align: center; margin-top: 10px } dialog.zoom button { f
 .theme-btn svg { width: 16px; height: 16px }
 .nav .links + .theme-btn { margin-left: 4px }
 @media (max-width: 720px) { .theme-btn .lbl { display: none } .theme-btn { padding: 0 9px } .nav .theme-btn { margin-left: auto } }
+
+/* link para a versão web */
+.cta .web-link { display: inline-block; margin-top: 10px; font-weight: 600; font-size: 15.5px }

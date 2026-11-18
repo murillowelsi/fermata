@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fermata</title>
+<meta name="description" content="Fermata, a free music notation editor, in the browser.">
+<meta name="theme-color" content="#F2F2F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#29292B" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Fermata">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #F2F2F0; }
+  #fermata_canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; }
+  #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+             font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #5C5C60; }
+  #loading img { width: 96px; height: 96px; }
+  #loading .head { font-weight: 600; font-size: 15px; color: #1D1D1F; }
+  #loading .sub { max-width: 420px; text-align: center; }
+  #loading button { border: 0; border-radius: 7px; padding: 7px 16px; background: #007AFF; color: #FFFFFF; font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
+  #update { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); display: none; align-items: center; gap: 12px;
+            padding: 10px 12px 10px 16px; border-radius: 12px; background: #FFFFFF; color: #1D1D1F; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+            font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; z-index: 10; }
+  #update button { border: 0; border-radius: 7px; padding: 6px 14px; background: #007AFF; color: #FFFFFF; font: 600 13px inherit; cursor: pointer; }
+  @media (prefers-color-scheme: dark) {
+    html, body { background: #29292B; }
+    #loading { color: #ABABB0; }
+    #loading .head { color: #ECECEE; }
+    #loading button { background: #0A84FF; }
+    #update { background: #2C2C2F; color: #ECECEE; }
+    #update button { background: #0A84FF; }
+  }
+</style>
+<script>
+  // Sound: browsers start audio suspended until the person clicks or types. Keep the contexts the app creates and
+  // resume them on the first (and any later) gesture.
+  (function () {
+    const Base = window.AudioContext || window.webkitAudioContext;
+    if (!Base) return;
+    const made = [];
+    class TrackedAudioContext extends Base { constructor(...a) { super(...a); made.push(this); } }
+    window.AudioContext = TrackedAudioContext;
+    window.webkitAudioContext = TrackedAudioContext;
+    const resume = () => { for (const c of made) if (c.state !== "running") c.resume().catch(() => {}); };
+    for (const ev of ["pointerdown", "keydown", "touchend"]) addEventListener(ev, resume, true);
+  })();
+</script>
+</head>
+<body>
+<canvas id="fermata_canvas"></canvas>
+<div id="loading"><img src="icons/icon-192.png" alt=""><div>Loading Fermata…</div></div>
+<div id="update" role="status"><span>A new version of Fermata is available.</span><button type="button">Reload</button></div>
+<script>
+  // When loading fails (no connection, an interrupted download), say so and offer to try again instead of leaving
+  // "Loading Fermata…" on screen. Also after a minute without the app starting.
+  window.fermataLoadFailed = function (detail, slow) {
+    const box = document.getElementById("loading");
+    if (!box || box.dataset.failed) return;
+    box.dataset.failed = "1";
+    box.innerHTML = "";
+    const img = document.createElement("img"); img.src = "icons/icon-192.png"; img.alt = "";
+    const head = document.createElement("div"); head.className = "head";
+    head.textContent = slow ? "Fermata is taking too long to load." : "Fermata couldn't load.";
+    const sub = document.createElement("div"); sub.className = "sub";
+    sub.textContent = "Check the internet connection and try again." + (detail ? " (" + String(detail).slice(0, 160) + ")" : "");
+    const btn = document.createElement("button"); btn.type = "button"; btn.textContent = "Try again";
+    btn.onclick = () => location.reload();
+    box.append(img, head, sub, btn);
+  };
+  setTimeout(() => window.fermataLoadFailed("", true), 60000);
+</script>
+<script type="module">
+  // relative paths: works from the site root or a subfolder such as /fermata/app/
+  import("./fermata.js?v=0.3.5-3d2eb7cf")
+    .then((m) => m.default({ module_or_path: new URL("./fermata_bg.wasm?v=0.3.5-3d2eb7cf", import.meta.url) }))
+    .catch((e) => window.fermataLoadFailed((e && e.message) || e));
+</script>
+<script>
+  // Installed app and offline use: the service worker only covers this folder. A new version is never applied by
+  // surprise: the page offers to reload, and only that click reloads (not the first visit, when the worker starts
+  // looking after the page, nor another tab's click).
+  if ("serviceWorker" in navigator) {
+    let asked = false, reloading = false;
+    const reload = () => { if (!reloading) { reloading = true; location.reload(); } };
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (asked) reload(); });
+    navigator.serviceWorker.register("./sw.js", { scope: "./" }).then((reg) => {
+      const bar = document.getElementById("update");
+      const offer = (worker) => {
+        bar.style.display = "flex";
+        bar.querySelector("button").onclick = () => {
+          asked = true;
+          // already switched by a click in another tab: just reload this one
+          if (worker.state === "activated") reload(); else worker.postMessage("skipWaiting");
+        };
+      };
+      if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const w = reg.installing;
+        if (w) w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) offer(w); });
+      });
+      setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+    }).catch(() => {});
+  }
+</script>
+</body>
+</html>
