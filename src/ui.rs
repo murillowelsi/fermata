@@ -985,6 +985,8 @@ impl App {
                             *template = t;
                             let (a, b, c) = template_numbers(t, *staves);
                             (*staves, *systems, *mps) = (a, b, c);
+                            // a template with B♭ / E♭ / F instruments starts as a C score (still editable)
+                            *c_score = template_transposes(t);
                         }
                         if create {
                             self.new_score_create = true;

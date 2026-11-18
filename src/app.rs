@@ -1822,6 +1822,12 @@ pub const TEMPLATES: [&str; 24] = [
     "Wind Band (small)",
 ];
 
+/// Does the template have a transposing staff (B♭, E♭, F instruments)? New Score then starts it as a C score
+/// (the page has one key per measure, so a transposed score would show the wrong key on those staves; F-12).
+pub fn template_transposes(t: usize) -> bool {
+    build_template(t, 0, 1, 1, false, false).staves.iter().any(|s| s.transpose != 0 && s.transpose % 12 != 0)
+}
+
 /// New Score ▸ Most used: the templates shown as a grid with a picture of their staves (F-29), in this order.
 pub const MOST_USED: [usize; 8] = [1, 8, 22, 18, 2, 21, 11, 23];
 
@@ -2051,10 +2057,10 @@ pub fn build_template(t: usize, staves: usize, systems: usize, mps: usize, c_sco
         23 => {
             let mut wood = vec![
                 sta("Flute", "Fl.", Clef::Treble, 73, 0),
-                sta("Clarinet in Bb", "Cl.", Clef::Treble, 71, -2),
+                sta("Clarinet in B♭", "Cl.", Clef::Treble, 71, -2),
                 sta("Alto Sax", "A. Sax", Clef::Treble, 65, -9),
             ];
-            let mut brass = vec![sta("Trumpet in Bb", "Tpt.", Clef::Treble, 56, -2), sta("Trombone", "Tbn.", Clef::Bass, 57, 0)];
+            let mut brass = vec![sta("Trumpet in B♭", "Tpt.", Clef::Treble, 56, -2), sta("Trombone", "Tbn.", Clef::Bass, 57, 0)];
             bracket_group(&mut wood);
             bracket_group(&mut brass);
             wood.extend(brass);
@@ -2401,6 +2407,8 @@ mod f29_tests {
         // woodwinds and brass bracketed separately, bar lines through each section only
         assert_eq!(v.iter().map(|s| s.bracket_with_next).collect::<Vec<_>>(), [true, true, false, true, false]);
         assert_eq!(v.iter().map(|s| s.barline_to_next).collect::<Vec<_>>(), [true, true, false, true, false]);
+        assert_eq!(v[1].name, "Clarinet in B♭");
+        assert_eq!(v[3].name, "Trumpet in B♭");
         // a written C on the clarinet plays B♭3, on the sax E♭3
         assert_eq!(60 + v[1].transpose as i32, 58);
         assert_eq!(60 + v[2].transpose as i32, 51);
@@ -2425,6 +2433,17 @@ mod f29_tests {
         let sc = build_template(22, 6, 3, 4, false, false);
         assert_eq!(sc.staves.len(), 6);
         assert_eq!(sc.staves[5].name, "Staff 6");
+    }
+
+    #[test]
+    fn templates_with_transposing_instruments_start_as_a_c_score() {
+        // the page has one key signature per measure (no transposed key per staff yet, F-12)
+        for t in [23, 3, 4, 5, 6, 10, 12, 15, 17, 19, 20] {
+            assert!(template_transposes(t), "{}", TEMPLATES[t]);
+        }
+        for t in [0, 1, 2, 7, 8, 9, 11, 16, 18, 21, 22] {
+            assert!(!template_transposes(t), "{}", TEMPLATES[t]);
+        }
     }
 
     #[test]

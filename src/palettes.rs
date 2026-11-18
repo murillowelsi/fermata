@@ -29,6 +29,10 @@ pub const BRAVURA: &[u8] = include_bytes!("../assets/fonts/web/FermataPaletteGly
 #[cfg(target_arch = "wasm32")]
 const BRAVURA_META: &str = include_str!("../assets/fonts/web/FermataPaletteGlyphs.json");
 pub const BRAVURA_FAMILY: &str = "bravura";
+/// Text accidentals ♭ ♮ ♯ that Bravura draws inside interface and page text (theme.rs); listed here so the browser's
+/// subset keeps them (tools/subset_web_fonts.sh collects every code point written in this file).
+#[allow(dead_code)]
+const TEXT_ACCIDENTALS: [char; 3] = ['\u{266D}', '\u{266E}', '\u{266F}'];
 
 /// The SMuFL glyphs the palettes use: code point and SMuFL name (the key into the metadata).
 const GLYPHS: &[(char, &str)] = &[
