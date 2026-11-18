@@ -1,58 +1,126 @@
-//! Music symbols drawn as vector shapes (no music font is bundled).
+//! Music symbols on the score page. Since F-03 every symbol is a glyph of the Bravura font (SMuFL), placed by the
+//! font's metadata (see `smufl.rs`); what isn't a glyph stays drawn here as vector shapes: ties and slurs, hairpins,
+//! trill lines, dashed lines, braces and brackets.
+use crate::smufl as s;
 use egui::epaint::{CubicBezierShape, PathShape, PathStroke};
-use egui::{pos2, vec2, Color32, Painter, Pos2, Shape, Stroke};
+use egui::{pos2, vec2, Color32, Painter, Pos2, Shape, Stroke, Vec2};
 
-fn ellipse_pts(c: Pos2, rx: f32, ry: f32, rot: f32, n: usize) -> Vec<Pos2> {
-    let (s, co) = rot.sin_cos();
-    (0..n)
-        .map(|i| {
-            let t = i as f32 / n as f32 * std::f32::consts::TAU;
-            let (x, y) = (rx * t.cos(), ry * t.sin());
-            pos2(c.x + x * co - y * s, c.y + x * s + y * co)
-        })
-        .collect()
-}
-
-pub fn notehead_width(sp: f32, value: u8) -> f32 {
-    if value <= 1 { sp * 1.45 } else { sp * 1.18 }
-}
-
-/// value: 0 double whole, 1 whole, 2 half, >=3 filled.
-pub fn notehead(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
-    notehead_on(p, c, sp, value, col, Color32::WHITE);
-}
-
-/// A notehead whose hollow (whole, half) is filled with `paper`: white on the page, the cell colour in a palette.
-pub fn notehead_on(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32, paper: Color32) {
-    let w = notehead_width(sp, value) / 2.0;
-    let h = sp * 0.5;
+/// The SMuFL notehead for a value: 0 double whole, 1 whole, 2 half, 3 and shorter black.
+pub fn notehead_name(value: u8) -> &'static str {
     match value {
-        0 | 1 => {
-            p.add(Shape::convex_polygon(ellipse_pts(c, w, h, 0.0, 28), col, Stroke::NONE));
-            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.42, h * 0.78, 1.0, 20), paper, Stroke::NONE));
-            if value == 0 {
-                let x0 = c.x - w - sp * 0.2;
-                let x1 = c.x + w + sp * 0.2;
-                for x in [x0, x0 + sp * 0.12, x1, x1 - sp * 0.12] {
-                    p.line_segment([pos2(x, c.y - sp * 0.65), pos2(x, c.y + sp * 0.65)], Stroke::new(sp * 0.09, col));
-                }
-            }
-        }
-        2 => {
-            p.add(Shape::convex_polygon(ellipse_pts(c, w, h * 0.92, -0.38, 28), col, Stroke::NONE));
-            p.add(Shape::convex_polygon(ellipse_pts(c, w * 0.78, h * 0.34, -0.5, 20), paper, Stroke::NONE));
-        }
-        _ => {
-            p.add(Shape::convex_polygon(ellipse_pts(c, w, h * 0.92, -0.38, 28), col, Stroke::NONE));
-        }
+        0 => "noteheadDoubleWhole",
+        1 => "noteheadWhole",
+        2 => "noteheadHalf",
+        _ => "noteheadBlack",
     }
 }
 
+pub fn notehead_width(sp: f32, value: u8) -> f32 {
+    s::advance(notehead_name(value)) * sp
+}
+
+/// A notehead centred on `c` (c.y is its line or space).
+pub fn notehead(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
+    let w = notehead_width(sp, value);
+    s::draw(p, notehead_name(value), pos2(c.x - w / 2.0, c.y), sp, col);
+}
+
 pub fn x_notehead(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let r = sp * 0.45;
-    let st = Stroke::new(sp * 0.14, col);
-    p.line_segment([c + vec2(-r, -r), c + vec2(r, r)], st);
-    p.line_segment([c + vec2(-r, r), c + vec2(r, -r)], st);
+    let w = s::advance("noteheadXBlack") * sp;
+    s::draw(p, "noteheadXBlack", pos2(c.x - w / 2.0, c.y), sp, col);
+}
+
+/// Where a stem meets a notehead centred on `c`: (x of the stem's centre line, y where it starts). The stem's edge
+/// lies on the font's anchor (`stemUpSE` / `stemDownNW`).
+pub fn stem_attach(c: Pos2, sp: f32, value: u8, up: bool, stem_w: f32) -> Pos2 {
+    let name = notehead_name(value);
+    let left = c.x - notehead_width(sp, value) / 2.0;
+    if up {
+        let a = s::anchor(name, "stemUpSE").unwrap_or(vec2(1.18, 0.168));
+        pos2(left + a.x * sp - stem_w / 2.0, c.y - a.y * sp)
+    } else {
+        let a = s::anchor(name, "stemDownNW").unwrap_or(vec2(0.0, -0.168));
+        pos2(left + a.x * sp + stem_w / 2.0, c.y - a.y * sp)
+    }
+}
+
+/// The flag of an unbeamed note: `count` 1 (eighth) to 5 (128th), on the stem ending at `stem_end` (the stem's
+/// centre line; stem 0.12 spaces wide). Joined by the flag's anchor.
+pub fn flag(p: &Painter, stem_end: Pos2, sp: f32, count: u8, up: bool, col: Color32) {
+    const UP: [&str; 5] = ["flag8thUp", "flag16thUp", "flag32ndUp", "flag64thUp", "flag128thUp"];
+    const DOWN: [&str; 5] = ["flag8thDown", "flag16thDown", "flag32ndDown", "flag64thDown", "flag128thDown"];
+    let i = (count.clamp(1, 5) - 1) as usize;
+    let stem_left = stem_end.x - sp * 0.06;
+    let (name, key) = if up { (UP[i], "stemUpNW") } else { (DOWN[i], "stemDownSW") };
+    let a = s::anchor(name, key).unwrap_or(Vec2::ZERO);
+    s::draw(p, name, pos2(stem_left - a.x * sp, stem_end.y + a.y * sp), sp, col);
+}
+
+fn accidental_name(alter: i8) -> &'static str {
+    match alter {
+        2 => "accidentalDoubleSharp",
+        1 => "accidentalSharp",
+        -1 => "accidentalFlat",
+        -2 => "accidentalDoubleFlat",
+        _ => "accidentalNatural",
+    }
+}
+
+/// An accidental centred horizontally on `c.x`, on the line or space `c.y`.
+pub fn accidental(p: &Painter, c: Pos2, sp: f32, alter: i8, col: Color32) {
+    s::draw_hcentered(p, accidental_name(alter), c.x, c.y, sp, col);
+}
+
+pub fn sharp(p: &Painter, c: Pos2, sp: f32, col: Color32) {
+    accidental(p, c, sp, 1, col);
+}
+pub fn flat(p: &Painter, c: Pos2, sp: f32, col: Color32) {
+    accidental(p, c, sp, -1, col);
+}
+pub fn natural(p: &Painter, c: Pos2, sp: f32, col: Color32) {
+    accidental(p, c, sp, 0, col);
+}
+
+/// The ink width of an accidental.
+pub fn accidental_width(sp: f32, alter: i8) -> f32 {
+    let (sw, ne) = s::bbox(accidental_name(alter));
+    (ne.x - sw.x) * sp
+}
+
+/// A clef glyph centred horizontally on `x`, its origin on the line it names (`y`).
+pub fn clef(p: &Painter, name: &str, x: f32, y: f32, sp: f32, col: Color32) {
+    s::draw_hcentered(p, name, x, y, sp, col);
+}
+
+/// A rest centred on `c.x`; `c.y` is the middle line (or where a voice's rests sit). The whole rest hangs from the
+/// line above, the half rest stands on the line, the double whole fills the space above.
+pub fn rest(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
+    const NAMES: [&str; 9] = ["restDoubleWhole", "restWhole", "restHalf", "restQuarter", "rest8th", "rest16th", "rest32nd", "rest64th", "rest128th"];
+    let name = NAMES[(value as usize).min(8)];
+    let y = if value == 1 { c.y - sp } else { c.y };
+    s::draw_hcentered(p, name, c.x, y, sp, col);
+}
+
+/// A time signature number (or a multi-measure rest's count) centred on `c` (its middle on `c.y`).
+pub fn time_sig_digit(p: &Painter, c: Pos2, sp: f32, txt: &str, col: Color32) {
+    const D: [&str; 10] = ["timeSig0", "timeSig1", "timeSig2", "timeSig3", "timeSig4", "timeSig5", "timeSig6", "timeSig7", "timeSig8", "timeSig9"];
+    let names: Vec<&str> = txt.chars().filter_map(|ch| ch.to_digit(10)).map(|d| D[d as usize]).collect();
+    s::draw_run(p, &names, c.x, c.y, sp, col);
+}
+
+/// A dynamic ("p", "mf", "sfz") with the font's dynamic letters, centred on `c`; other words in italic-looking text.
+pub fn dynamic(p: &Painter, c: Pos2, sp: f32, t: &str, col: Color32) {
+    let names: Option<Vec<&str>> = t.chars().map(s::dynamic_glyph).collect();
+    match names {
+        Some(n) if !n.is_empty() => {
+            // the letters sit on the baseline: lower it so the word's middle is on c.y
+            s::draw_run(p, &n, c.x, c.y + sp * 0.3, sp, col);
+        }
+        _ => {
+            let f = egui::FontId::proportional(sp * 1.8);
+            p.text(c, egui::Align2::CENTER_CENTER, t, f, col);
+        }
+    }
 }
 
 fn bez(p: &Painter, pts: [Pos2; 4], w: f32, col: Color32) {
@@ -91,193 +159,6 @@ pub fn lens(p: &Painter, a: Pos2, b: Pos2, height: f32, thick: f32, col: Color32
     p.add(Shape::mesh(mesh));
 }
 
-pub fn flag(p: &Painter, stem_end: Pos2, sp: f32, count: u8, up: bool, col: Color32) {
-    for i in 0..count {
-        let dir = if up { 1.0 } else { -1.0 };
-        let y0 = stem_end.y + dir * i as f32 * sp * 0.8;
-        let s = pos2(stem_end.x, y0);
-        let pts = [
-            s,
-            s + vec2(sp * 0.2, dir * sp * 1.0),
-            s + vec2(sp * 1.4, dir * sp * 1.2),
-            s + vec2(sp * 0.9, dir * sp * 2.9),
-        ];
-        bez(p, pts, sp * 0.22, col);
-    }
-}
-
-pub fn sharp(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let thin = Stroke::new(sp * 0.1, col);
-    let thick = Stroke::new(sp * 0.36, col);
-    for dx in [-0.22, 0.22] {
-        p.line_segment([c + vec2(dx * sp, -1.3 * sp), c + vec2(dx * sp, 1.3 * sp)], thin);
-    }
-    for dy in [-0.45, 0.45] {
-        p.line_segment([c + vec2(-0.5 * sp, (dy + 0.15) * sp), c + vec2(0.5 * sp, (dy - 0.15) * sp)], thick);
-    }
-}
-
-pub fn flat(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let st = Stroke::new(sp * 0.12, col);
-    let x = c.x - 0.3 * sp;
-    p.line_segment([pos2(x, c.y - 1.7 * sp), pos2(x, c.y + 0.5 * sp)], st);
-    bez(
-        p,
-        [pos2(x, c.y + 0.5 * sp), pos2(x + 0.9 * sp, c.y - 0.1 * sp), pos2(x + 0.8 * sp, c.y - 0.7 * sp), pos2(x, c.y - 0.15 * sp)],
-        sp * 0.2,
-        col,
-    );
-}
-
-pub fn natural(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let thin = Stroke::new(sp * 0.11, col);
-    let thick = Stroke::new(sp * 0.3, col);
-    p.line_segment([c + vec2(-0.3 * sp, -1.3 * sp), c + vec2(-0.3 * sp, 0.55 * sp)], thin);
-    p.line_segment([c + vec2(0.3 * sp, -0.55 * sp), c + vec2(0.3 * sp, 1.3 * sp)], thin);
-    p.line_segment([c + vec2(-0.3 * sp, -0.25 * sp), c + vec2(0.3 * sp, -0.5 * sp)], thick);
-    p.line_segment([c + vec2(-0.3 * sp, 0.5 * sp), c + vec2(0.3 * sp, 0.25 * sp)], thick);
-}
-
-pub fn double_sharp(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let st = Stroke::new(sp * 0.14, col);
-    let r = sp * 0.38;
-    p.line_segment([c + vec2(-r, -r), c + vec2(r, r)], st);
-    p.line_segment([c + vec2(-r, r), c + vec2(r, -r)], st);
-    for (dx, dy) in [(-1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (1.0, -1.0)] {
-        p.circle_filled(c + vec2(dx * r, dy * r), sp * 0.15, col);
-    }
-}
-
-pub fn accidental(p: &Painter, c: Pos2, sp: f32, alter: i8, col: Color32) {
-    match alter {
-        2 => double_sharp(p, c, sp, col),
-        1 => sharp(p, c, sp, col),
-        -1 => flat(p, c, sp, col),
-        -2 => {
-            flat(p, c + vec2(-0.35 * sp, 0.0), sp, col);
-            flat(p, c + vec2(0.4 * sp, 0.0), sp, col);
-        }
-        _ => natural(p, c, sp, col),
-    }
-}
-
-pub fn accidental_width(sp: f32, alter: i8) -> f32 {
-    match alter {
-        -2 => sp * 1.9,
-        2 => sp * 1.1,
-        _ => sp * 1.15,
-    }
-}
-
-/// Treble clef: c is the position of the G line.
-pub fn treble_clef(p: &Painter, g: Pos2, sp: f32, col: Color32) {
-    let w = sp * 0.17;
-    let x = g.x;
-    let pt = |dx: f32, dy: f32| pos2(x + dx * sp, g.y + dy * sp);
-    // spiral around G line
-    bez(p, [pt(0.15, 0.55), pt(-0.9, 0.4), pt(-0.6, -0.8), pt(0.2, -0.6)], w * 1.4, col);
-    bez(p, [pt(0.2, -0.6), pt(1.4, -0.3), pt(1.1, 1.3), pt(-0.1, 1.2)], w * 1.8, col);
-    bez(p, [pt(-0.1, 1.2), pt(-1.6, 1.1), pt(-1.5, -0.8), pt(-0.1, -1.9)], w * 1.6, col);
-    bez(p, [pt(-0.1, -1.9), pt(0.9, -2.8), pt(0.9, -4.3), pt(0.25, -4.3)], w * 1.3, col);
-    bez(p, [pt(0.25, -4.3), pt(-0.5, -4.2), pt(-0.6, -2.8), pt(-0.25, -1.5)], w, col);
-    p.line_segment([pt(-0.25, -1.5), pt(0.35, 2.4)], Stroke::new(w, col));
-    bez(p, [pt(0.35, 2.4), pt(0.45, 3.2), pt(-0.3, 3.4), pt(-0.55, 2.9)], w, col);
-    p.circle_filled(pt(-0.45, 2.85), sp * 0.32, col);
-}
-
-/// Bass clef: f is the position of the F line.
-pub fn bass_clef(p: &Painter, f: Pos2, sp: f32, col: Color32) {
-    let pt = |dx: f32, dy: f32| pos2(f.x + dx * sp, f.y + dy * sp);
-    p.circle_filled(pt(-0.6, 0.0), sp * 0.36, col);
-    bez(p, [pt(-0.8, -0.1), pt(-0.6, -1.3), pt(1.5, -1.3), pt(1.2, 0.4)], sp * 0.24, col);
-    bez(p, [pt(1.2, 0.4), pt(1.0, 1.6), pt(-0.2, 2.4), pt(-0.9, 2.7)], sp * 0.2, col);
-    p.circle_filled(pt(1.75, -0.5), sp * 0.15, col);
-    p.circle_filled(pt(1.75, 0.5), sp * 0.15, col);
-}
-
-/// C clef: c is the position of the middle C line.
-pub fn c_clef(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    let pt = |dx: f32, dy: f32| pos2(c.x + dx * sp, c.y + dy * sp);
-    p.rect_filled(egui::Rect::from_min_max(pt(-1.0, -2.0), pt(-0.6, 2.0)), 0.0, col);
-    p.line_segment([pt(-0.4, -2.0), pt(-0.4, 2.0)], Stroke::new(sp * 0.12, col));
-    for s in [-1.0f32, 1.0] {
-        bez(p, [pt(-0.4, 0.0), pt(0.2, s * 0.3), pt(0.3, s * 0.6), pt(0.5, s * 0.9)], sp * 0.15, col);
-        bez(p, [pt(0.5, s * 0.9), pt(1.6, s * 0.5), pt(1.6, s * 2.1), pt(0.6, s * 2.0)], sp * 0.3, col);
-    }
-}
-
-pub fn percussion_clef(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    for dx in [-0.35, 0.35] {
-        p.rect_filled(egui::Rect::from_center_size(c + vec2(dx * sp, 0.0), vec2(sp * 0.35, sp * 2.0)), 0.0, col);
-    }
-}
-
-pub fn small_8(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    p.text(c, egui::Align2::CENTER_CENTER, "8", egui::FontId::proportional(sp * 1.3), col);
-}
-
-pub fn rest(p: &Painter, c: Pos2, sp: f32, value: u8, col: Color32) {
-    match value {
-        0 => {
-            p.rect_filled(egui::Rect::from_min_max(c + vec2(-0.3 * sp, -1.0 * sp), c + vec2(0.3 * sp, 0.0)), 0.0, col);
-        }
-        1 => {
-            p.rect_filled(egui::Rect::from_min_max(c + vec2(-0.6 * sp, -1.0 * sp), c + vec2(0.6 * sp, -0.5 * sp)), 0.0, col);
-        }
-        2 => {
-            p.rect_filled(egui::Rect::from_min_max(c + vec2(-0.6 * sp, -0.5 * sp), c + vec2(0.6 * sp, 0.0)), 0.0, col);
-        }
-        3 => {
-            let pts = [
-                c + vec2(-0.3 * sp, -1.5 * sp),
-                c + vec2(0.35 * sp, -0.7 * sp),
-                c + vec2(-0.25 * sp, 0.0),
-                c + vec2(0.35 * sp, 0.75 * sp),
-            ];
-            p.add(PathShape::line(pts.to_vec(), PathStroke::new(sp * 0.28, col)));
-            bez(p, [c + vec2(0.35 * sp, 0.75 * sp), c + vec2(-0.6 * sp, 0.3 * sp), c + vec2(-0.5 * sp, 1.2 * sp), c + vec2(0.05 * sp, 1.5 * sp)], sp * 0.18, col);
-        }
-        _ => {
-            let n = value as i32 - 3; // number of hooks
-            let top = c + vec2(0.35 * sp, -0.9 * sp);
-            let bottom = top + vec2(-0.55 * sp * n as f32 * 0.6 - 0.4 * sp, (n as f32 + 0.6) * sp);
-            p.line_segment([top, bottom], Stroke::new(sp * 0.13, col));
-            for i in 0..n {
-                let t = i as f32 / (n as f32 + 0.6);
-                let hp = top + (bottom - top) * t;
-                p.circle_filled(hp + vec2(-0.75 * sp, 0.05 * sp), sp * 0.25, col);
-                bez(p, [hp + vec2(-0.75 * sp, 0.15 * sp), hp + vec2(-0.4 * sp, 0.35 * sp), hp + vec2(-0.1 * sp, 0.25 * sp), hp], sp * 0.1, col);
-            }
-        }
-    }
-}
-
-pub fn fermata(p: &Painter, c: Pos2, sp: f32, below: bool, col: Color32) {
-    let s = if below { -1.0 } else { 1.0 };
-    bez(
-        p,
-        [c + vec2(-1.1 * sp, 0.0), c + vec2(-1.0 * sp, -1.4 * sp * s), c + vec2(1.0 * sp, -1.4 * sp * s), c + vec2(1.1 * sp, 0.0)],
-        sp * 0.17,
-        col,
-    );
-    p.circle_filled(c + vec2(0.0, -0.25 * sp * s), sp * 0.2, col);
-}
-
-pub fn segno(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    bez(p, [c + vec2(0.6 * sp, -0.9 * sp), c + vec2(-0.2 * sp, -1.6 * sp), c + vec2(-1.2 * sp, -0.4 * sp), c], sp * 0.18, col);
-    bez(p, [c, c + vec2(1.2 * sp, 0.4 * sp), c + vec2(0.2 * sp, 1.6 * sp), c + vec2(-0.6 * sp, 0.9 * sp)], sp * 0.18, col);
-    p.line_segment([c + vec2(-0.8 * sp, 1.0 * sp), c + vec2(0.8 * sp, -1.0 * sp)], Stroke::new(sp * 0.1, col));
-    p.circle_filled(c + vec2(-0.7 * sp, -0.2 * sp), sp * 0.13, col);
-    p.circle_filled(c + vec2(0.7 * sp, 0.2 * sp), sp * 0.13, col);
-}
-
-pub fn coda(p: &Painter, c: Pos2, sp: f32, col: Color32) {
-    p.add(Shape::convex_polygon(ellipse_pts(c, sp * 0.7, sp * 0.9, 0.0, 24), Color32::TRANSPARENT, Stroke::new(sp * 0.15, col)));
-    let st = Stroke::new(sp * 0.1, col);
-    p.line_segment([c + vec2(-1.2 * sp, 0.0), c + vec2(1.2 * sp, 0.0)], st);
-    p.line_segment([c + vec2(0.0, -1.3 * sp), c + vec2(0.0, 1.3 * sp)], st);
-}
-
 pub fn brace(p: &Painter, top: Pos2, bottom: Pos2, sp: f32, col: Color32) {
     let mid = pos2(top.x, (top.y + bottom.y) / 2.0);
     let w = sp * 0.9;
@@ -299,14 +180,6 @@ pub fn bracket(p: &Painter, top: Pos2, bottom: Pos2, sp: f32, col: Color32) {
     p.rect_filled(egui::Rect::from_min_max(pos2(x - sp * 0.5, top.y - sp * 0.3), pos2(x, bottom.y + sp * 0.3)), 0.0, col);
     bez(p, [pos2(x - 0.3 * sp, top.y - 0.3 * sp), pos2(x + 0.4 * sp, top.y - 0.3 * sp), pos2(x + 0.9 * sp, top.y - 0.6 * sp), pos2(x + 1.2 * sp, top.y - 1.0 * sp)], sp * 0.15, col);
     bez(p, [pos2(x - 0.3 * sp, bottom.y + 0.3 * sp), pos2(x + 0.4 * sp, bottom.y + 0.3 * sp), pos2(x + 0.9 * sp, bottom.y + 0.6 * sp), pos2(x + 1.2 * sp, bottom.y + 1.0 * sp)], sp * 0.15, col);
-}
-
-pub fn time_sig_digit(p: &Painter, c: Pos2, sp: f32, txt: &str, col: Color32) {
-    // bold-ish by drawing twice slightly offset
-    let f = egui::FontId::proportional(sp * 2.6);
-    for dx in [-0.04, 0.04] {
-        p.text(c + vec2(dx * sp, 0.0), egui::Align2::CENTER_CENTER, txt, f.clone(), col);
-    }
 }
 
 pub fn tie_or_slur(p: &Painter, a: Pos2, b: Pos2, sp: f32, above: bool, col: Color32) {
@@ -355,110 +228,57 @@ pub fn dashed_line(p: &Painter, a: Pos2, b: Pos2, w: f32, dash: f32, col: Color3
     }
 }
 
-pub fn mark(p: &Painter, c: Pos2, sp: f32, m: crate::model::Mark, above: bool, col: Color32) {
+/// A mark: articulations (the above or below form), fermatas, ornaments, bowings, fingering, segno, coda, pedal
+/// marks. A mark above the note has the bottom of its ink half a space below `c.y`, one below has its top half a
+/// space above, so a small mark sits on `c` and a tall one (coda, segno) grows away from the note. Tremolos,
+/// breath marks and caesuras are centred on `c`; the arpeggio stays a drawn wavy line. Returns the mark's height.
+pub fn mark(p: &Painter, c: Pos2, sp: f32, m: crate::model::Mark, above: bool, col: Color32) -> f32 {
     use crate::model::Mark::*;
-    let s = if above { 1.0 } else { -1.0 };
-    match m {
-        Staccato => {
-            p.circle_filled(c, sp * 0.2, col);
-        }
-        Staccatissimo => {
-            p.add(Shape::convex_polygon(
-                vec![c + vec2(-0.2 * sp, -0.5 * sp * s), c + vec2(0.2 * sp, -0.5 * sp * s), c + vec2(0.0, 0.3 * sp * s)],
-                col,
-                Stroke::NONE,
-            ));
-        }
-        Tenuto => {
-            p.line_segment([c + vec2(-0.6 * sp, 0.0), c + vec2(0.6 * sp, 0.0)], Stroke::new(sp * 0.16, col));
-        }
-        Accent => {
-            let st = Stroke::new(sp * 0.15, col);
-            p.line_segment([c + vec2(-0.7 * sp, -0.4 * sp), c + vec2(0.7 * sp, 0.0)], st);
-            p.line_segment([c + vec2(-0.7 * sp, 0.4 * sp), c + vec2(0.7 * sp, 0.0)], st);
-        }
-        Marcato => {
-            let st = Stroke::new(sp * 0.2, col);
-            p.line_segment([c + vec2(-0.5 * sp, 0.4 * sp * s), c + vec2(0.0, -0.6 * sp * s)], st);
-            p.line_segment([c + vec2(0.5 * sp, 0.4 * sp * s), c + vec2(0.0, -0.6 * sp * s)], st);
-        }
-        Fermata => fermata(p, c + vec2(0.0, 0.3 * sp * s), sp, false, col),
-        FermataBelow => fermata(p, c, sp, true, col),
-        Trill => {
-            p.text(c, egui::Align2::CENTER_CENTER, "tr", egui::FontId::proportional(sp * 1.8), col);
-        }
-        Turn => {
-            bez(p, [c + vec2(-1.0 * sp, 0.2 * sp), c + vec2(-1.0 * sp, -0.8 * sp), c + vec2(0.0, -0.4 * sp), c], sp * 0.15, col);
-            bez(p, [c, c + vec2(0.0, 0.4 * sp), c + vec2(1.0 * sp, 0.8 * sp), c + vec2(1.0 * sp, -0.2 * sp)], sp * 0.15, col);
-        }
-        Mordent | InvMordent => {
-            let pts = vec![
-                c + vec2(-1.0 * sp, 0.2 * sp),
-                c + vec2(-0.5 * sp, -0.4 * sp),
-                c + vec2(0.0, 0.2 * sp),
-                c + vec2(0.5 * sp, -0.4 * sp),
-                c + vec2(1.0 * sp, 0.2 * sp),
-            ];
-            p.add(PathShape::line(pts, PathStroke::new(sp * 0.18, col)));
-            if m == Mordent {
-                p.line_segment([c + vec2(0.0, -0.8 * sp), c + vec2(0.0, 0.7 * sp)], Stroke::new(sp * 0.1, col));
-            }
-        }
-        UpBow => {
-            let st = Stroke::new(sp * 0.13, col);
-            p.line_segment([c + vec2(-0.5 * sp, -0.7 * sp), c + vec2(0.0, 0.6 * sp)], st);
-            p.line_segment([c + vec2(0.5 * sp, -0.7 * sp), c + vec2(0.0, 0.6 * sp)], st);
-        }
-        DownBow => {
-            let r = egui::Rect::from_center_size(c, vec2(sp * 1.2, sp * 1.0));
-            p.rect_filled(egui::Rect::from_min_max(r.left_top(), pos2(r.right(), r.top() + sp * 0.3)), 0.0, col);
-            p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(sp * 0.12, col));
-            p.line_segment([r.right_top(), r.right_bottom()], Stroke::new(sp * 0.12, col));
-        }
-        Harmonic => {
-            p.circle_stroke(c, sp * 0.35, Stroke::new(sp * 0.12, col));
-        }
-        Plus => {
-            let st = Stroke::new(sp * 0.15, col);
-            p.line_segment([c + vec2(-0.5 * sp, 0.0), c + vec2(0.5 * sp, 0.0)], st);
-            p.line_segment([c + vec2(0.0, -0.5 * sp), c + vec2(0.0, 0.5 * sp)], st);
-        }
-        Breath => {
-            p.text(c, egui::Align2::CENTER_CENTER, ",", egui::FontId::proportional(sp * 2.5), col);
-        }
-        Caesura => {
-            let st = Stroke::new(sp * 0.16, col);
-            p.line_segment([c + vec2(-0.5 * sp, 0.6 * sp), c + vec2(0.0, -0.8 * sp)], st);
-            p.line_segment([c + vec2(0.0, 0.6 * sp), c + vec2(0.5 * sp, -0.8 * sp)], st);
-        }
-        Tremolo1 | Tremolo2 | Tremolo3 => {
-            let n = match m {
-                Tremolo1 => 1,
-                Tremolo2 => 2,
-                _ => 3,
-            };
-            for i in 0..n {
-                let y = (i as f32 - (n - 1) as f32 / 2.0) * sp * 0.6;
-                p.line_segment([c + vec2(-0.5 * sp, y + 0.25 * sp), c + vec2(0.5 * sp, y - 0.25 * sp)], Stroke::new(sp * 0.25, col));
-            }
-        }
-        Finger(n) => {
-            p.text(c, egui::Align2::CENTER_CENTER, n.to_string(), egui::FontId::proportional(sp * 1.5), col);
-        }
-        Segno => segno(p, c, sp * 0.8, col),
-        Coda => coda(p, c, sp * 0.8, col),
-        PedalDown => {
-            p.text(c, egui::Align2::CENTER_CENTER, "Ped.", egui::FontId::proportional(sp * 1.5), col);
-        }
-        PedalUp => {
-            p.text(c, egui::Align2::CENTER_CENTER, "*", egui::FontId::proportional(sp * 2.0), col);
-        }
+    let pick = |a: &'static str, b: &'static str| if above { a } else { b };
+    let name: &str = match m {
+        Staccato => pick("articStaccatoAbove", "articStaccatoBelow"),
+        Staccatissimo => pick("articStaccatissimoAbove", "articStaccatissimoBelow"),
+        Tenuto => pick("articTenutoAbove", "articTenutoBelow"),
+        Accent => pick("articAccentAbove", "articAccentBelow"),
+        Marcato => pick("articMarcatoAbove", "articMarcatoBelow"),
+        Fermata => "fermataAbove",
+        FermataBelow => "fermataBelow",
+        Trill => "ornamentTrill",
+        Turn => "ornamentTurn",
+        Mordent => "ornamentMordent",
+        InvMordent => "ornamentShortTrill",
+        UpBow => "stringsUpBow",
+        DownBow => "stringsDownBow",
+        Harmonic => "stringsHarmonic",
+        Plus => "brassMuteClosed",
+        Breath => "breathMarkComma",
+        Caesura => "caesura",
+        Tremolo1 => "tremolo1",
+        Tremolo2 => "tremolo2",
+        Tremolo3 => "tremolo3",
+        Finger(n) => ["fingering0", "fingering1", "fingering2", "fingering3", "fingering4", "fingering5"][(n as usize).min(5)],
+        Segno => "segno",
+        Coda => "coda",
+        PedalDown => "keyboardPedalPed",
+        PedalUp => "keyboardPedalUp",
         Arpeggio => {
             let mut pts = vec![];
             for i in 0..8 {
                 pts.push(c + vec2(if i % 2 == 0 { -0.2 * sp } else { 0.2 * sp }, (i as f32 - 3.5) * sp * 0.4));
             }
             p.add(PathShape::line(pts, PathStroke::new(sp * 0.12, col)));
+            return sp * 3.2;
         }
+    };
+    let (sw, ne) = s::bbox(name);
+    let h = (ne.y - sw.y) * sp;
+    if matches!(m, Tremolo1 | Tremolo2 | Tremolo3 | Breath | Caesura) {
+        s::draw_centered(p, name, c, sp, col);
+    } else if above {
+        // ink bottom at c.y + sp/2: the baseline goes sw.y spaces below it (y up in the font)
+        s::draw_hcentered(p, name, c.x, c.y + sp * 0.5 + sw.y * sp, sp, col);
+    } else {
+        s::draw_hcentered(p, name, c.x, c.y - sp * 0.5 + ne.y * sp, sp, col);
     }
+    h
 }

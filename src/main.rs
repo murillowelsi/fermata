@@ -26,6 +26,7 @@ mod palettes;
 mod platform;
 mod rec;
 mod score_view;
+mod smufl;
 mod theme;
 mod touch;
 mod reader;

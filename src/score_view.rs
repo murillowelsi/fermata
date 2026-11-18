@@ -585,7 +585,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     for i in 0..key.unsigned_abs() {
                         let pos = key_pos(clef, key.signum(), i as usize);
                         let c = pos2(x + sp * 0.5 + i as f32 * sp, mid - pos as f32 * sp * 0.5);
-                        if key > 0 { g::sharp(p, c, sp * 0.9, black) } else { g::flat(p, c, sp * 0.9, black) }
+                        if key > 0 { g::sharp(p, c, sp, black) } else { g::flat(p, c, sp, black) }
                     }
                     x += key_width(sp, key);
                 }
@@ -701,8 +701,8 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         let x = x_for_tick(mg, e.start, mt) + e.dx * sp;
                         let ys: Vec<f32> = e.pitches.iter().map(|pp| mid - (pp.step - mid_step) as f32 * sp * 0.5).collect();
                         let up = in_group.get(&i).and_then(|gi| group_up.get(gi).copied()).unwrap_or_else(|| auto_stem_up(e, mid_step, multi));
-                        let hw = g::notehead_width(sp, e.value) / 2.0;
-                        let stem_x = if up { x + hw - sp * 0.06 } else { x - hw + sp * 0.06 };
+                        // the stem joins the notehead where the font's anchor says (its edge on stemUpSE / stemDownNW)
+                        let stem_x = g::stem_attach(pos2(x, 0.0), sp, e.value, up, sp * 0.12).x;
                         let (ytop, ybot) = ys.iter().fold((f32::MAX, f32::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
                         let mut len = sp * 0.5 * score.layout.stem_len_hs as f32;
                         if e.value >= 6 {
@@ -956,7 +956,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     // stem
                     if e.value >= 2 {
                         let (ytop, ybot) = n.ys.iter().fold((f32::MAX, f32::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
-                        let from = if n.up { ybot } else { ytop };
+                        let from = g::stem_attach(pos2(x, if n.up { ybot } else { ytop }), sp, e.value, n.up, sp * 0.12).y;
                         p.line_segment([pos2(n.stem_x, from), pos2(n.stem_x, n.stem_end)], Stroke::new(sp * 0.12, c));
                         if e.value >= 4 && !n.beamed {
                             g::flag(p, pos2(n.stem_x, n.stem_end), sp, e.value - 3, n.up, c);
@@ -1071,26 +1071,20 @@ fn geo_sp(mg: &MeasGeo) -> f32 {
     (mg.x1 - mg.content_x) * 0.05
 }
 
+/// A clef centred on `at.x`, on the staff whose middle line is `at.y`: the font's glyph on the line it names (G on
+/// the 2nd line, F on the 4th, C on the 3rd or the 4th).
 pub fn draw_clef(p: &Painter, at: Pos2, sp: f32, clef: Clef, c: Color32) {
-    match clef {
-        Clef::Treble => g::treble_clef(p, at + vec2(0.0, sp), sp, c),
-        Clef::Treble8va => {
-            g::treble_clef(p, at + vec2(0.0, sp), sp, c);
-            g::small_8(p, at + vec2(0.0, -sp * 4.2), sp * 0.8, c);
-        }
-        Clef::Treble8vb => {
-            g::treble_clef(p, at + vec2(0.0, sp), sp, c);
-            g::small_8(p, at + vec2(-sp * 0.3, sp * 5.0), sp * 0.8, c);
-        }
-        Clef::Bass => g::bass_clef(p, at + vec2(-sp * 0.3, -sp), sp, c),
-        Clef::Bass8vb => {
-            g::bass_clef(p, at + vec2(-sp * 0.3, -sp), sp, c);
-            g::small_8(p, at + vec2(0.0, sp * 3.2), sp * 0.8, c);
-        }
-        Clef::Alto => g::c_clef(p, at, sp, c),
-        Clef::Tenor => g::c_clef(p, at + vec2(0.0, -sp), sp, c),
-        Clef::Percussion => g::percussion_clef(p, at, sp, c),
-    }
+    let (name, line) = match clef {
+        Clef::Treble => ("gClef", 1.0),
+        Clef::Treble8va => ("gClef8va", 1.0),
+        Clef::Treble8vb => ("gClef8vb", 1.0),
+        Clef::Bass => ("fClef", -1.0),
+        Clef::Bass8vb => ("fClef8vb", -1.0),
+        Clef::Alto => ("cClef", 0.0),
+        Clef::Tenor => ("cClef", -1.0),
+        Clef::Percussion => ("unpitchedPercussionClef1", 0.0),
+    };
+    g::clef(p, name, at.x, at.y + line * sp, sp, c);
 }
 
 /// Staff position (half spaces from middle) of the i-th key accidental.
@@ -1163,8 +1157,9 @@ fn draw_barline(p: &Painter, score: &Score, sys: &SysGeo, mg: &MeasGeo, b: Barli
 fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, stem_end: f32, mid: f32, sp: f32, c: Color32) {
     let mut above_y = (if up { stem_end.min(ytop) } else { ytop }).min(mid - 2.0 * sp) - sp * 1.0;
     let mut below_y = (if up { ybot } else { stem_end.max(ybot) }).max(mid + 2.0 * sp) + sp * 1.0;
-    let close_above = ytop - sp * 1.0;
-    let close_below = ybot + sp * 1.0;
+    // a quarter space clear of the notehead (the mark's near edge is half a space past these points)
+    let close_above = ytop - sp * 1.25;
+    let close_below = ybot + sp * 1.25;
     for &mk in &e.marks {
         use Mark::*;
         match mk {
@@ -1177,8 +1172,8 @@ fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, st
                 }
             }
             FermataBelow | PedalDown | PedalUp => {
-                g::mark(p, pos2(x, below_y + sp * 0.5), sp, mk, false, c);
-                below_y += sp * 2.0;
+                let h = g::mark(p, pos2(x, below_y + sp * 0.5), sp, mk, false, c);
+                below_y += h + sp * 0.5;
             }
             Tremolo1 | Tremolo2 | Tremolo3 => {
                 let y = if up { stem_end + sp * 1.5 } else { stem_end - sp * 1.5 };
@@ -1192,8 +1187,8 @@ fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, st
                 g::mark(p, pos2(x - sp * 1.5, (ytop + ybot) / 2.0), sp, mk, true, c);
             }
             _ => {
-                g::mark(p, pos2(x, above_y), sp, mk, true, c);
-                above_y -= sp * 2.0;
+                let h = g::mark(p, pos2(x, above_y), sp, mk, true, c);
+                above_y -= h + sp * 0.5;
             }
         }
     }
@@ -1219,12 +1214,9 @@ fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _y
     let _ = score;
 }
 
+/// A dynamic centred on `c`, with the font's dynamic letters (F-03).
 pub fn dynamic_text(p: &Painter, c: Pos2, sp: f32, t: &str, col: Color32) {
-    // Bold-italic look made by shearing three passes (no italic font is bundled).
-    let f = FontId::proportional(sp * 2.0);
-    for (dx, dy) in [(0.0, 0.0), (sp * 0.06, 0.0), (sp * 0.03, sp * 0.03)] {
-        p.text(c + vec2(dx, dy), Align2::CENTER_CENTER, t, f.clone(), col);
-    }
+    g::dynamic(p, c, sp, t, col);
 }
 
 fn anchor_pos(score: &Score, geo: &Geometry, staff: usize, m: usize, tick: u32) -> Option<(Pos2, usize)> {
@@ -1396,5 +1388,88 @@ mod compressed_rests_tests {
         assert_eq!(crate::io::midi_bytes(&sc), crate::io::midi_bytes(&off));
         assert_eq!(crate::io::musicxml_string(&sc), crate::io::musicxml_string(&off));
         assert_eq!(crate::audio::play_order(&sc).len(), 8);
+    }
+}
+
+/// F-03: a page with every symbol the score page draws (articulations, dynamics, ornaments, rests of every value,
+/// accidentals, flags), to compare the drawing before and after. `cargo test -- --ignored write_symbol_demo`
+/// writes it to the temp folder.
+#[cfg(test)]
+mod symbol_demo {
+    use crate::app::App;
+    use crate::model::*;
+
+    #[test]
+    #[ignore]
+    fn write_symbol_demo() {
+        let mut a = App::new(true);
+        a.score.text.title = "Símbolos da página".into();
+        a.score.text.subtitle = "dinâmicas, articulações, pausas e acidentes".into();
+        a.score.measures[0].key = 2;
+        let n = |m: i32| Some(Pitch::from_midi(m, false));
+        let q = TPQ;
+        // 1: quarter notes with articulations and dynamics
+        for (k, (m, mk, d)) in [(74, Mark::Staccato, Some("p")), (72, Mark::Accent, None), (71, Mark::Tenuto, Some("mf")), (67, Mark::Marcato, Some("ff"))].into_iter().enumerate() {
+            let r = a.enter(0, 0, k as u32 * q, n(m), 3, 0, false);
+            if let Some(e) = a.ev_mut(r) {
+                e.marks.push(mk);
+                e.dynamic = d.map(str::to_string);
+            }
+        }
+        // 2: an eighth, two sixteenths, a dotted quarter, staccatissimo, sfz
+        let r = a.enter(0, 1, 0, n(76), 4, 0, false);
+        if let Some(e) = a.ev_mut(r) {
+            e.marks.push(Mark::Staccatissimo);
+            e.dynamic = Some("sfz".into());
+        }
+        a.enter(0, 1, q / 2, n(77), 5, 0, false);
+        a.enter(0, 1, q * 3 / 4, n(79), 5, 0, false);
+        a.enter(0, 1, q, n(81), 2, 1, false);
+        // 3: rests of every value from whole to 32nd... one per bar would be long: half, quarter, eighth, 16th, 32nd
+        a.enter(0, 2, 0, None, 2, 0, false);
+        a.enter(0, 2, q * 2, None, 3, 0, false);
+        a.enter(0, 2, q * 3, None, 4, 0, false);
+        a.enter(0, 2, q * 3 + q / 2, None, 5, 0, false);
+        a.enter(0, 2, q * 3 + q * 3 / 4, None, 6, 0, false);
+        a.enter(0, 2, q * 3 + q * 7 / 8, None, 6, 0, false);
+        // 4: accidentals (natural, flat, double sharp, double flat) with ornaments
+        let c5 = Pitch::from_midi(72, false).step;
+        for (k, (step, alter, mk)) in [(0, 0, Mark::Trill), (1, -1, Mark::Mordent), (2, 2, Mark::Turn), (3, -2, Mark::InvMordent)].into_iter().enumerate() {
+            let r = a.enter(0, 3, k as u32 * q, Some(Pitch { step: c5 + step, alter }), 3, 0, false);
+            if let Some(e) = a.ev_mut(r) {
+                e.marks.push(mk);
+            }
+        }
+        // 5: whole note with a fermata; 6: segno and coda; flags up and down
+        let r = a.enter(0, 4, 0, n(72), 1, 0, false);
+        if let Some(e) = a.ev_mut(r) {
+            e.marks.push(Mark::Fermata);
+        }
+        for (k, (m, v)) in [(64, 4), (65, 5), (77, 4), (79, 6)].into_iter().enumerate() {
+            let r = a.enter(0, 5, k as u32 * q, n(m), v, 0, false);
+            if let Some(e) = a.ev_mut(r) {
+                e.beam = BeamMode::None;
+                if k == 0 {
+                    e.marks.push(Mark::Segno);
+                }
+                if k == 3 {
+                    e.marks.push(Mark::Coda);
+                }
+            }
+        }
+        // bass staff: whole rest, half notes with dynamics, a double-whole-like whole note
+        a.enter(1, 0, 0, None, 1, 0, false);
+        let r = a.enter(1, 1, 0, n(43), 2, 0, false);
+        if let Some(e) = a.ev_mut(r) {
+            e.dynamic = Some("pp".into());
+        }
+        a.enter(1, 1, q * 2, n(50), 2, 0, false);
+        let r = a.enter(1, 4, 0, n(36), 1, 0, false);
+        if let Some(e) = a.ev_mut(r) {
+            e.marks.push(Mark::FermataBelow);
+        }
+        let path = std::env::temp_dir().join("simbolos-da-pagina.fmt");
+        std::fs::write(&path, crate::io::score_bytes(&a.score).unwrap()).unwrap();
+        println!("wrote {}", path.display());
     }
 }

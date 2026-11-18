@@ -21,13 +21,13 @@ use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 pub const BRAVURA: &[u8] = include_bytes!("../assets/fonts/Bravura.otf");
 #[cfg(not(target_arch = "wasm32"))]
-const BRAVURA_META: &str = include_str!("../assets/fonts/Bravura.json");
+pub const BRAVURA_META: &str = include_str!("../assets/fonts/Bravura.json");
 // the browser: only the palettes' glyphs and their boxes, a Bravura subset renamed "Fermata Palette Glyphs" as the
 // OFL asks of a modified version (tools/subset_web_fonts.sh)
 #[cfg(target_arch = "wasm32")]
 pub const BRAVURA: &[u8] = include_bytes!("../assets/fonts/web/FermataPaletteGlyphs.otf");
 #[cfg(target_arch = "wasm32")]
-const BRAVURA_META: &str = include_str!("../assets/fonts/web/FermataPaletteGlyphs.json");
+pub const BRAVURA_META: &str = include_str!("../assets/fonts/web/FermataPaletteGlyphs.json");
 pub const BRAVURA_FAMILY: &str = "bravura";
 /// Text accidentals ♭ ♮ ♯ that Bravura draws inside interface and page text (theme.rs); listed here so the browser's
 /// subset keeps them (tools/subset_web_fonts.sh collects every code point written in this file).

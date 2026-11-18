@@ -12,7 +12,8 @@ U="U+0020-007E,U+00A0-017F,U+0192,U+02C6-02DC,U+2000-206F,U+20AC,U+2122,U+2190-2
 for w in Regular Medium SemiBold; do
   "${FT:+$FT/}pyftsubset" assets/fonts/Inter-$w.ttf --unicodes="$U" --layout-features='kern,liga,calt,tnum' --output-file="$OUT/Inter-$w.ttf"
 done
-CPS=$(grep -o '\\u{[0-9A-Fa-f]*}' src/palettes.rs | sort -u | sed 's/\\u{\(.*\)}/U+\1/' | paste -sd, -)
+# the palettes' glyphs and, since F-03, the score page's (src/smufl.rs)
+CPS=$(cat src/palettes.rs src/smufl.rs | grep -o '\\u{[0-9A-Fa-f]*}' | sort -u | sed 's/\\u{\(.*\)}/U+\1/' | paste -sd, -)
 # Bravura's licence reserves its name ("Reserved Font Name"), and a subset is a modified version under the OFL, so
 # the subset gets its own name, "Fermata Palette Glyphs"; the copyright and licence entries stay in the font, and
 # the OFL text goes with the web build (make_web.sh copies it to licenses/).
@@ -36,8 +37,12 @@ top = cff.topDictIndex[0]
 top.FamilyName, top.FullName = fam, fam
 f.save("assets/fonts/web/FermataPaletteGlyphs.otf")
 names = re.findall(r"'\\u\{[0-9A-Fa-f]+\}', \"([A-Za-z0-9]+)\"", open("src/palettes.rs").read())
+names += re.findall(r"\(\"([A-Za-z0-9]+)\", '\\u\{[0-9A-Fa-f]+\}'\)", open("src/smufl.rs").read())
+names = sorted(set(names))
 meta = json.load(open("assets/fonts/Bravura.json"))
-small = {"fontName": fam, "basedOn": meta["fontName"] + " " + str(meta["fontVersion"]), "glyphBBoxes": {n: meta["glyphBBoxes"][n] for n in names}}
+pick = lambda key: {n: meta[key][n] for n in names if n in meta[key]}
+small = {"fontName": fam, "basedOn": meta["fontName"] + " " + str(meta["fontVersion"]), "glyphBBoxes": pick("glyphBBoxes"),
+         "glyphAdvanceWidths": pick("glyphAdvanceWidths"), "glyphsWithAnchors": pick("glyphsWithAnchors")}
 json.dump(small, open("assets/fonts/web/FermataPaletteGlyphs.json", "w"), separators=(",", ":"))
 print(len(names), "glyph boxes")
 PY
