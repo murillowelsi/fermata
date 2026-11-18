@@ -43,6 +43,9 @@ pub struct Prefs {
     /// Click On/Off (Setup menu, toolbar metronome button), kept between sessions.
     #[serde(default = "yes")]
     pub click_on: bool,
+    /// F-31: where Audiveris (read scores from photos) is installed, when it isn't in the usual place.
+    #[serde(default)]
+    pub audiveris_path: Option<String>,
     /// Send everything to the instrument on channel 1 without changing its voice: for pianos that only play
     /// channel 1 (a Clavinova in MIDI Accord mode receives CH1 = KEYBOARD, every other channel OFF).
     #[serde(default = "yes")]

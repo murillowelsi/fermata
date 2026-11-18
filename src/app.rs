@@ -109,6 +109,9 @@ pub enum Then {
     ImportXml,
     /// Revert to Saved: asks with its own text (there is nothing to save, only changes to lose).
     Revert(PathBuf),
+    /// F-31: a score read from a photo by Audiveris, opened as a new unsaved score with this status line.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    Omr(Box<Score>, String),
     /// A file that arrived by itself: the installed web app's file handlers and Launch Queue.
     Load(Box<crate::platform::Opened>),
 }
@@ -194,6 +197,14 @@ pub struct App {
     pub after_new_wizard: bool,
     /// New Score: a template was double-clicked (= Create).
     pub new_score_create: bool,
+    /// F-31: Audiveris reading a photo in the background.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub omr_job: Option<crate::omr::OmrJob>,
+    /// F-31: the photo reader being downloaded on first use, and the picture to read once it is ready.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub omr_setup: Option<crate::omr::setup::SetupJob>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub omr_waiting: Option<std::path::PathBuf>,
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
@@ -307,6 +318,12 @@ impl App {
             pending_cmd: None,
             after_new_wizard: false,
             new_score_create: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            omr_job: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            omr_setup: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            omr_waiting: None,
             after_save: None,
             autosave: crate::autosave::State::new(!screenshot_mode),
             device: crate::touch::Device::Desktop,
@@ -1703,6 +1720,91 @@ impl App {
             }
             Then::Revert(p) => self.open_path(p),
             Then::Load(o) => self.load_opened(*o),
+            Then::Omr(sc, note) => {
+                self.new_score(*sc);
+                // not saved anywhere yet: Save asks where
+                self.dirty = true;
+                self.status = note;
+            }
+        }
+    }
+
+    /// F-31: read a score from a photo or scan with Audiveris in the background; `poll_omr` opens it when done
+    /// (through the unsaved-changes question, as a new score). Returns false (and says why) when it can't start.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn read_photo(&mut self, picture: std::path::PathBuf) -> bool {
+        use crate::omr;
+        if self.omr_job.is_some() || self.omr_setup.is_some() {
+            self.status = "Already reading a photo.".into();
+            return false;
+        }
+        let Some(program) = omr::find_audiveris(self.prefs.audiveris_path.as_deref()) else {
+            // first use: download the reader into Fermata's own folder, then read the picture
+            match omr::setup::start(None) {
+                Ok(job) => {
+                    self.status = job.describe();
+                    self.omr_setup = Some(job);
+                    self.omr_waiting = Some(picture);
+                    return true;
+                }
+                Err(e) => {
+                    self.dialog = Some(Dialog::Message(e));
+                    return false;
+                }
+            }
+        };
+        let name = picture.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        self.omr_job = Some(omr::start(omr::OmrRun { program, timeout: omr::DEFAULT_TIMEOUT, home: omr::reader_home() }, &picture));
+        self.status = format!("Reading {name} with Audiveris (about half a minute a page)...");
+        true
+    }
+
+    /// (for the progress UI that waits for the Design mockup)
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(dead_code)]
+    pub fn cancel_photo(&mut self) {
+        if let Some(j) = &self.omr_job {
+            j.cancel();
+        }
+        if let Some(j) = &self.omr_setup {
+            j.cancel();
+        }
+    }
+
+    /// Is a photo being read? (the window keeps redrawing to notice the end)
+    pub fn omr_busy(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.omr_job.is_some() || self.omr_setup.is_some();
+        #[cfg(target_arch = "wasm32")]
+        false
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn poll_omr(&mut self) {
+        if let Some(job) = &self.omr_setup {
+            match job.try_result() {
+                None => self.status = job.describe(),
+                Some(r) => {
+                    self.omr_setup = None;
+                    let pic = self.omr_waiting.take();
+                    match (r, pic) {
+                        (Ok(_), Some(p)) => {
+                            self.read_photo(p);
+                        }
+                        (Ok(_), None) => self.status = "The photo reader is ready.".into(),
+                        // a failed check or download can simply be tried again
+                        (Err(e), _) => self.dialog = Some(Dialog::Message(e)),
+                    }
+                }
+            }
+            return;
+        }
+        let Some(r) = self.omr_job.as_ref().and_then(|j| j.try_result()) else { return };
+        self.omr_job = None;
+        match r.map_err(|e| e.to_string()).and_then(|out| crate::omr::to_score(&out)) {
+            Ok((sc, note)) => self.replace_score(Then::Omr(Box::new(sc), note)),
+            Err(e) if e == crate::omr::OmrError::Cancelled.to_string() => self.status = e,
+            Err(e) => self.dialog = Some(Dialog::Message(e)),
         }
     }
 

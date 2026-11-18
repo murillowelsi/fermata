@@ -17,6 +17,10 @@ mod midi_in;
 mod midi_out;
 mod prefs;
 mod model;
+#[cfg(not(target_arch = "wasm32"))]
+// F-31: cancel, the "not available" text and the accuracy check wait for the menu and progress UI (Design mockup)
+#[allow(dead_code)]
+mod omr;
 mod musicxml;
 mod palettes;
 mod platform;
@@ -195,6 +199,11 @@ impl eframe::App for Shell {
             if a.autosave.enabled && a.dirty {
                 ctx.request_repaint_after(std::time::Duration::from_secs(5));
             }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        a.poll_omr();
+        if a.omr_busy() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
         // the reader edits nothing: no editing keys
         if a.device != touch::Device::Reader {
@@ -415,6 +424,37 @@ fn main() {
     });
 }
 
+/// Download the photo reader with progress on the terminal (`--omr` on first use, and `--omr-setup`).
+#[cfg(not(target_arch = "wasm32"))]
+fn omr_setup_cli() -> Result<std::path::PathBuf, String> {
+    let job = omr::setup::start(None)?;
+    loop {
+        if let Some(r) = job.try_result() {
+            eprintln!();
+            return r;
+        }
+        eprint!("\r{}", job.describe());
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+/// `--omr <picture> <out>`: Audiveris (preferences path, FERMATA_AUDIVERIS or the usual places) without a window.
+#[cfg(not(target_arch = "wasm32"))]
+fn omr_cli(picture: &str, out: &str) -> Result<String, String> {
+    let prefs = prefs::load();
+    let program = match omr::find_audiveris(prefs.audiveris_path.as_deref()) {
+        Some(p) => p,
+        None => omr_setup_cli()?,
+    };
+    let job = omr::start(omr::OmrRun { program, timeout: omr::DEFAULT_TIMEOUT, home: omr::reader_home() }, std::path::Path::new(picture));
+    let res = job.wait().map_err(|e| e.to_string())?;
+    let (sc, note) = omr::to_score(&res)?;
+    let bytes = if out.ends_with(".musicxml") || out.ends_with(".xml") { io::musicxml_string(&sc).into_bytes() } else { io::score_bytes(&sc)? };
+    std::fs::write(out, bytes).map_err(|e| e.to_string())?;
+    let notes: usize = sc.events.iter().flatten().flatten().map(|e| e.pitches.len()).sum();
+    Ok(format!("{out}: {} staves, {} measures, {notes} notes. {note}", sc.staves.len(), sc.measures.len()))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -425,6 +465,7 @@ fn main() -> eframe::Result<()> {
     let mut open_dialog: Option<String> = None;
     let mut steps: Vec<devshots::Step> = vec![];
     let mut sheet = false;
+    let mut omr_picture: Option<std::path::PathBuf> = None;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--icon-png" && i + 1 < args.len() {
@@ -455,6 +496,40 @@ fn main() -> eframe::Result<()> {
                 std::process::exit(1);
             }
             return Ok(());
+        }
+        // F-31: read a score from a photo with Audiveris. `--omr <picture>` opens the app and reads it there;
+        // `--omr <picture> <out.fmt|out.musicxml>` reads it without a window and writes the score
+        // F-31: download the photo reader now / remove it (development and the PO's tests)
+        if args[i] == "--omr-setup" || args[i] == "--omr-remove" {
+            let r = if args[i] == "--omr-setup" {
+                omr_setup_cli().map(|p| format!("Photo reader ready: {} ({:.0} MB)", p.display(), omr::setup::installed_size() as f64 / 1e6))
+            } else {
+                let size = omr::setup::installed_size();
+                omr::setup::remove().map(|_| format!("Photo reader removed ({:.0} MB freed).", size as f64 / 1e6))
+            };
+            match r {
+                Ok(m) => println!("{m}"),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+        if args[i] == "--omr" && i + 1 < args.len() {
+            if let Some(out) = args.get(i + 2).filter(|a| !a.starts_with("--")) {
+                match omr_cli(&args[i + 1], out) {
+                    Ok(msg) => println!("{msg}"),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            omr_picture = Some(std::path::PathBuf::from(&args[i + 1]));
+            i += 2;
+            continue;
         }
         if args[i] == "--click-selftest" {
             click_selftest();
@@ -782,6 +857,9 @@ fn main() -> eframe::Result<()> {
             app.theme_forced = force_theme.is_some();
             if let Some(p) = open {
                 app.open_path(p);
+            }
+            if let Some(p) = omr_picture {
+                app.read_photo(p);
             }
             if let Some(list) = open_palettes {
                 app.palettes = [false; 11];
