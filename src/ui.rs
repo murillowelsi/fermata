@@ -13,7 +13,12 @@ fn shortcut_text(c: Cmd) -> String {
 
 impl App {
     fn mi(&mut self, ui: &mut Ui, c: Cmd) {
-        if kit::menu_item(ui, &commands::label(c), &shortcut_text(c), false, true).clicked() {
+        let r = kit::menu_item(ui, &commands::label(c), &shortcut_text(c), false, true);
+        // nothing unsaved: Open and Import go straight to the file window (the browser opens it from the tap)
+        if matches!(c, Cmd::Open | Cmd::ImportMidi) && !self.dirty {
+            crate::platform::open_target(r.rect);
+        }
+        if r.clicked() {
             self.pending_cmd = Some(c);
             ui.close();
         }
@@ -877,7 +882,11 @@ impl App {
                     }
                     Dialog::ConfirmClose(then) => {
                         // macOS order: Don't Save on the left; Cancel and Save on the right (Esc = Cancel, Enter = Save)
-                        if kit::btn(ui, "Don't Save").clicked() {
+                        let dont = kit::btn(ui, "Don't Save");
+                        if matches!(then, Then::Open | Then::ImportMidi) {
+                            crate::platform::open_target(dont.rect);
+                        }
+                        if dont.clicked() {
                             self.answer_unsaved(then.clone(), Answer::DontSave);
                             *keep = false;
                         }

@@ -24,6 +24,13 @@ pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Score, String> {
     Ok(sc)
 }
 
+/// What the person reads when a file isn't a score Fermata can open (also a renamed or damaged one): the file's
+/// name first, then the reason.
+pub fn open_error(name: &str, reason: &str) -> String {
+    let name = if name.trim().is_empty() { "This file" } else { name.trim() };
+    format!("{name} isn't a score Fermata can open.\n{}", reason.trim())
+}
+
 #[allow(dead_code)]
 pub fn open(path: &Path) -> Result<Score, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -674,5 +681,65 @@ mod tests {
         assert_eq!(tie_marks(&x, "G", 4), vec!["start", "stop"]);
         assert_eq!(tie_marks(&x, "C", 4), vec!["", ""]);
         assert_eq!(tie_marks(&x, "E", 4), vec!["", ""]);
+    }
+}
+
+#[cfg(test)]
+mod open_any_file_tests {
+    //! F-26: the browser's file picker has no type filter (iOS greys out extensions it doesn't know), so a file is
+    //! recognised by its content, and anything else gets a clear message instead of breaking the app.
+    use super::*;
+
+    fn fmt_bytes() -> Vec<u8> {
+        score_bytes(&crate::app::default_new_score()).unwrap()
+    }
+
+    #[test]
+    fn scores_are_recognised_by_content_whatever_the_name() {
+        // a Fermata score and a MIDI file under names iOS might hand over (no extension, another extension)
+        for name in ["score.fmt", "score", "score.json", "score.txt"] {
+            assert!(open_bytes(name, &fmt_bytes()).is_ok(), "{name}");
+        }
+        // (a MIDI file needs a note to import)
+        let mut a = crate::app::App::new(true);
+        a.enter(0, 0, 0, Some(Pitch::from_midi(60, false)), 3, 0, false);
+        let midi = midi_bytes(&a.score);
+        for name in ["song.mid", "song", "song.bin"] {
+            assert!(open_bytes(name, &midi).is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn other_files_are_refused_without_breaking() {
+        let junk: Vec<u8> = (0..4000u32).map(|i| (i * 7 + 3) as u8).collect();
+        let png = [0x89u8, b'P', b'N', b'G', 13, 10, 26, 10, 0, 0, 0, 13];
+        // a broken Encore file: the right header, then nothing useful
+        let mut broken_enc = b"SCOW".to_vec();
+        broken_enc.extend_from_slice(&[0xff; 40]);
+        let cases: [(&str, &[u8]); 8] = [
+            ("photo.png", &png),
+            ("notes.txt", b"hello"),
+            ("data.json", b"{\"a\": 1}"),
+            ("empty.fmt", b""),
+            ("junk.enc", &junk),
+            ("junk.mid", &junk),
+            ("broken.enc", &broken_enc),
+            ("short.enc", b"SCOW"),
+        ];
+        for (name, bytes) in cases {
+            // must return (Ok for a damaged-but-readable Encore file, Err otherwise), never panic
+            let r = std::panic::catch_unwind(|| open_bytes(name, bytes));
+            assert!(r.is_ok(), "{name} made the app panic");
+        }
+        for (name, bytes) in [("photo.png", &png[..]), ("notes.txt", b"hello"), ("junk.mid", &junk[..]), ("short.enc", b"SCO")] {
+            assert!(open_bytes(name, bytes).is_err(), "{name} was taken for a score");
+        }
+    }
+
+    #[test]
+    fn the_message_names_the_file() {
+        let m = open_error("photo.png", "Not a score file: expected value");
+        assert!(m.starts_with("photo.png isn't a score Fermata can open."));
+        assert!(open_error("", "x").starts_with("This file isn't a score Fermata can open."));
     }
 }

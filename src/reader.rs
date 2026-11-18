@@ -103,6 +103,7 @@ impl App {
         let r = ui.max_rect();
         // the open button, a folder
         let open = ui.interact(Rect::from_center_size(pos2(r.left() + 26.0, r.center().y), vec2(48.0, 48.0)), ui.scope_id().with("open"), Sense::click());
+        crate::platform::open_target(open.rect);
         {
             let p = ui.painter();
             let c = open.rect.center();
@@ -276,6 +277,7 @@ impl App {
                         };
                         // Open... with its folder, Export with its arrow out of a box
                         let open = row(ui, &commands::label(Cmd::Open), &theme::shortcut_glyphs(Cmd::Open), None);
+                        crate::platform::open_target(open.rect);
                         icon_folder(ui.painter(), pos2(open.rect.left() + 24.0, open.rect.center().y), k.text);
                         if open.clicked() {
                             close = true;

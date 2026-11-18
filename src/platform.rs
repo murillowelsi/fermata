@@ -14,6 +14,13 @@ pub struct Opened {
     pub id: u32,
 }
 
+/// The browser on a touch screen: a tap on this rect (this frame) opens the file window right from the tap (see
+/// `web::open_target`). Nothing elsewhere.
+pub fn open_target(_r: egui::Rect) {
+    #[cfg(target_arch = "wasm32")]
+    crate::web::open_target(_r);
+}
+
 pub const OPEN_EXTS: [&str; 7] = ["fmt", "json", "enc", "ENC", "mid", "midi", "musicxml"];
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -76,13 +83,13 @@ mod imp {
 mod imp {
     use super::*;
 
-    pub fn pick_open(_desc: &str, exts: &[&str]) -> Option<Opened> {
-        crate::web::pick_file(exts);
+    pub fn pick_open(_desc: &str, _exts: &[&str]) -> Option<Opened> {
+        crate::web::pick_file();
         None
     }
 
     pub fn pick_any(_title: &str) -> Option<Opened> {
-        crate::web::pick_file(&OPEN_EXTS);
+        crate::web::pick_file();
         None
     }
 

@@ -305,6 +305,9 @@ impl eframe::App for Shell {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             a.replace_score(app::Then::Quit);
         }
+        // the browser: where a tap opens a file this frame, and whether Ctrl/Cmd+O does (F-26)
+        #[cfg(target_arch = "wasm32")]
+        web::publish_open_targets(ctx.zoom_factor(), !a.dirty && a.dialog.is_none() && a.device != touch::Device::Reader && !ctx.egui_wants_keyboard_input());
         if a.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

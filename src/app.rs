@@ -200,6 +200,9 @@ pub struct App {
     pub gesture_undo: Option<(Score, usize)>,
     /// The fingers on the screen now (from the touch events).
     pub touch_ids: std::collections::HashSet<u64>,
+    /// The browser: Export Encore File asked for a model .enc, which arrives through the file picker.
+    #[cfg(target_arch = "wasm32")]
+    pub awaiting_enc_model: bool,
     /// Tablet: the palette open from the rail, and whether it stays pinned beside the page (always when the
     /// tablet lies on its side).
     pub rail_sel: Option<usize>,
@@ -294,6 +297,8 @@ impl App {
             gesture: Default::default(),
             gesture_undo: None,
             touch_ids: Default::default(),
+            #[cfg(target_arch = "wasm32")]
+            awaiting_enc_model: false,
             rail_sel: None,
             rail_pinned: false,
             reader_menu: false,
@@ -1510,18 +1515,40 @@ impl App {
             Some(m) => m,
             None => {
                 let Some(o) = crate::platform::pick_any("Choose an Encore file (.enc) made in Encore, to use as the model") else {
-                    self.status = "Export cancelled: an .enc file made in Encore is needed as the model.".into();
-                    return;
+                    // the browser: the chosen file arrives on a later frame and is used as the model then
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.awaiting_enc_model = true;
+                        self.status = "Choose an Encore file (.enc) made in Encore: it's only used as the model for the export.".into();
+                        return;
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.status = "Export cancelled: an .enc file made in Encore is needed as the model.".into();
+                        return;
+                    }
                 };
-                if o.bytes.get(0..4) != Some(b"SCOW") {
-                    self.dialog = Some(Dialog::Message(format!("{} isn't an Encore file (.enc). Pick a score saved by Encore; it's only used as a model for the export.", o.name)));
-                    return;
-                }
-                remember_enc_model(&o.bytes);
-                o.bytes
+                self.use_enc_model(o);
+                return;
             }
         };
-        match crate::enc::export(&self.score, &model) {
+        self.export_enc_with(&model);
+    }
+
+    /// The .enc picked as the model for Export Encore File: checked, kept for next time, then the export.
+    fn use_enc_model(&mut self, o: crate::platform::Opened) {
+        if o.bytes.get(0..4) != Some(b"SCOW") {
+            self.dialog = Some(Dialog::Message(format!("{} isn't an Encore file (.enc). Pick a score saved by Encore; it's only used as a model for the export.", o.name)));
+            return;
+        }
+        remember_enc_model(&o.bytes);
+        // kept for this session too (the browser has no settings folder to keep it in)
+        self.enc_model = Some(o.bytes.clone());
+        self.export_enc_with(&o.bytes);
+    }
+
+    fn export_enc_with(&mut self, model: &[u8]) {
+        match crate::enc::export(&self.score, model) {
             Ok(b) => self.export_bytes("enc", "Export Encore file (.enc)", &b),
             Err(e) => self.dialog = Some(Dialog::Message(format!("Couldn't export to .enc: {e}"))),
         }
@@ -1615,11 +1642,19 @@ impl App {
                 }
             }
             Then::Open => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.awaiting_enc_model = false;
+                }
                 if let Some(o) = crate::platform::pick_open("Scores, Encore files and MIDI", &crate::platform::OPEN_EXTS) {
                     self.load_opened(o);
                 }
             }
             Then::ImportMidi => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.awaiting_enc_model = false;
+                }
                 if let Some(o) = crate::platform::pick_open("MIDI", &["mid", "midi"]) {
                     self.load_opened(o);
                 }
@@ -1637,6 +1672,12 @@ impl App {
     /// for after the unsaved-changes question, and files handed over by the installed app, which ask here).
     pub fn poll_opened(&mut self) {
         for o in crate::platform::take_opened() {
+            // the browser: the model chosen for Export Encore File
+            #[cfg(target_arch = "wasm32")]
+            if o.picked && std::mem::take(&mut self.awaiting_enc_model) {
+                self.use_enc_model(o);
+                continue;
+            }
             if o.picked {
                 self.load_opened(o);
             } else {
@@ -1703,7 +1744,7 @@ impl App {
                 self.reader_hint_until = 0.0;
                 self.reader_pos = 0;
             }
-            Err(e) => self.dialog = Some(Dialog::Message(e)),
+            Err(e) => self.dialog = Some(Dialog::Message(crate::io::open_error(&o.name, &e))),
         }
     }
 

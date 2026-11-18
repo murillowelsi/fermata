@@ -18,7 +18,8 @@
       "action": "./",
       "accept": {
         "application/x-fermata-score": [".fmt"],
-        "audio/midi": [".mid", ".midi"]
+        "audio/midi": [".mid", ".midi"],
+        "application/x-encore-score": [".enc"]
       }
     }
   ]
