@@ -298,6 +298,14 @@ export function take_saved() { return saved.splice(0); }
 let unsaved = false;
 export function set_unsaved(v) { unsaved = v; }
 export function set_title(t) { document.title = t; }
+// Print (F-06): the score's PDF in a new tab, where the browser's viewer prints it; a download if the tab is blocked
+export function open_pdf_tab(name, bytes) {
+  const blob = new Blob([bytes.slice()], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, "_blank");
+  if (!w) download(name, bytes.slice());
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+}
 export function open_tab(u) { window.open(new URL(u, location.href).href, "_blank", "noopener"); }
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", (e) => { if (unsaved) { e.preventDefault(); e.returnValue = ""; } });
