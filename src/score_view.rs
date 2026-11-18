@@ -2,7 +2,7 @@
 use crate::collide;
 use crate::glyphs as g;
 use crate::model::*;
-use egui::{pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke};
+use egui::{pos2, vec2, Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Stroke};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub const SEL: Color32 = Color32::from_rgb(30, 90, 230);
@@ -343,7 +343,7 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
     let sp = score.layout.staff_space * zoom;
     let page_w = score.layout.page_w * zoom;
     let page_h = score.layout.page_h * zoom;
-    let margin = score.layout.margin * zoom;
+    let [m_top, m_bottom, m_left, m_right] = score.layout.margins().map(|m| m * zoom);
     let staves = visible_staves(score);
     let sys_gap = score.layout.system_gap * sp;
     let name_indent = {
@@ -382,9 +382,9 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
         let v = &vert[si];
         let (left, right, top);
         if linear {
-            left = origin.x + margin + name_indent;
+            left = origin.x + m_left + name_indent;
             right = f32::MAX;
-            top = origin.y + margin + (title_h * 0.4).max(v.above + sp);
+            top = origin.y + m_top + (title_h * 0.4).max(v.above + sp);
         } else {
             if sys_on_page >= page_cap {
                 page_idx += 1;
@@ -393,10 +393,10 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
             if sys_on_page == 0 {
                 let pr = page_rect(page_idx);
                 geo.pages.push(pr);
-                cur_y = pr.top() + margin + if page_idx == 0 { title_h } else { (sp * 4.0).max(v.above + sp) };
+                cur_y = pr.top() + m_top + if page_idx == 0 { title_h } else { (sp * 4.0).max(v.above + sp) };
                 // the systems this page takes: up to systems-per-page, while the last one's bottom line and its content
                 // (up to two spaces into the bottom margin) stay on the page
-                let limit = pr.bottom() - margin;
+                let limit = pr.bottom() - m_bottom;
                 let mut used = v.h;
                 let mut n = 1;
                 while n < spp && si + n < vert.len() {
@@ -418,8 +418,8 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
                 extra = if n > 1 { left / (n - 1) as f32 } else { 0.0 };
             }
             let pr = page_rect(page_idx);
-            left = pr.left() + margin + if first { name_indent } else { short_indent };
-            right = pr.right() - margin;
+            left = pr.left() + m_left + if first { name_indent } else { short_indent };
+            right = pr.right() - m_right;
             top = cur_y;
             if let Some(next) = vert.get(si + 1) {
                 let g = min_gap(v, next);
@@ -478,7 +478,7 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
     if linear {
         let r = geo.systems.last().map(|s| s.right).unwrap_or(origin.x + page_w);
         let b = geo.systems.last().map(|s| s.bottom(sp)).unwrap_or(origin.y + page_h);
-        let pr = Rect::from_min_max(origin, pos2(r + margin, (b + sp * 12.0).max(origin.y + page_h * 0.5)));
+        let pr = Rect::from_min_max(origin, pos2(r + m_right, (b + sp * 12.0).max(origin.y + page_h * 0.5)));
         geo.pages.push(pr);
     }
     let mut size = vec2(0.0, 0.0);
@@ -658,58 +658,60 @@ fn beam_groups(evs: &[(usize, &Event)], mi: &MeasureInfo) -> Vec<Vec<usize>> {
     groups
 }
 
+/// The typeface of every text on the score page (title, credits, chord symbols, lyrics, numbers, tempo). It is in this
+/// one place so that changing the page's font is one line (F-06); the PDF embeds whatever font this family resolves to.
+pub const PAGE_TEXT: FontFamily = FontFamily::Proportional;
+
+pub fn page_font(size: f32) -> FontId {
+    FontId::new(size, PAGE_TEXT)
+}
+
 pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits: &mut Vec<NoteHit>, out_graphics: &mut Vec<(usize, Rect)>) {
     let sp = geo.sp;
     let black = Color32::BLACK;
     let line_st = Stroke::new((sp * STAFF_LINE).max(0.6), Color32::from_gray(20));
-    let font = |s: f32| FontId::proportional(s);
+    let font = page_font;
 
     for (i, pr) in geo.pages.iter().enumerate() {
         // a soft shadow under the sheet; the sheet itself is always white, in light and dark mode
         p.add(egui::Shadow { offset: [0, 3], blur: 18, spread: 0, color: Color32::from_black_alpha(70) }.as_shape(*pr, 0.0));
         p.rect_filled(*pr, 0.0, crate::theme::PAGE);
         let t = &score.text;
+        // F-06: the page's own margins (the title block starts at the top one; credits line up with the margins)
+        let [mt, mb, ml, mr] = score.layout.margins().map(|m| m * sp / score.layout.staff_space);
+        let (left, right) = (pr.left() + ml, pr.right() - mr);
         if i == 0 {
             let cx = pr.center().x;
-            let top = pr.top() + score.layout.margin * sp / score.layout.staff_space;
+            let top = pr.top() + mt;
             p.text(pos2(cx, top + sp * 1.5), Align2::CENTER_CENTER, &t.title, font(sp * 3.0), black);
             for (k, line) in t.subtitle.lines().enumerate() {
                 p.text(pos2(cx, top + sp * (4.5 + k as f32 * 2.2)), Align2::CENTER_CENTER, line, font(sp * 1.8), black);
             }
             let (_, credits_y, _, _) = title_block(t);
-            if !t.composer.is_empty() {
-                // right-aligned credits under the title, one line per credit
-                for (k, line) in t.composer.lines().enumerate() {
-                    p.text(pos2(pr.right() - sp * 7.0, top + sp * (credits_y + k as f32 * 1.8)), Align2::RIGHT_CENTER, line, font(sp * 1.4), black);
-                }
+            // composer and lyricist / arranger on the right, one line each; instructions on the left
+            for (k, line) in t.composer.lines().chain(t.lyricist.lines()).filter(|l| !l.trim().is_empty()).enumerate() {
+                p.text(pos2(right, top + sp * (credits_y + k as f32 * 1.8)), Align2::RIGHT_CENTER, line, font(sp * 1.4), black);
             }
-            // left-hand texts stacked from the same line as the credits
-            let mut ly = credits_y;
-            for line in t.lyricist.lines().chain(t.instructions.lines()) {
-                if !line.trim().is_empty() {
-                    p.text(pos2(pr.left() + sp * 7.0, top + sp * ly), Align2::LEFT_CENTER, line, font(sp * 1.4), black);
-                    ly += 1.8;
-                }
-            }
-            if !t.copyright.is_empty() {
-                p.text(pos2(cx, pr.bottom() - sp * 3.0), Align2::CENTER_CENTER, &t.copyright, font(sp * 1.2), black);
+            for (k, line) in t.instructions.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+                p.text(pos2(left, top + sp * (credits_y + k as f32 * 1.8)), Align2::LEFT_CENTER, line, font(sp * 1.4), black);
             }
         }
-        // header: "#P" stands for the page number (the original prints it at the top right, page 1 included)
-        let page_in_header = t.header.contains("#P");
+        // Text Elements around the page, as the printed page shows them (F-06): the header centred at the top of every
+        // page ("#P" is the page number), the footer centred at the bottom, the page number at the bottom right
+        let foot_y = pr.bottom() - (mb * 0.5).max(sp * 1.5);
         if !t.header.is_empty() {
             let txt = t.header.replace("#P", &format!("{}", i + 1));
-            if page_in_header {
-                p.text(pos2(pr.right() - sp * 5.0, pr.top() + sp * 4.0), Align2::RIGHT_CENTER, txt, font(sp * 1.5), black);
-            } else if i > 0 {
-                p.text(pos2(pr.center().x, pr.top() + sp * 3.0), Align2::CENTER_CENTER, txt, font(sp * 1.3), Color32::DARK_GRAY);
-            }
+            p.text(pos2(pr.center().x, pr.top() + (mt * 0.5).max(sp * 1.5)), Align2::CENTER_CENTER, txt, font(sp * 1.3), Color32::DARK_GRAY);
         }
         if !t.footer.is_empty() {
-            p.text(pos2(pr.center().x, pr.bottom() - sp * 1.5), Align2::CENTER_CENTER, &t.footer, font(sp * 1.2), Color32::DARK_GRAY);
+            p.text(pos2(pr.center().x, foot_y), Align2::CENTER_CENTER, &t.footer, font(sp * 1.2), Color32::DARK_GRAY);
         }
-        if t.show_page_numbers && i > 0 && !page_in_header {
-            p.text(pos2(pr.right() - sp * 5.0, pr.top() + sp * 3.0), Align2::RIGHT_CENTER, format!("{}", i + 1), font(sp * 1.6), black);
+        if i == 0 && !t.copyright.is_empty() {
+            let y = if t.footer.is_empty() { foot_y } else { foot_y - sp * 1.8 };
+            p.text(pos2(pr.center().x, y), Align2::CENTER_CENTER, &t.copyright, font(sp * 1.2), black);
+        }
+        if t.show_page_numbers {
+            p.text(pos2(right, foot_y), Align2::RIGHT_CENTER, format!("{}", i + 1), font(sp * 1.3), black);
         }
     }
 
@@ -1190,7 +1192,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         let (above, below, _) = g::accidental_box(sp, alter);
                         ink_log(1, Rect::from_min_max(pos2(cx - w / 2.0, y - above), pos2(cx + w / 2.0, y + below)));
                         if forced && !score.layout.c_score {
-                            let pf = FontId::proportional(sp * 2.2);
+                            let pf = page_font(sp * 2.2);
                             p.text(pos2(cx - w * 0.75, y), Align2::CENTER_CENTER, "(", pf.clone(), c);
                             p.text(pos2(cx + w * 0.7, y), Align2::CENTER_CENTER, ")", pf, c);
                         }
@@ -1511,14 +1513,14 @@ fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _y
     }
     for (i, l) in e.lyric.iter().enumerate() {
         if !l.is_empty() {
-            p.text(pos2(x, bottom + sp * (ext.lyric_y + i as f32 * 2.0)), Align2::CENTER_CENTER, l, FontId::proportional(sp * 1.6), c);
+            p.text(pos2(x, bottom + sp * (ext.lyric_y + i as f32 * 2.0)), Align2::CENTER_CENTER, l, page_font(sp * 1.6), c);
         }
     }
     if let Some(ch) = &e.chord_symbol {
-        p.text(pos2(x - sp * 0.5, top - sp * ext.chord_y), Align2::LEFT_CENTER, ch, FontId::proportional(sp * 1.8), c);
+        p.text(pos2(x - sp * 0.5, top - sp * ext.chord_y), Align2::LEFT_CENTER, ch, page_font(sp * 1.8), c);
     }
     if let Some(ex) = &e.expression {
-        p.text(pos2(x - sp * 0.5, top - sp * ext.expr_y), Align2::LEFT_CENTER, ex, FontId::proportional(sp * 1.5), c);
+        p.text(pos2(x - sp * 0.5, top - sp * ext.expr_y), Align2::LEFT_CENTER, ex, page_font(sp * 1.5), c);
     }
     let _ = score;
 }
@@ -1572,9 +1574,9 @@ pub fn draw_graphic(p: &Painter, score: &Score, geo: &Geometry, gr: &Graphic, se
     let rect = match gr.kind {
         GraphicKind::Text => {
             let size = if gr.size > 0.0 { gr.size } else { 1.6 } * sp;
-            let r = p.text(a, Align2::LEFT_CENTER, &gr.text, FontId::proportional(size), c);
+            let r = p.text(a, Align2::LEFT_CENTER, &gr.text, page_font(size), c);
             if gr.bold {
-                p.text(a + vec2(sp * 0.05, 0.0), Align2::LEFT_CENTER, &gr.text, FontId::proportional(size), c);
+                p.text(a + vec2(sp * 0.05, 0.0), Align2::LEFT_CENTER, &gr.text, page_font(size), c);
             }
             r
         }
@@ -1614,14 +1616,14 @@ pub fn draw_graphic(p: &Painter, score: &Score, geo: &Geometry, gr: &Graphic, se
         }
         GraphicKind::Ottava | GraphicKind::OttavaBassa => {
             let txt = if gr.kind == GraphicKind::Ottava { "8va" } else { "8vb" };
-            let r = p.text(a, Align2::LEFT_CENTER, txt, FontId::proportional(sp * 1.5), c);
+            let r = p.text(a, Align2::LEFT_CENTER, txt, page_font(sp * 1.5), c);
             g::dashed_line(p, pos2(r.right() + sp * 0.3, a.y), pos2(b.x, a.y), sp * 0.1, sp * 0.5, c);
             let hook = if gr.kind == GraphicKind::Ottava { sp } else { -sp };
             p.line_segment([pos2(b.x, a.y), pos2(b.x, a.y + hook)], st);
             Rect::from_two_pos(a, pos2(b.x, a.y)).expand(sp)
         }
         GraphicKind::TrillLine => {
-            let r = p.text(a, Align2::LEFT_CENTER, "tr", FontId::proportional(sp * 1.7), c);
+            let r = p.text(a, Align2::LEFT_CENTER, "tr", page_font(sp * 1.7), c);
             g::trill_wave(p, pos2(r.right() + sp * 0.3, a.y), pos2(b.x, a.y), sp, c);
             Rect::from_two_pos(a, pos2(b.x, a.y)).expand(sp)
         }
@@ -1647,8 +1649,8 @@ pub fn title_block(t: &TextElements) -> (f32, f32, f32, f32) {
     let subs = t.subtitle.lines().filter(|l| !l.trim().is_empty()).count() as f32;
     let sub_end = if subs > 0.0 { 4.5 + (subs - 1.0) * 2.2 + 1.2 } else { 3.0 };
     let credits_y = sub_end + 1.4;
-    let right = t.composer.lines().filter(|l| !l.trim().is_empty()).count() as f32;
-    let left = t.lyricist.lines().chain(t.instructions.lines()).filter(|l| !l.trim().is_empty()).count() as f32;
+    let right = t.composer.lines().chain(t.lyricist.lines()).filter(|l| !l.trim().is_empty()).count() as f32;
+    let left = t.instructions.lines().filter(|l| !l.trim().is_empty()).count() as f32;
     let last = sub_end.max(credits_y + (right.max(left) - 1.0).max(0.0) * 1.8);
     // tempo mark, chord symbols and stems need about seven spaces above the first staff
     (sub_end, credits_y, last, last + 7.5)
@@ -2063,7 +2065,7 @@ mod page_layout_tests {
             let sp = geo.sp;
             for s in geo.systems.iter().filter(|s| s.page == 0) {
                 let low = s.bottom(sp) + s.ext.last().unwrap().below * sp;
-                assert!(low <= geo.pages[0].bottom() - sc.layout.margin + sp * 2.0 + 0.5, "{name}: system {} runs off the page", s.m0);
+                assert!(low <= geo.pages[0].bottom() - sc.layout.margins()[1] + sp * 2.0 + 0.5, "{name}: system {} runs off the page", s.m0);
             }
         }
     }
@@ -2074,7 +2076,7 @@ mod page_layout_tests {
         let geo = page(&mut sc, 612.0, 792.0);
         let sp = geo.sp;
         let tb = title_block(&sc.text);
-        let text_bottom = geo.pages[0].top() + sc.layout.margin + sp * (tb.2 + 0.9);
+        let text_bottom = geo.pages[0].top() + sc.layout.margins()[0] + sp * (tb.2 + 0.9);
         let s0 = &geo.systems[0];
         let reach = s0.top(sp) - s0.ext[0].above * sp;
         assert!(reach >= text_bottom + sp, "the first system reaches {reach}, the title block ends at {text_bottom}");

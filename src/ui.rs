@@ -84,7 +84,7 @@ impl App {
                 }
                 ui.separator();
                 ui.menu_button("Export", |ui| {
-                    for c in [ExportEnc, ExportXml, ExportMidi, ExportPng] {
+                    for c in [ExportEnc, ExportXml, ExportMidi, ExportPng, ExportPdf] {
                         self.mi(ui, c);
                     }
                 });
@@ -816,6 +816,15 @@ impl App {
                             if kit::btn(ui, "Cancel").clicked() {
                                 cancel = true;
                             }
+                            // F-06: Page Setup's Print... on the left applies the settings and prints at once
+                            if matches!(d, Dialog::PageSetup { .. }) {
+                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                    if kit::btn(ui, "Print...").clicked() {
+                                        ok = true;
+                                        self.print_after_setup = true;
+                                    }
+                                });
+                            }
                         }
                     });
                 });
@@ -995,6 +1004,127 @@ impl App {
                     }
                 }
             });
+        });
+    }
+
+    /// F-06: Page Setup as in the mockup: paper, orientation, margins in mm, print scale and spacing on the left, the
+    /// printed page on the right. Nothing changes in the score until OK (Cancel leaves it as it was).
+    fn page_setup_body(&self, ui: &mut Ui, d: &mut Dialog) {
+        let Dialog::PageSetup { w, h, margins, same, scale, staff_space, staff_gap, system_gap, page } = d else { return };
+        let mm = |pt: f32| (pt * 25.4 / 72.0).round();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 18.0;
+            ui.vertical(|ui| {
+                ui.set_width(470.0);
+                kit::group(ui, "Paper", |ui| {
+                    ui.set_width(440.0);
+                    kit::form(ui, "ps_paper", |ui| {
+                        let custom_id = ui.make_persistent_id("page_setup_custom");
+                        let (pw, ph) = (w.min(*h), w.max(*h));
+                        let land = *w > *h;
+                        let letter = (pw - 612.0).abs() < 1.0 && (ph - 792.0).abs() < 1.0;
+                        let a4 = (pw - 595.0).abs() < 1.5 && (ph - 842.0).abs() < 1.5;
+                        let mut custom = ui.data(|m| m.get_temp::<bool>(custom_id)).unwrap_or(false) || !(letter || a4);
+                        kit::row(ui, "Size", |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            let set = |pw: f32, ph: f32, w: &mut f32, h: &mut f32| {
+                                (*w, *h) = if land { (ph, pw) } else { (pw, ph) };
+                            };
+                            if kit::chip(ui, letter && !custom, "Letter").clicked() {
+                                set(612.0, 792.0, w, h);
+                                custom = false;
+                            }
+                            if kit::chip(ui, a4 && !custom, "A4").clicked() {
+                                set(595.0, 842.0, w, h);
+                                custom = false;
+                            }
+                            if kit::chip(ui, custom, "Custom").clicked() {
+                                custom = true;
+                            }
+                            ui.add_space(8.0);
+                            ui.label(egui::RichText::new(format!("{} × {} mm", mm(*w), mm(*h))).font(theme::font(12.5)).color(theme::t(ui).text_3));
+                        });
+                        ui.data_mut(|m| m.insert_temp(custom_id, custom));
+                        if custom {
+                            kit::row(ui, "Width (mm)", |ui| {
+                                let mut v = (*w * 25.4 / 72.0).round();
+                                if kit::num_with(ui, &mut v, 70.0..=700.0, 88.0, |d| d).changed() {
+                                    *w = v * 72.0 / 25.4;
+                                }
+                            });
+                            kit::row(ui, "Height (mm)", |ui| {
+                                let mut v = (*h * 25.4 / 72.0).round();
+                                if kit::num_with(ui, &mut v, 70.0..=700.0, 88.0, |d| d).changed() {
+                                    *h = v * 72.0 / 25.4;
+                                }
+                            });
+                        }
+                        kit::row(ui, "Orientation", |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            if kit::chip(ui, !land, "Portrait").clicked() && land {
+                                std::mem::swap(w, h);
+                            }
+                            if kit::chip(ui, land, "Landscape").clicked() && !land {
+                                std::mem::swap(w, h);
+                            }
+                        });
+                    });
+                });
+                kit::group(ui, "Margins (mm)", |ui| {
+                    ui.set_width(440.0);
+                    let before = *margins;
+                    egui::Grid::new("ps_margins").num_columns(4).spacing([12.0, 10.0]).show(ui, |ui| {
+                        for (row, pair) in [(0usize, 1usize), (2, 3)].into_iter().enumerate() {
+                            let names = if row == 0 { ["Top", "Bottom"] } else { ["Left", "Right"] };
+                            for (k, name) in [pair.0, pair.1].into_iter().zip(names) {
+                                kit::label(ui, name);
+                                kit::num_with(ui, &mut margins[k], 0.0..=80.0, 72.0, |d| d.speed(0.1).fixed_decimals(1));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    // "Same on all sides": the side that changed sets all four
+                    if *same {
+                        if let Some(k) = (0..4).find(|&k| (margins[k] - before[k]).abs() > 1e-4) {
+                            *margins = [margins[k]; 4];
+                        }
+                    }
+                    if kit::checkbox(ui, same, "Same on all sides").changed() && *same {
+                        *margins = [margins[0]; 4];
+                    }
+                });
+                kit::group(ui, "Print scale", |ui| {
+                    ui.set_width(440.0);
+                    kit::form(ui, "ps_scale", |ui| {
+                        kit::row(ui, "Scale", |ui| kit::slider(ui, scale, 50..=200, |v| format!("{v:.0}%")));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        if kit::btn_inline(ui, "Fit width").clicked() {
+                            let mut tmp = self.score.clone();
+                            crate::pdf::apply_page_setup(&mut tmp.layout, (*w, *h), *margins, *scale, (*staff_space, *staff_gap, *system_gap));
+                            *scale = crate::pdf::fit_width_scale(&tmp);
+                        }
+                        for v in [75u16, 100, 125] {
+                            if kit::btn_inline(ui, &format!("{v}%")).clicked() {
+                                *scale = v;
+                            }
+                        }
+                    });
+                    kit::help(ui, "Shrinks or enlarges only the printed page and the PDF. The score on screen doesn't change.");
+                });
+                kit::group(ui, "Spacing", |ui| {
+                    ui.set_width(440.0);
+                    kit::form(ui, "ps_spacing", |ui| {
+                        kit::row(ui, "Staff size", |ui| kit::slider(ui, staff_space, 3.0..=12.0, |v| format!("{v:.1}")));
+                        kit::row(ui, "Space between staves", |ui| kit::slider(ui, staff_gap, 4.0..=20.0, |v| format!("{v:.1}")));
+                        kit::row(ui, "Space between systems", |ui| kit::slider(ui, system_gap, 4.0..=24.0, |v| format!("{v:.1}")));
+                    });
+                });
+            });
+            let mut tmp = self.score.clone();
+            crate::pdf::apply_page_setup(&mut tmp.layout, (*w, *h), *margins, *scale, (*staff_space, *staff_gap, *system_gap));
+            page_setup_preview(ui, &tmp, page);
         });
     }
 
@@ -1595,31 +1725,7 @@ impl App {
             Dialog::JumpTo { measure } => {
                 kit::form(ui, "jump", |ui| kit::row(ui, "Measure", |ui| kit::num(ui, measure, self.score.measure_label(0)..=self.score.measure_label(nm.saturating_sub(1)))));
             }
-            Dialog::PageSetup { w, h, margin, staff_space, staff_gap, system_gap } => {
-                kit::form(ui, "page", |ui| {
-                    kit::row(ui, "Paper", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let (pw, ph) = (w.min(*h), w.max(*h));
-                        if kit::chip(ui, pw == 612.0 && ph == 792.0, "Letter").clicked() {
-                            *w = 612.0;
-                            *h = 792.0;
-                        }
-                        if kit::chip(ui, pw == 595.0 && ph == 842.0, "A4").clicked() {
-                            *w = 595.0;
-                            *h = 842.0;
-                        }
-                        if kit::chip(ui, *w > *h, "Landscape").clicked() {
-                            std::mem::swap(w, h);
-                        }
-                    });
-                    kit::row(ui, "Width (pt)", |ui| kit::num_with(ui, w, 200.0..=2000.0, 88.0, |d| d));
-                    kit::row(ui, "Height (pt)", |ui| kit::num_with(ui, h, 200.0..=2000.0, 88.0, |d| d));
-                    kit::row(ui, "Margin (pt)", |ui| kit::num_with(ui, margin, 10.0..=150.0, 88.0, |d| d));
-                    kit::row(ui, "Staff size", |ui| kit::slider(ui, staff_space, 3.0..=12.0, |v| format!("{v:.1}")));
-                    kit::row(ui, "Space between staves", |ui| kit::slider(ui, staff_gap, 4.0..=20.0, |v| format!("{v:.1}")));
-                    kit::row(ui, "Space between systems", |ui| kit::slider(ui, system_gap, 4.0..=24.0, |v| format!("{v:.1}")));
-                });
-            }
+            Dialog::PageSetup { .. } => self.page_setup_body(ui, d),
             Dialog::AddStaff { name, clef, program } => {
                 kit::form(ui, "addstaff", |ui| {
                     kit::row(ui, "Name", |ui| ui.add(egui::TextEdit::singleline(name).desired_width(220.0)));
@@ -2041,15 +2147,12 @@ impl App {
                 self.cursor = (self.cursor.0, self.score.measure_from_label(measure), 0);
                 self.scroll_to_cursor = true;
             }
-            Dialog::PageSetup { w, h, margin, staff_space, staff_gap, system_gap } => {
+            Dialog::PageSetup { w, h, margins, scale, staff_space, staff_gap, system_gap, .. } => {
                 self.checkpoint();
-                let l = &mut self.score.layout;
-                l.page_w = w;
-                l.page_h = h;
-                l.margin = margin;
-                l.staff_space = staff_space;
-                l.staff_gap = staff_gap;
-                l.system_gap = system_gap;
+                crate::pdf::apply_page_setup(&mut self.score.layout, (w, h), margins, scale, (staff_space, staff_gap, system_gap));
+                if std::mem::take(&mut self.print_after_setup) {
+                    self.pending_cmd = Some(Cmd::Print);
+                }
             }
             Dialog::AddStaff { name, clef, program } => {
                 self.checkpoint();
@@ -2726,4 +2829,81 @@ fn recover_icon(ui: &mut Ui) {
     // the hands
     p.line_segment([c, c + vec2(0.0, -5.5)], st);
     p.line_segment([c, c + vec2(4.0, 2.5)], st);
+}
+
+/// Page Setup's preview (F-06): the printed page at the settings in the dialog, its margins dashed in blue, page
+/// navigation and a summary ("Letter · Portrait · 100% · 3 systems, 9 measures").
+fn page_setup_preview(ui: &mut Ui, score: &Score, page: &mut usize) {
+    let k = theme::t(ui);
+    egui::Frame::new().fill(k.cell).corner_radius(12.0).inner_margin(16.0).show(ui, |ui| ui.vertical(|ui| {
+        ui.set_width(268.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Preview").font(theme::font_semibold(12.5)).color(k.text_2));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new("margins in blue").font(theme::font(11.5)).color(k.text_3));
+            });
+        });
+        let ps = crate::pdf::print_score(score);
+        let geo0 = crate::score_view::layout(&ps, egui::Pos2::ZERO, 1.0, false);
+        let n = geo0.pages.len().max(1);
+        *page = (*page).min(n - 1);
+        let (paper_w, paper_h) = (score.layout.page_w, score.layout.page_h);
+        let fit = (268.0 / paper_w).min(340.0 / paper_h);
+        let size = vec2(paper_w * fit, paper_h * fit);
+        let (outer, _) = ui.allocate_exact_size(vec2(268.0, 340.0), egui::Sense::hover());
+        let r = egui::Rect::from_center_size(outer.center(), size);
+        // the layout of the printed page, scaled so that page `page` lands on `r`
+        let z = r.width() / ps.layout.page_w;
+        let top0 = geo0.pages.get(*page).map(|p| p.top()).unwrap_or(0.0) * z;
+        let geo = crate::score_view::layout(&ps, egui::pos2(r.left(), r.top() - top0), z, false);
+        let painter = ui.painter_at(r.expand(6.0));
+        let (sel, selg) = (std::collections::HashSet::new(), std::collections::HashSet::new());
+        let st = crate::score_view::DrawState {
+            selected: &sel,
+            sel_graphics: &selg,
+            cursor: None,
+            play_tick: None,
+            show_voice: None,
+            show_control_points: false,
+            show_hidden: false,
+            sel_measures: None,
+            hover_ghost: None,
+            flash: None,
+        };
+        crate::score_view::draw(&painter.with_clip_rect(r), &ps, &geo, &st, &mut vec![], &mut vec![]);
+        let [mt, mb, ml, mr] = score.layout.margins().map(|m| m * fit);
+        let m = egui::Rect::from_min_max(egui::pos2(r.left() + ml, r.top() + mt), egui::pos2(r.right() - mr, r.bottom() - mb));
+        let blue = egui::Stroke::new(1.0, k.accent);
+        for (a, b) in [(m.left_top(), m.right_top()), (m.right_top(), m.right_bottom()), (m.right_bottom(), m.left_bottom()), (m.left_bottom(), m.left_top())] {
+            painter.extend(egui::Shape::dashed_line(&[a, b], blue, 3.0, 3.0));
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.add_space(70.0);
+            if kit::btn_inline(ui, "‹").clicked() && *page > 0 {
+                *page -= 1;
+            }
+            ui.label(egui::RichText::new(format!("Page {} of {n}", *page + 1)).font(theme::font(13.0)).color(k.text));
+            if kit::btn_inline(ui, "›").clicked() && *page + 1 < n {
+                *page += 1;
+            }
+        });
+        let (pw, ph) = (paper_w.min(paper_h), paper_w.max(paper_h));
+        let paper = if (pw - 612.0).abs() < 1.0 && (ph - 792.0).abs() < 1.0 {
+            "Letter"
+        } else if (pw - 595.0).abs() < 1.5 && (ph - 842.0).abs() < 1.5 {
+            "A4"
+        } else {
+            "Custom"
+        };
+        let orient = if paper_w > paper_h { "Landscape" } else { "Portrait" };
+        let systems: Vec<&crate::score_view::SysGeo> = geo0.systems.iter().filter(|s| s.page == *page).collect();
+        let measures: usize = systems.iter().map(|s| s.m1 - s.m0).sum();
+        let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+        ui.label(
+            egui::RichText::new(format!("{paper} · {orient} · {}% · {}, {}", score.layout.print_scale, plural(systems.len(), "system"), plural(measures, "measure")))
+                .font(theme::font(12.0))
+                .color(k.text_2),
+        );
+    }));
 }

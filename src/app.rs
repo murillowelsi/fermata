@@ -75,7 +75,9 @@ pub enum Dialog {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     ClavinovaGuide,
     JumpTo { measure: usize },
-    PageSetup { w: f32, h: f32, margin: f32, staff_space: f32, staff_gap: f32, system_gap: f32 },
+    /// F-06: paper (points, as oriented), margins in mm (top, bottom, left, right), print scale in percent, spacing,
+    /// and the page the preview shows.
+    PageSetup { w: f32, h: f32, margins: [f32; 4], same: bool, scale: u16, staff_space: f32, staff_gap: f32, system_gap: f32, page: usize },
     AddStaff { name: String, clef: Clef, program: u8 },
     SplitStaff { split: i32 },
     ConnectStaves { kind: usize },
@@ -201,6 +203,8 @@ pub struct App {
     pub lyric_line: usize,
     pub pending_cmd: Option<Cmd>,
     pub after_new_wizard: bool,
+    /// Page Setup's Print... button: print once the settings are applied.
+    pub print_after_setup: bool,
     /// New Score: a template was double-clicked (= Create).
     pub new_score_create: bool,
     /// F-31: Audiveris reading a photo in the background.
@@ -331,6 +335,7 @@ impl App {
             lyric_line: 0,
             pending_cmd: None,
             after_new_wizard: false,
+            print_after_setup: false,
             new_score_create: false,
             #[cfg(not(target_arch = "wasm32"))]
             omr_job: None,
@@ -1625,6 +1630,24 @@ impl App {
     }
 
     /// Save bytes as a new file through the save window.
+    /// File ▸ Export ▸ Export PDF... (F-06): every page, at the paper, margins and scale of Page Setup.
+    pub fn export_pdf(&mut self) {
+        match crate::pdf::score_pdf(&self.score) {
+            Ok(b) => self.export_bytes("pdf", "PDF document", &b),
+            Err(e) => self.dialog = Some(Dialog::Message(format!("Couldn't make the PDF: {e}"))),
+        }
+    }
+
+    /// File ▸ Print... (F-06): the same PDF goes to the system's printing (see `platform::print_pdf`).
+    pub fn print(&mut self) {
+        let name = self.file_base_name();
+        let paper = (self.score.layout.page_w, self.score.layout.page_h);
+        match crate::pdf::score_pdf(&self.score).and_then(|b| crate::platform::print_pdf(&name, &b, paper)) {
+            Ok(msg) => self.status = msg,
+            Err(e) => self.dialog = Some(Dialog::Message(format!("Couldn't print: {e}"))),
+        }
+    }
+
     pub fn export_bytes(&mut self, ext: &str, desc: &str, bytes: &[u8]) {
         let name = self.file_base_name();
         match crate::platform::save_as(&name, ext, desc, bytes) {

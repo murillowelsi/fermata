@@ -24,10 +24,14 @@ impl App {
                 Some(p) => self.replace_score(Then::Revert(p)),
                 None => self.status = "This score hasn't been saved yet.".into(),
             },
-            Print | ExportPng => self.export_png_requested = true,
+            Print => self.print(),
+            ExportPng => self.export_png_requested = true,
+            ExportPdf => self.export_pdf(),
             PageSetup => {
                 let l = &self.score.layout;
-                self.dialog = Some(Dialog::PageSetup { w: l.page_w, h: l.page_h, margin: l.margin, staff_space: l.staff_space, staff_gap: l.staff_gap, system_gap: l.system_gap });
+                let margins = l.margins().map(crate::pdf::pt_to_mm);
+                let same = margins.iter().all(|m| (m - margins[0]).abs() < 0.05);
+                self.dialog = Some(Dialog::PageSetup { w: l.page_w, h: l.page_h, margins, same, scale: l.print_scale, staff_space: l.staff_space, staff_gap: l.staff_gap, system_gap: l.system_gap, page: 0 });
             }
             ImportMidi => self.replace_score(Then::ImportMidi),
             ImportXml => self.replace_score(Then::ImportXml),

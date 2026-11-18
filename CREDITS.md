@@ -14,21 +14,34 @@ artwork by the Fermata team (Design, F-14). Source: `assets/icone-traco-light.sv
 | Font | Where | Used for | Licence |
 |---|---|---|---|
 | **Inter** 4.1 (Regular, Medium, SemiBold), © 2016 The Inter Project Authors, <https://github.com/rsms/inter> | `assets/fonts/` | Interface text: menus, toolbar, status bar, dialogs, tips | SIL Open Font License 1.1 (`assets/fonts/Inter-OFL.txt`) |
-| **Bravura** 1.482, © 2015 Steinberg Media Technologies GmbH, <https://github.com/steinbergmedia/bravura> (Reserved Font Name "Bravura") | `assets/fonts/Bravura.otf` | Music symbols in the palettes (SMuFL glyphs) | SIL Open Font License 1.1 (`assets/fonts/Bravura-OFL.txt`) |
+| **Bravura** 1.482, © 2015 Steinberg Media Technologies GmbH, <https://github.com/steinbergmedia/bravura> (Reserved Font Name "Bravura") | `assets/fonts/Bravura.otf` | Music symbols in the palettes and on the score page (SMuFL glyphs) | SIL Open Font License 1.1 (`assets/fonts/Bravura-OFL.txt`) |
 | **Bravura metadata** (`Bravura.json`, the font's SMuFL metadata: glyph boxes, advance widths), Steinberg | `assets/fonts/Bravura.json` | Ink boxes that fit each palette symbol inside its cell | Distributed with the font in the same OFL release (`OFL.txt`) |
 | **Browser version only:** Inter subsets (Latin, punctuation, arrows and key symbols) | `assets/fonts/web/Inter-*.ttf` | Interface text in the browser | SIL Open Font License 1.1 (`assets/fonts/Inter-OFL.txt`) |
 | **Browser version only:** **Fermata Palette Glyphs**, a subset of Bravura 1.482 with only the palettes' glyphs (© 2015 Steinberg Media Technologies GmbH); renamed because "Bravura" is a Reserved Font Name and a subset is a modified version under the OFL. Its trimmed metadata: `FermataPaletteGlyphs.json` | `assets/fonts/web/` | Music symbols in the palettes, in the browser | SIL Open Font License 1.1 (`assets/fonts/Bravura-OFL.txt`; the web build carries it in `licenses/`) |
-| **Ubuntu Light**, © Canonical Ltd. (bundled by egui) | inside the `epaint_default_fonts` crate | Text on the score page; fallback for interface text | Ubuntu Font Licence 1.0 |
+| **Ubuntu Light**, © Canonical Ltd. (bundled by egui) | inside the `epaint_default_fonts` crate | Text on the score page (titles, credits, chord symbols, lyrics, numbers); fallback for interface text | Ubuntu Font Licence 1.0 |
 | **Hack**, © Source Foundry Authors (bundled by egui) | inside the `epaint_default_fonts` crate | Monospaced text | MIT (DejaVu parts public domain) |
 | **egui-icons**, a subset of emoji-icon-font by John Slegers (bundled by egui) | inside the `epaint_default_fonts` crate | A few UI symbols egui itself draws | MIT |
 
 Bravura and its metadata were downloaded from the official release `bravura-1.482` of
 `steinbergmedia/bravura` (assets `Bravura.otf`, `Bravura.json`, `OFL.txt`), unchanged. The SMuFL glyph names used
-to read the metadata come from the SMuFL standard (w3c/smufl). The score page itself still uses Fermata's own
-drawings (`src/glyphs.rs`); moving the page to Bravura is task F-03.
+to read the metadata come from the SMuFL standard (w3c/smufl). The score page uses Fermata's own
+drawings for lines, beams, ties and braces (`src/glyphs.rs`); its symbols come from Bravura (F-03).
 
 Inter was downloaded from the project's official release (`Inter-4.1.zip`, GitHub release v4.1); the three TTF
 files are from its `extras/ttf/` folder, unchanged.
+
+## Fonts inside exported and printed PDFs (F-06)
+
+File ▸ Export PDF... and File ▸ Print... write a PDF that embeds **subsets** of the fonts the page uses (only the
+glyphs that appear), so the PDF looks the same everywhere and its text can be selected:
+
+- **Bravura** (music symbols), SIL Open Font License 1.1, which allows embedding fonts in documents;
+- **Ubuntu Light** (the page's text), Ubuntu Font Licence 1.0, which allows embedding in documents (a document made
+  with the font is not a derivative of it);
+- a character neither font has (rare) comes from egui's own fallback fonts listed above, under their licences.
+
+The fonts' names in the PDF carry a subset tag (`ABCDEF+Bravura`), as the PDF standard asks; the fonts' copyright
+notices are kept in the subsets.
 
 ## Sound (F-30)
 
@@ -53,7 +66,10 @@ synthesizer plays, as before.
 | cpal 0.18 | Apache-2.0 |
 | winit 0.30 | Apache-2.0 |
 | rustysynth 1.3 (SoundFont synthesizer, F-30) | MIT |
-| miniz_oxide 0.8 (only to decompress `.mxl` files; already in the app through `png`) | MIT OR Zlib OR Apache-2.0 |
+| miniz_oxide 0.8 (decompresses `.mxl` files and compresses PDF streams; already in the app through `png`) | MIT OR Zlib OR Apache-2.0 |
+| pdf-writer 0.15.0 (writes the PDF, F-06), from the Typst project | MIT OR Apache-2.0 |
+| subsetter 0.2.6 (font subsets for the PDF, F-06; default features off), from the Typst project | MIT OR Apache-2.0 |
+| ryu 1.0 (number formatting, a dependency of pdf-writer) | Apache-2.0 OR BSL-1.0 |
 
 Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).
 

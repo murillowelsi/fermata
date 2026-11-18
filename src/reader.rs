@@ -302,13 +302,13 @@ impl App {
                             close = true;
                             self.exec(Cmd::Open);
                         }
-                        let export = row(ui, "Export", if self.reader_export { "‹" } else { "MIDI · MusicXML · PNG ›" }, None);
+                        let export = row(ui, "Export", if self.reader_export { "‹" } else { "MIDI · MusicXML · PNG · PDF ›" }, None);
                         icon_share(ui.painter(), pos2(export.rect.left() + 24.0, export.rect.center().y), k.text);
                         if export.clicked() {
                             self.reader_export = !self.reader_export;
                         }
                         if self.reader_export {
-                            for c in [Cmd::ExportMidi, Cmd::ExportXml, Cmd::ExportPng] {
+                            for c in [Cmd::ExportMidi, Cmd::ExportXml, Cmd::ExportPng, Cmd::ExportPdf] {
                                 if row(ui, &format!("   {}", commands::label(c)), "", None).clicked() {
                                     close = true;
                                     self.pending_cmd = Some(c);

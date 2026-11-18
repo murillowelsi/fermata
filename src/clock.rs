@@ -16,3 +16,15 @@ pub fn subsec_nanos() -> u32 {
         web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|t| t.subsec_nanos()).unwrap_or(0)
     }
 }
+
+/// Seconds since 1970 (UTC), for the date written into a PDF.
+pub fn unix_secs() -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|t| t.as_secs()).unwrap_or(0)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|t| t.as_secs()).unwrap_or(0)
+    }
+}

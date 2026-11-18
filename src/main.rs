@@ -24,6 +24,7 @@ mod model;
 mod omr;
 mod musicxml;
 mod palettes;
+mod pdf;
 mod platform;
 mod rec;
 mod soundfont;
@@ -537,8 +538,15 @@ fn main() -> eframe::Result<()> {
             let bytes = match out.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str() {
                 "mid" | "midi" => io::midi_bytes(&sc),
                 "xml" | "musicxml" => io::musicxml_string(&sc).into_bytes(),
+                "pdf" => match pdf::score_pdf(&sc) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("couldn't make the PDF: {e}");
+                        std::process::exit(1);
+                    }
+                },
                 other => {
-                    eprintln!("unknown export type .{other} (use .mid or .musicxml)");
+                    eprintln!("unknown export type .{other} (use .mid, .musicxml or .pdf)");
                     std::process::exit(1);
                 }
             };

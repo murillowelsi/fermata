@@ -588,6 +588,27 @@ pub struct Layout {
     /// Measure spacing in half spaces (0x4f708c..0x4f7092 = 2 each).
     #[serde(default = "d_ms")]
     pub measure_space_hs: [u16; 4],
+    /// F-06: margins in points (top, bottom, left, right); None = `margin` on every side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margins: Option<[f32; 4]>,
+    /// F-06: scale of the printed page and the PDF, in percent (50..200). The screen doesn't change.
+    #[serde(default = "d_print_scale")]
+    pub print_scale: u16,
+}
+
+impl Layout {
+    /// Top, bottom, left and right margins in points.
+    pub fn margins(&self) -> [f32; 4] {
+        self.margins.unwrap_or([self.margin; 4])
+    }
+    /// The print scale as a factor (0.5..2.0).
+    pub fn print_factor(&self) -> f32 {
+        self.print_scale.clamp(50, 200) as f32 / 100.0
+    }
+}
+
+fn d_print_scale() -> u16 {
+    100
 }
 
 fn d_stem() -> u16 {
@@ -687,6 +708,8 @@ impl Score {
                 tie_h_qs: 0,
                 tie_v_qs: 3,
                 measure_space_hs: [2, 2, 2, 2],
+                margins: None,
+                print_scale: 100,
             },
             playback: PlaybackSettings {
                 swing: 50,

@@ -190,7 +190,7 @@ pub fn font_semibold(size: f32) -> FontId {
 
 /// Inter in three weights as named families. The `Proportional` family is left as it was, because the score page
 /// draws its text with it and the theme must not change the page.
-fn fonts() -> FontDefinitions {
+pub(crate) fn fonts() -> FontDefinitions {
     let mut f = FontDefinitions::default();
     let fallback: Vec<String> = f.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     for (name, data) in [("Inter-Regular", INTER_REGULAR), ("Inter-Medium", INTER_MEDIUM), ("Inter-SemiBold", INTER_SEMIBOLD)] {

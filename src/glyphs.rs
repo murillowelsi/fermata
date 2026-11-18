@@ -146,7 +146,7 @@ pub fn dynamic(p: &Painter, c: Pos2, sp: f32, t: &str, col: Color32) {
             s::draw_run(p, &n, c.x, c.y + sp * 0.3, sp, col);
         }
         _ => {
-            let f = egui::FontId::proportional(sp * 1.8);
+            let f = crate::score_view::page_font(sp * 1.8);
             p.text(c, egui::Align2::CENTER_CENTER, t, f, col);
         }
     }

@@ -28,6 +28,67 @@ pub const XML_EXTS: [&str; 3] = ["musicxml", "xml", "mxl"];
 mod imp {
     use super::*;
 
+    /// macOS: opens the system's print window for a PDF (PDFKit's print operation, run by the system's own
+    /// `osascript`; no dependency). Arguments: the PDF, the job's title, the paper's width and height in points.
+    #[cfg(target_os = "macos")]
+    const PRINT_JS: &str = r#"ObjC.import('AppKit');
+ObjC.import('PDFKit');
+function run(argv) {
+  var app = $.NSApplication.sharedApplication;
+  app.setActivationPolicy($.NSApplicationActivationPolicyAccessory);
+  app.activateIgnoringOtherApps(true);
+  var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[0]));
+  if (doc.isNil()) { return "no document"; }
+  var info = $.NSPrintInfo.sharedPrintInfo;
+  info.paperSize = $.NSMakeSize(parseFloat(argv[2]), parseFloat(argv[3]));
+  info.topMargin = 0; info.bottomMargin = 0; info.leftMargin = 0; info.rightMargin = 0;
+  var op = doc.printOperationForPrintInfoScalingModeAutoRotate(info, 0, true);
+  op.jobTitle = argv[1];
+  op.showsPrintPanel = true;
+  op.showsProgressPanel = true;
+  return op.runOperation ? "printed" : "cancelled";
+}
+"#;
+
+    /// Print (F-06): the score's PDF goes to the system. On the Mac the system's print window opens with it; on
+    /// Windows and Linux it opens in the PDF viewer, which prints it. Returns the status line.
+    pub fn print_pdf(name: &str, bytes: &[u8], paper: (f32, f32)) -> Result<String, String> {
+        let dir = std::env::temp_dir().join("Fermata Print");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let safe: String = name.chars().map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' }).collect();
+        let path = dir.join(format!("{}.pdf", if safe.trim().is_empty() { "Score" } else { safe.trim() }));
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            let script = dir.join("print.js");
+            std::fs::write(&script, PRINT_JS).map_err(|e| e.to_string())?;
+            std::process::Command::new("/usr/bin/osascript")
+                .arg("-l")
+                .arg("JavaScript")
+                .arg(&script)
+                .arg(&path)
+                .arg(name)
+                .arg(paper.0.to_string())
+                .arg(paper.1.to_string())
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            Ok("The print window is open.".into())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = paper;
+            std::process::Command::new("cmd").arg("/C").arg("start").arg("").arg(&path).creation_flags(0x0800_0000).spawn().map_err(|e| e.to_string())?;
+            Ok("The PDF opened in your PDF viewer. Print it from there.".into())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = paper;
+            std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+            Ok("The PDF opened in your PDF viewer. Print it from there.".into())
+        }
+    }
+
     pub fn pick_open(desc: &str, exts: &[&str]) -> Option<Opened> {
         let p = rfd::FileDialog::new().add_filter(desc, exts).pick_file()?;
         let bytes = std::fs::read(&p).ok()?;
@@ -122,6 +183,12 @@ mod imp {
         let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "score.fmt".into());
         crate::web::save_score(&name, bytes, false);
         Ok(())
+    }
+
+    /// Print (F-06): the PDF opens in a new tab, where the browser prints it (downloaded if the tab is blocked).
+    pub fn print_pdf(name: &str, bytes: &[u8], _paper: (f32, f32)) -> Result<String, String> {
+        crate::web::open_pdf(&format!("{name}.pdf"), bytes);
+        Ok("The PDF opened in a new tab. Print it from there.".into())
     }
 
     /// An export of something that isn't the score (the page image).
