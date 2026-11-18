@@ -282,6 +282,8 @@ impl App {
         let orange = Color32::from_rgb(214, 128, 20);
         let sp = geo.sp;
         for sys in &geo.systems {
+            // several marked measures in one system: their labels stack down the margin
+            let mut nth = 0.0;
             for mg in &sys.measures {
                 let Some(&m) = bad.iter().find(|&&m| mg.covers(m)) else { continue };
                 let r = Rect::from_min_max(pos2(mg.x0 + sp * 0.3, sys.top(sp) - sp * 1.5), pos2(mg.x1 - sp * 0.3, sys.bottom(sp) + sp * 1.5));
@@ -302,7 +304,8 @@ impl App {
                 let page_right = geo.pages.get(sys.page).map(|p| p.right()).unwrap_or(sys.right + sp * 4.0);
                 let text = format!("Measure {}: count doesn't add up", m + 1);
                 let g = painter.layout_no_wrap(text, crate::theme::font_semibold(12.0), Color32::WHITE);
-                let lr = Rect::from_min_size(pos2(page_right + 12.0, r.center().y - 11.0), g.size() + vec2(18.0, 8.0));
+                let lr = Rect::from_min_size(pos2(page_right + 12.0, r.center().y - 11.0 + nth * 30.0), g.size() + vec2(18.0, 8.0));
+                nth += 1.0;
                 painter.rect_filled(lr, 11.0, orange);
                 painter.galley(lr.min + vec2(9.0, 4.0), g, Color32::WHITE);
             }

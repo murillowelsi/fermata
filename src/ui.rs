@@ -978,7 +978,8 @@ impl App {
                             *keep = false;
                             self.pending_cmd = Some(Cmd::ImportPhoto);
                         }
-                        kit::footer(ui, |ui| {
+                        // OK at the right edge, Choose Another File... at the left (the alert is wider than the rest)
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if kit::btn_primary(ui, "OK").clicked() || enter {
                                 *keep = false;
                             }
