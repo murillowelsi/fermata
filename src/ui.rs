@@ -752,7 +752,7 @@ impl App {
         let title = dialog_title(&d);
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        let alert = matches!(d, Dialog::ConfirmClose(_) | Dialog::Message(_) | Dialog::About);
+        let alert = matches!(d, Dialog::ConfirmClose(_) | Dialog::Message(_) | Dialog::About | Dialog::Recover(_));
         let wid = egui::Id::unique(("dialog_w", title));
         egui::Window::new(title)
             .id(egui::Id::unique("dialog"))
@@ -845,13 +845,18 @@ impl App {
             ui.set_width(380.0);
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
-                kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 });
+                if matches!(d, Dialog::Recover(_)) {
+                    recover_icon(ui);
+                } else {
+                    kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 });
+                }
                 let (head, sub) = match d {
                     Dialog::ConfirmClose(Then::Revert(_)) => (
                         format!("Revert to the saved version of \"{}\"?", self.doc_name()),
                         "The changes made since it was last saved will be lost.".to_string(),
                     ),
                     Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.doc_name()),
+                    Dialog::Recover(b) => (format!("Recover unsaved changes to \u{201c}{}\u{201d}?", b.name), recover_when(b.saved_at)),
                     Dialog::Message(m) => (m.clone(), String::new()),
                     _ => (
                         "Fermata".to_string(),
@@ -864,6 +869,9 @@ impl App {
                 ui.add(egui::Label::new(egui::RichText::new(head).font(theme::font_semibold(14.0)).color(k.text)).wrap());
                 if !sub.is_empty() {
                     ui.add(egui::Label::new(egui::RichText::new(sub).font(theme::font(12.0)).color(k.text_3)).wrap());
+                }
+                if matches!(d, Dialog::Recover(_)) {
+                    ui.add(egui::Label::new(egui::RichText::new("Discard keeps the file as it was last saved.").font(theme::font(11.0)).color(k.text_3)).wrap());
                 }
             });
             ui.add_space(14.0);
@@ -879,6 +887,24 @@ impl App {
                             }
                             if kit::btn(ui, "Cancel").clicked() {
                                 self.answer_unsaved(then.clone(), Answer::Cancel);
+                                *cancel = true;
+                            }
+                        });
+                    }
+                    // a copy left behind by an unexpected end: Discard on the left, Recover (Enter) on the right; Esc
+                    // asks again next time
+                    // Discard (red) on the left; Cancel keeps the copy for the next start; Recover (Enter) on the right
+                    Dialog::Recover(b) => {
+                        if kit::btn_danger(ui, "Discard").clicked() {
+                            self.answer_recover((**b).clone(), false);
+                            *keep = false;
+                        }
+                        kit::footer(ui, |ui| {
+                            if kit::btn_primary(ui, "Recover").clicked() || enter {
+                                self.answer_recover((**b).clone(), true);
+                                *keep = false;
+                            }
+                            if kit::btn(ui, "Cancel").clicked() {
                                 *cancel = true;
                             }
                         });
@@ -1751,7 +1777,7 @@ impl App {
                 });
             }
             // drawn as alerts (see alert_body)
-            Dialog::About | Dialog::Message(_) | Dialog::ConfirmClose(_) => {}
+            Dialog::About | Dialog::Message(_) | Dialog::ConfirmClose(_) | Dialog::Recover(_) => {}
         }
     }
 
@@ -1978,7 +2004,7 @@ impl App {
                 self.apply_prefs();
                 self.status = format!("MIDI Out A: {}.", self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_else(|| "built-in sound".into()));
             }
-            Dialog::ClavinovaGuide | Dialog::MidiPlayback | Dialog::Shortcuts | Dialog::About | Dialog::Message(_) => {}
+            Dialog::ClavinovaGuide | Dialog::MidiPlayback | Dialog::Shortcuts | Dialog::About | Dialog::Message(_) | Dialog::Recover(_) => {}
         }
     }
 
@@ -2075,6 +2101,7 @@ fn dialog_title(d: &Dialog) -> &'static str {
         Dialog::About => "About Fermata",
         Dialog::Message(_) => "Fermata",
         Dialog::ConfirmClose(_) => "Unsaved Changes",
+        Dialog::Recover(_) => "Recover",
     }
 }
 
@@ -2465,4 +2492,39 @@ mod qa2_tests {
         assert_eq!(back.measures[0].tempo, Some(120));
         assert_eq!(back.tempo_at(0), 120);
     }
+}
+
+/// "Copied automatically 5 minutes ago." for the recovery question (F-28).
+fn recover_when(saved_at_ms: f64) -> String {
+    let mins = ((crate::autosave::now_ms() - saved_at_ms) / 60_000.0).max(0.0).round() as i64;
+    let ago = match mins {
+        0 => "less than a minute ago".to_string(),
+        1 => "1 minute ago".to_string(),
+        m if m < 120 => format!("{m} minutes ago"),
+        m if m < 48 * 60 => format!("{} hours ago", m / 60),
+        m => format!("{} days ago", m / (60 * 24)),
+    };
+    format!("Fermata closed before you saved. The last autosave is from {ago}.")
+}
+
+/// The recovery alert's icon: a clock with an arrow turning back, blue on a light blue square.
+fn recover_icon(ui: &mut Ui) {
+    let k = theme::t(ui);
+    let (r, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(r, 10.0, k.accent_soft);
+    let c = r.center();
+    let rad = 9.5;
+    let st = Stroke::new(2.0, k.accent);
+    // the circle, open at the top left where the arrow starts
+    let pts: Vec<egui::Pos2> = (0..=40).map(|i| {
+        let a = std::f32::consts::PI * (1.15 + 1.6 * i as f32 / 40.0);
+        c + vec2(a.cos(), a.sin()) * rad
+    }).collect();
+    let start = pts[0];
+    p.add(egui::Shape::line(pts, st));
+    p.add(egui::Shape::convex_polygon(vec![start + vec2(-4.0, -3.5), start + vec2(3.0, -2.5), start + vec2(-1.5, 3.5)], k.accent, Stroke::NONE));
+    // the hands
+    p.line_segment([c, c + vec2(0.0, -5.5)], st);
+    p.line_segment([c, c + vec2(4.0, 2.5)], st);
 }

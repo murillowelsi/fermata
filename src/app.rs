@@ -89,6 +89,8 @@ pub enum Dialog {
     About,
     Message(String),
     ConfirmClose(Then),
+    /// "Recover unsaved changes to ‹name›?" after the app ended unexpectedly (F-28).
+    Recover(Box<crate::autosave::Backup>),
 }
 
 /// What replaces the current score once the person has answered "Save changes to this score first?" (at once when
@@ -193,6 +195,8 @@ pub struct App {
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
+    /// Automatic backup of the open score and recovery of left-behind copies (F-28).
+    pub autosave: crate::autosave::State,
     /// The browser on a touch screen (F-25): desktop, tablet (fingers) or phone (reader). Always Desktop in the
     /// desktop apps.
     pub device: crate::touch::Device,
@@ -301,6 +305,7 @@ impl App {
             pending_cmd: None,
             after_new_wizard: false,
             after_save: None,
+            autosave: crate::autosave::State::new(!screenshot_mode),
             device: crate::touch::Device::Desktop,
             gesture: Default::default(),
             gesture_undo: None,
@@ -1753,6 +1758,7 @@ impl App {
             Ok((sc, note)) => {
                 #[cfg(target_arch = "wasm32")]
                 crate::web::opened_document(o.id, &o.name, &o.bytes);
+                self.autosave_new_document();
                 let ext = o.name.rsplit('.').next().unwrap_or("").to_lowercase();
                 // an imported file (MIDI, Encore, MusicXML) is saved as a new Fermata score
                 let is_native = !matches!(ext.as_str(), "mid" | "midi" | "enc" | "musicxml" | "xml" | "mxl") && note.is_none();
@@ -1786,6 +1792,8 @@ impl App {
     pub fn new_score(&mut self, sc: Score) {
         #[cfg(target_arch = "wasm32")]
         crate::web::new_document();
+        // the previous score's changes were answered for (saved or discarded): its backup goes
+        self.autosave_new_document();
         self.score = sc;
         self.path = None;
         self.dirty = false;

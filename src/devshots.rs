@@ -1,4 +1,4 @@
-//! Development helpers for screenshots (`--dialog NAME`, `--clicks`, `--hover`): open any of the 36 dialogs or
+//! Development helpers for screenshots (`--dialog NAME`, `--clicks`, `--hover`): open any of the 37 dialogs or
 //! the floating windows, and move or click the mouse at given frames, so menus, submenus and tips can be pictured.
 // the browser build has no command-line flags for these
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -8,11 +8,12 @@ use crate::model::*;
 use crate::score_view::NoteRef;
 
 /// Every dialog by its name in the code (the `Dialog` variants), for `--dialog`.
-pub const DIALOGS: [&str; 36] = [
+pub const DIALOGS: [&str; 37] = [
     "NewScore", "TimeSig", "KeySig", "Tempo", "Barline", "Endings", "Coda", "MeasureNumbers", "AddMeasures", "MeasuresPerSystem", "SystemsPerPage", "Text",
     "NoteAttributes", "Velocity", "SpacingDefaults", "Duration", "Transpose", "Swing", "Tuplet", "MidiPlayback", "MidiSetup", "ClickSetup", "ClavinovaGuide",
     "JumpTo", "PageSetup", "AddStaff", "SplitStaff", "ConnectStaves", "ChordSymbol", "TextGraphic", "Lyric", "Expression", "Shortcuts", "About", "Message",
     "ConfirmClose",
+    "Recover",
 ];
 
 /// Opens a dialog the way its menu command does when it can; otherwise with typical values.
@@ -79,6 +80,13 @@ pub fn open(app: &mut App, name: &str) -> bool {
             "Expression" => Some(Dialog::Expression { text: "espress.".into(), target: r }),
             "Message" => Some(Dialog::Message("This file couldn't be opened: it isn't a Fermata or Encore-compatible score.".into())),
             "ConfirmClose" => Some(Dialog::ConfirmClose(crate::app::Then::Close)),
+        "Recover" => Some(Dialog::Recover(Box::new(crate::autosave::Backup {
+            id: "sample".into(),
+            name: "estudo-em-sol.fmt".into(),
+            path: None,
+            saved_at: crate::autosave::now_ms() - 3.0 * 60_000.0,
+            score: String::new(),
+        }))),
             _ => None,
         };
     }
