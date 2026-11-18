@@ -51,6 +51,13 @@ The MusicXML reader (`src/musicxml.rs`), its XML parser and its ZIP reader are F
 public MusicXML 4.0 specification (W3C Music Notation Community Group) and the ZIP format note (PKWARE APPNOTE).
 The test files in `tests/musicxml/` were written by the Fermata team; `tests/corpus/` holds scores made by the team.
 
+## Photo import (separate program)
+
+Photo import uses Audiveris (AGPL-3.0). Fermata doesn't include it: on the first photo import it downloads the
+official Audiveris 5.11.0 release (github.com/Audiveris/audiveris, checked by SHA-256) into its own support folder and
+runs it as a separate program. The licence (`licenses/Audiveris-AGPL-3.0.txt`) and where to get its source code are
+kept beside that copy (`NOTICE.txt`).
+
 ## Compatibility
 
 Fermata reads and writes Encore-compatible (`.enc`) files to work alongside that program. Fermata's icons, images,
