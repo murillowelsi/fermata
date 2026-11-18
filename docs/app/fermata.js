@@ -1,18 +1,18 @@
-import { adopt, backup_alive, backup_delete, backup_put, device_info, export_file, midi_play, midi_send, midi_state, open_tab, save_doc, set_open_targets, set_title, set_unsaved } from './snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31';
-import * as import1 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import2 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import3 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import4 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import5 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import6 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import7 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import8 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import9 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import10 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import11 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import12 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import13 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
-import * as import14 from "./snippets/fermata-528485f906180c2d/inline0.js?v=0.3.8-5e271d31"
+import { adopt, backup_alive, backup_delete, backup_put, device_info, export_file, midi_play, midi_send, midi_state, open_tab, save_doc, set_open_targets, set_title, set_unsaved } from './snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2';
+import * as import1 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import2 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import3 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import4 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import5 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import6 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import7 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import8 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import9 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import10 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import11 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import12 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import13 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
+import * as import14 from "./snippets/fermata-066e2ceafb52c478/inline0.js?v=0.3.9-04c425d2"
 
 
 /**
@@ -247,7 +247,7 @@ function __wbg_get_imports() {
         __wbg_addEventListener_f2d27251d333a631: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
             arg0.addEventListener(getStringFromWasm0(arg1, arg2), arg3, arg4);
         }, arguments); },
-        __wbg_adopt_4a58436175afa6d9: function(arg0, arg1, arg2) {
+        __wbg_adopt_1178c3d79015e348: function(arg0, arg1, arg2) {
             adopt(arg0 >>> 0, getStringFromWasm0(arg1, arg2));
         },
         __wbg_altKey_423da1d67b588078: function(arg0) {
@@ -276,13 +276,13 @@ function __wbg_get_imports() {
         __wbg_attachShader_817dcec9e79fd18f: function(arg0, arg1, arg2) {
             arg0.attachShader(arg1, arg2);
         },
-        __wbg_backup_alive_bcf911a3ae9341fa: function(arg0, arg1) {
+        __wbg_backup_alive_330840db948255d1: function(arg0, arg1) {
             backup_alive(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_backup_delete_eb4bc14a51de8566: function(arg0, arg1) {
+        __wbg_backup_delete_04fb8f26bdfb69f0: function(arg0, arg1) {
             backup_delete(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_backup_put_7d64fca2e59fb83a: function(arg0, arg1, arg2, arg3) {
+        __wbg_backup_put_6444a09af8bd8d23: function(arg0, arg1, arg2, arg3) {
             backup_put(getStringFromWasm0(arg0, arg1), getStringFromWasm0(arg2, arg3));
         },
         __wbg_bindBuffer_b3bb001fdbee089a: function(arg0, arg1, arg2) {
@@ -574,7 +574,7 @@ function __wbg_get_imports() {
             const ret = arg0.devicePixelRatio;
             return ret;
         },
-        __wbg_device_info_032c7260fa5360ef: function(arg0) {
+        __wbg_device_info_9fe25889b8748375: function(arg0) {
             const ret = device_info();
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
@@ -637,7 +637,7 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
-        __wbg_export_file_47ced8d527fb4fc3: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+        __wbg_export_file_d312467ec45f6872: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
             export_file(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), getStringFromWasm0(arg4, arg5), getStringFromWasm0(arg6, arg7));
         },
         __wbg_files_2d8b9138ca028e2c: function(arg0) {
@@ -1151,14 +1151,14 @@ function __wbg_get_imports() {
             const ret = arg0.metaKey;
             return ret;
         },
-        __wbg_midi_play_38c9c5f0b979a39e: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+        __wbg_midi_play_1e45c47997375e17: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
             midi_play(getStringFromWasm0(arg0, arg1), getStringFromWasm0(arg2, arg3), getArrayF64FromWasm0(arg4, arg5), getArrayU8FromWasm0(arg6, arg7), getArrayU8FromWasm0(arg8, arg9), getArrayU32FromWasm0(arg10, arg11));
         },
-        __wbg_midi_send_eb56f2742e55368c: function(arg0, arg1, arg2, arg3, arg4) {
+        __wbg_midi_send_5f664c8633ca7a08: function(arg0, arg1, arg2, arg3, arg4) {
             const ret = midi_send(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), arg4);
             return ret;
         },
-        __wbg_midi_state_a6f24a4a826a2537: function(arg0) {
+        __wbg_midi_state_df59dd57e4b0da25: function(arg0) {
             const ret = midi_state();
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
@@ -1258,7 +1258,7 @@ function __wbg_get_imports() {
             const ret = arg0.open();
             return ret;
         },
-        __wbg_open_tab_8faa12fc70773346: function(arg0, arg1) {
+        __wbg_open_tab_2b9f196b0744ecf9: function(arg0, arg1) {
             open_tab(getStringFromWasm0(arg0, arg1));
         },
         __wbg_origin_dafa41a3ee9236b1: function() { return handleError(function (arg0, arg1) {
@@ -1356,7 +1356,7 @@ function __wbg_get_imports() {
             const ret = arg0.right;
             return ret;
         },
-        __wbg_save_doc_36bf736a8d8fa276: function(arg0, arg1, arg2, arg3, arg4) {
+        __wbg_save_doc_fbcf1b61f2563f54: function(arg0, arg1, arg2, arg3, arg4) {
             save_doc(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), arg4 !== 0);
         },
         __wbg_scissor_17956d9d23dfe025: function(arg0, arg1, arg2, arg3, arg4) {
@@ -1424,7 +1424,7 @@ function __wbg_get_imports() {
         __wbg_set_onmidimessage_ab835c8dadda0b64: function(arg0, arg1) {
             arg0.onmidimessage = arg1;
         },
-        __wbg_set_open_targets_6984efec48a1c392: function(arg0, arg1, arg2, arg3) {
+        __wbg_set_open_targets_a6b91776c8404edd: function(arg0, arg1, arg2, arg3) {
             set_open_targets(getArrayF32FromWasm0(arg0, arg1), arg2, arg3 !== 0);
         },
         __wbg_set_prevent_scroll_1d8392770c4be456: function(arg0, arg1) {
@@ -1445,7 +1445,7 @@ function __wbg_get_imports() {
         __wbg_set_textContent_0177b2a6d9293c2c: function(arg0, arg1, arg2) {
             arg0.textContent = arg1 === 0 ? undefined : getStringFromWasm0(arg1, arg2);
         },
-        __wbg_set_title_c9324c29ee8f08c9: function(arg0, arg1) {
+        __wbg_set_title_233c8b9c2b8e00de: function(arg0, arg1) {
             set_title(getStringFromWasm0(arg0, arg1));
         },
         __wbg_set_type_609b0cea6429d7bb: function(arg0, arg1, arg2) {
@@ -1454,7 +1454,7 @@ function __wbg_get_imports() {
         __wbg_set_type_9f32b0fcce9b6bbd: function(arg0, arg1, arg2) {
             arg0.type = getStringFromWasm0(arg1, arg2);
         },
-        __wbg_set_unsaved_bfe3416d54c8178f: function(arg0) {
+        __wbg_set_unsaved_5e382dbd2a99354f: function(arg0) {
             set_unsaved(arg0 !== 0);
         },
         __wbg_set_value_cb7e77c93a95e491: function(arg0, arg1, arg2) {
@@ -1628,7 +1628,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 356, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 357, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_cb715457c9591c9f___convert__closures_____invoke___wasm_bindgen_cb715457c9591c9f___JsValue__core_608f92abc48d28da___result__Result_____wasm_bindgen_cb715457c9591c9f___JsError___true_);
             return ret;
         },
@@ -1653,7 +1653,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_generic_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 194, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 195, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_cb715457c9591c9f___convert__closures_____invoke___core_608f92abc48d28da___result__Result_____wasm_bindgen_cb715457c9591c9f___JsValue___true_);
             return ret;
         },
@@ -1684,20 +1684,20 @@ function __wbg_get_imports() {
     return {
         __proto__: null,
         "./fermata_bg.js": import0,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import1,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import2,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import3,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import4,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import5,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import6,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import7,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import8,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import9,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import10,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import11,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import12,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import13,
-        "./snippets/fermata-528485f906180c2d/inline0.js": import14,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import1,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import2,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import3,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import4,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import5,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import6,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import7,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import8,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import9,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import10,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import11,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import12,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import13,
+        "./snippets/fermata-066e2ceafb52c478/inline0.js": import14,
     };
 }
 
