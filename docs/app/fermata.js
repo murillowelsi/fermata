@@ -1,15 +1,15 @@
-import { adopt, device_info, export_file, midi_play, midi_send, midi_state, open_tab, save_doc, set_open_targets, set_title, set_unsaved } from './snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e';
-import * as import1 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import2 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import3 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import4 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import5 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import6 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import7 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import8 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import9 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import10 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
-import * as import11 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import { adopt, device_info, export_file, midi_play, midi_send, midi_state, open_tab, save_doc, set_open_targets, set_title, set_unsaved } from './snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f';
+import * as import1 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import2 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import3 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import4 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import5 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import6 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import7 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import8 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import9 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import10 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
+import * as import11 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-1a0d7f0f"
 
 
 /**
@@ -328,6 +328,10 @@ function __wbg_get_imports() {
             const ret = arg0.button;
             return ret;
         },
+        __wbg_call_40b008ba32f73991: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.call(arg1);
+            return ret;
+        }, arguments); },
         __wbg_call_a410eb4b59ed5965: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.call(arg1, arg2);
             return ret;
