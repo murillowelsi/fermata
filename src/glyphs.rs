@@ -81,6 +81,21 @@ pub fn natural(p: &Painter, c: Pos2, sp: f32, col: Color32) {
     accidental(p, c, sp, 0, col);
 }
 
+/// An accidental's ink: how far it reaches above and below its line or space, and its width.
+pub fn accidental_box(sp: f32, alter: i8) -> (f32, f32, f32) {
+    let (sw, ne) = s::bbox(accidental_name(alter));
+    (ne.y * sp, -sw.y * sp, (ne.x - sw.x) * sp)
+}
+
+/// The ink rectangle of a rest drawn by `rest` at `c`.
+pub fn rest_rect(c: Pos2, sp: f32, value: u8) -> egui::Rect {
+    const NAMES: [&str; 9] = ["restDoubleWhole", "restWhole", "restHalf", "restQuarter", "rest8th", "rest16th", "rest32nd", "rest64th", "rest128th"];
+    let (sw, ne) = s::bbox(NAMES[(value as usize).min(8)]);
+    let y = if value == 1 { c.y - sp } else { c.y };
+    let w = (ne.x - sw.x) * sp;
+    egui::Rect::from_min_max(pos2(c.x - w / 2.0, y - ne.y * sp), pos2(c.x + w / 2.0, y - sw.y * sp))
+}
+
 /// How far an accidental's ink reaches above its line or space.
 pub fn accidental_height_above(sp: f32, alter: i8) -> f32 {
     s::bbox(accidental_name(alter)).1.y * sp

@@ -4,6 +4,7 @@ mod app;
 mod audio;
 mod autosave;
 mod clock;
+mod collide;
 mod commands;
 mod devshots;
 mod enc;

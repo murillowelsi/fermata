@@ -1,4 +1,5 @@
 //! Page layout, drawing and hit-testing of the score.
+use crate::collide;
 use crate::glyphs as g;
 use crate::model::*;
 use egui::{pos2, vec2, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke};
@@ -393,6 +394,22 @@ pub fn locate(score: &Score, geo: &Geometry, p: Pos2, grid: u32) -> Option<Locat
     None
 }
 
+/// A note's chord offsets, its accidentals (pitch index, centre x, alteration, in parentheses) and where its dots go.
+struct Placed {
+    xoff: Vec<f32>,
+    accs: Vec<(usize, f32, i8, bool)>,
+    dot_x: f32,
+}
+
+#[cfg(test)]
+thread_local!(static INK: std::cell::RefCell<Vec<(u8, Rect)>> = const { std::cell::RefCell::new(Vec::new()) });
+
+/// Tests: what was drawn where (1 accidental, 2 dot), to check for collisions.
+fn ink_log(_kind: u8, _r: Rect) {
+    #[cfg(test)]
+    INK.with(|v| v.borrow_mut().push((_kind, _r)));
+}
+
 struct NoteLayout {
     x: f32,
     ys: Vec<f32>,
@@ -674,6 +691,32 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 // an empty measure stays blank, as in the original (no rest is drawn until one is entered)
                 // layout notes per event
                 let mut nl: HashMap<usize, NoteLayout> = HashMap::new();
+                // two voices at one moment (F-04): the upper voice (stems up) moves right by a notehead on a second, a
+                // crossing or a unison that can't share a head
+                let mut shift: HashMap<usize, f32> = HashMap::new();
+                if multi {
+                    let mut starts: Vec<u32> = evs.iter().filter(|e| !e.grace && !e.is_rest()).map(|e| e.start).collect();
+                    starts.sort_unstable();
+                    starts.dedup();
+                    for t in starts {
+                        let at: Vec<(usize, &Event)> = evs.iter().enumerate().filter(|(_, e)| e.start == t && !e.grace && !e.is_rest()).collect();
+                        let ups: Vec<&(usize, &Event)> = at.iter().filter(|(_, e)| auto_stem_up(e, mid_step, true)).collect();
+                        let downs: Vec<&(usize, &Event)> = at.iter().filter(|(_, e)| !auto_stem_up(e, mid_step, true)).collect();
+                        let (Some(u0), Some(d0)) = (ups.first(), downs.first()) else { continue };
+                        let us: Vec<i32> = ups.iter().flat_map(|(_, e)| e.pitches.iter().map(|q| q.step)).collect();
+                        let ds: Vec<i32> = downs.iter().flat_map(|(_, e)| e.pitches.iter().map(|q| q.step)).collect();
+                        let k = collide::voice_shift(
+                            &collide::VoiceAt { steps: &us, value: u0.1.value, dots: u0.1.dots },
+                            &collide::VoiceAt { steps: &ds, value: d0.1.value, dots: d0.1.dots },
+                        );
+                        if k > 0 {
+                            let w = g::notehead_width(sp, d0.1.value).max(g::notehead_width(sp, u0.1.value));
+                            for (i, _) in &ups {
+                                shift.insert(*i, w);
+                            }
+                        }
+                    }
+                }
                 // voices
                 let mut voices: Vec<u8> = evs.iter().map(|e| e.voice).collect();
                 voices.sort();
@@ -699,7 +742,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         }
                     }
                     for &(i, e) in &ve {
-                        let x = x_for_tick(mg, e.start, mt) + e.dx * sp;
+                        let x = x_for_tick(mg, e.start, mt) + e.dx * sp + shift.get(&i).copied().unwrap_or(0.0);
                         let ys: Vec<f32> = e.pitches.iter().map(|pp| mid - (pp.step - mid_step) as f32 * sp * 0.5).collect();
                         let up = in_group.get(&i).and_then(|gi| group_up.get(gi).copied()).unwrap_or_else(|| auto_stem_up(e, mid_step, multi));
                         // the stem joins the notehead where the font's anchor says (its edge on stemUpSE / stemDownNW)
@@ -824,6 +867,66 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         }
                     }
                 }
+                // what shares a moment (F-04): the chord's seconds, the accidentals of every voice in columns left of
+                // all the noteheads, and the dots in one column right of them
+                let mut placed: HashMap<usize, Placed> = HashMap::new();
+                {
+                    let mut order: Vec<usize> = (0..evs.len()).filter(|&i| !evs[i].is_rest() && !evs[i].grace && nl.contains_key(&i)).collect();
+                    order.sort_by_key(|&i| (evs[i].start, evs[i].voice));
+                    for &i in &order {
+                        let e = &evs[i];
+                        let n = &nl[&i];
+                        let steps: Vec<i32> = e.pitches.iter().map(|q| q.step).collect();
+                        let xoff = collide::chord_offsets(&steps, n.up, g::notehead_width(sp, e.value) - sp * 0.12);
+                        let mut accs = vec![];
+                        for (k, pp) in e.pitches.iter().enumerate() {
+                            let cur = *acc_state.get(&pp.step).unwrap_or(&key_of(pp.step));
+                            let forced = e.courtesy.get(k).copied().unwrap_or(false);
+                            if cur != pp.alter || forced {
+                                accs.push((k, 0.0, pp.alter, forced));
+                            }
+                            acc_state.insert(pp.step, pp.alter);
+                        }
+                        placed.insert(i, Placed { xoff, accs, dot_x: 0.0 });
+                    }
+                    let mut k0 = 0;
+                    while k0 < order.len() {
+                        let t = evs[order[k0]].start;
+                        let k1 = order[k0..].iter().position(|&i| evs[i].start != t).map(|d| k0 + d).unwrap_or(order.len());
+                        let members = &order[k0..k1];
+                        let (mut left, mut right) = (f32::MAX, f32::MIN);
+                        for &i in members {
+                            let w = g::notehead_width(sp, evs[i].value);
+                            for &o in &placed[&i].xoff {
+                                left = left.min(nl[&i].x + o - w / 2.0);
+                                right = right.max(nl[&i].x + o + w / 2.0);
+                            }
+                        }
+                        let mut items = vec![];
+                        let mut who = vec![];
+                        for &i in members {
+                            for (j, &(k, _, alter, forced)) in placed[&i].accs.iter().enumerate() {
+                                let (above, below, width) = g::accidental_box(sp, alter);
+                                let width = if forced { width * 2.2 } else { width };
+                                items.push(collide::Acc { y: nl[&i].ys[k], above, below, width });
+                                who.push((i, j));
+                            }
+                        }
+                        let cols = collide::accidental_columns(&items, sp * 0.15, sp * 0.1);
+                        let base = left - sp * 0.2;
+                        for (q, &(i, j)) in who.iter().enumerate() {
+                            if let Some(pl) = placed.get_mut(&i) {
+                                pl.accs[j].1 = base + cols[q] - items[q].width / 2.0;
+                            }
+                        }
+                        for &i in members {
+                            if let Some(pl) = placed.get_mut(&i) {
+                                pl.dot_x = right + sp * 0.45;
+                            }
+                        }
+                        k0 = k1;
+                    }
+                }
                 // draw events
                 for (i, e) in evs.iter().enumerate() {
                     if e.hidden && !st.show_hidden {
@@ -852,10 +955,32 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         }
                         continue;
                     }
-                    let x = x_for_tick(mg, e.start, mt) + e.dx * sp;
+                    let x = x_for_tick(mg, e.start, mt) + e.dx * sp + shift.get(&i).copied().unwrap_or(0.0);
                     if e.is_rest() {
                         let up = if multi { e.voice % 2 == 1 } else { true };
-                        let y = mid + if multi { if up { -sp * 2.0 } else { sp * 2.0 } } else { 0.0 };
+                        let mut y = mid + if multi { if up { -sp * 2.0 } else { sp * 2.0 } } else { 0.0 };
+                        // two voices: the rest moves a space at a time until it clears the other voice's notes sounding
+                        // with it (F-04)
+                        if multi {
+                            let (t0, t1) = (e.start, e.end());
+                            let others: Vec<f32> = evs
+                                .iter()
+                                .filter(|o| o.voice != e.voice && !o.grace && o.start < t1 && o.end() > t0)
+                                .flat_map(|o| o.pitches.iter().map(|q| mid - (q.step - mid_step) as f32 * sp * 0.5))
+                                .collect();
+                            for _ in 0..8 {
+                                let r = g::rest_rect(pos2(x, y), sp, e.value);
+                                let hit = if up {
+                                    others.iter().any(|&ny| r.bottom() > ny - sp * 0.75)
+                                } else {
+                                    others.iter().any(|&ny| r.top() < ny + sp * 0.75)
+                                };
+                                if !hit {
+                                    break;
+                                }
+                                y += if up { -sp } else { sp };
+                            }
+                        }
                         g::rest(p, pos2(x, y), sp, e.value, c);
                         for d in 0..e.dots {
                             p.circle_filled(pos2(x + sp * (1.0 + d as f32 * 0.6), y - sp * 0.5), sp * 0.18, c);
@@ -868,49 +993,25 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         Some(n) => n,
                         None => continue,
                     };
-                    // seconds displacement
-                    let mut order: Vec<usize> = (0..e.pitches.len()).collect();
-                    order.sort_by_key(|&k| e.pitches[k].step);
-                    let mut xoff = vec![0.0f32; e.pitches.len()];
+                    // the chord's seconds and the accidentals, placed above with the other voices at this moment
+                    let pl = placed.get(&i);
+                    let xoff = pl.map(|q| q.xoff.clone()).unwrap_or_else(|| vec![0.0; e.pitches.len()]);
                     let hw = g::notehead_width(sp, e.value);
-                    for w in 1..order.len() {
-                        let (a, b) = (order[w - 1], order[w]);
-                        if e.pitches[b].step - e.pitches[a].step == 1 && xoff[a] == 0.0 {
-                            xoff[b] = if n.up { hw - sp * 0.12 } else { -(hw - sp * 0.12) };
-                        }
-                    }
-                    // accidentals
-                    let mut acc_x = x - hw / 2.0 - sp * 0.3;
-                    let mut acc_list = vec![];
-                    for (k, pp) in e.pitches.iter().enumerate() {
-                        let cur = *acc_state.get(&pp.step).unwrap_or(&key_of(pp.step));
-                        let forced = e.courtesy.get(k).copied().unwrap_or(false);
-                        if cur != pp.alter || forced {
-                            acc_list.push((k, pp.alter, forced));
-                        }
-                        acc_state.insert(pp.step, pp.alter);
-                    }
-                    acc_list.sort_by_key(|a| -e.pitches[a.0].step);
-                    let mut last_y = f32::MIN;
                     let mut acc_top = f32::MAX;
-                    for (k, alter, forced) in acc_list {
+                    for &(k, cx, alter, forced) in pl.map(|q| q.accs.as_slice()).unwrap_or(&[]) {
                         let y = n.ys[k];
                         acc_top = acc_top.min(y - g::accidental_height_above(sp, alter));
-                        if (y - last_y).abs() < sp * 2.5 && last_y != f32::MIN {
-                            acc_x -= sp * 1.1;
-                        } else {
-                            acc_x = x - hw / 2.0 - sp * 0.3 + xoff[k].min(0.0);
-                        }
                         let w = g::accidental_width(sp, alter);
-                        let cx = acc_x - w / 2.0;
                         g::accidental(p, pos2(cx, y), sp, alter, c);
-                        if forced && score.layout.c_score == false {
+                        let (above, below, _) = g::accidental_box(sp, alter);
+                        ink_log(1, Rect::from_min_max(pos2(cx - w / 2.0, y - above), pos2(cx + w / 2.0, y + below)));
+                        if forced && !score.layout.c_score {
                             let pf = FontId::proportional(sp * 2.2);
                             p.text(pos2(cx - w * 0.75, y), Align2::CENTER_CENTER, "(", pf.clone(), c);
                             p.text(pos2(cx + w * 0.7, y), Align2::CENTER_CENTER, ")", pf, c);
                         }
-                        last_y = y;
                     }
+                    let dot_x = pl.map(|q| q.dot_x).unwrap_or(x + hw / 2.0 + sp * 0.45);
                     for (k, pp) in e.pitches.iter().enumerate() {
                         let y = n.ys[k];
                         let nx = x + xoff[k];
@@ -920,11 +1021,13 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                             g::notehead(p, pos2(nx, y), sp, e.value, c);
                         }
                         ledger(p, nx, mid, pp.step - mid_step, hw, sp, Color32::BLACK);
-                        // dots
+                        // dots: in a space (a note on a line puts it in the space above, the lower voice below), in one
+                        // column right of every notehead at this moment
                         for d in 0..e.dots {
-                            let rel = pp.step - mid_step;
-                            let dy = if rel % 2 == 0 { -sp * 0.5 } else { 0.0 };
-                            p.circle_filled(pos2(x + hw / 2.0 + sp * (0.6 + d as f32 * 0.6) + xoff[k].max(0.0), y + dy), sp * 0.18, c);
+                            let ds = collide::dot_step(pp.step - mid_step, multi && !n.up);
+                            let dc = pos2(dot_x + sp * 0.18 + d as f32 * sp * 0.6, mid - ds as f32 * sp * 0.5);
+                            p.circle_filled(dc, sp * 0.18, c);
+                            ink_log(2, Rect::from_center_size(dc, vec2(sp * 0.36, sp * 0.36)));
                         }
                         out_hits.push(NoteHit { r, pitch: Some(k), rect: Rect::from_center_size(pos2(nx, y), vec2(hw + 2.0, sp * 1.1)) });
                         // ties
@@ -1161,7 +1264,9 @@ fn draw_barline(p: &Painter, score: &Score, sys: &SysGeo, mg: &MeasGeo, b: Barli
 #[allow(clippy::too_many_arguments)]
 fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, stem_end: f32, mid: f32, sp: f32, c: Color32, acc_top: f32) {
     // above the stem, the staff and the accidentals (an ornament is wider than the note and would cross them)
-    let mut above_y = (if up { stem_end.min(ytop) } else { ytop }).min(mid - 2.0 * sp).min(acc_top - sp * 0.3) - sp * 1.0;
+    // (a mark's bottom is half a space below the point given, so this leaves half a space above the stem's end, or
+    // above the notehead's top)
+    let mut above_y = (if up { stem_end.min(ytop) - sp * 1.0 } else { ytop - sp * 1.5 }).min(mid - 3.0 * sp).min(acc_top - sp * 1.3);
     let mut below_y = (if up { ybot } else { stem_end.max(ybot) }).max(mid + 2.0 * sp) + sp * 1.0;
     // a quarter space clear of the notehead (the mark's near edge is half a space past these points)
     let close_above = ytop - sp * 1.25;
@@ -1489,6 +1594,142 @@ mod symbol_demo {
         }
         let path = std::env::temp_dir().join("simbolos-da-pagina.fmt");
         std::fs::write(&path, crate::io::score_bytes(&a.score).unwrap()).unwrap();
+        println!("wrote {}", path.display());
+    }
+}
+
+/// F-04: an original four-part chorale (soprano and alto on the treble staff, tenor and bass on the bass staff) with a
+/// unison, seconds between the voices, dotted notes, accidentals, and a chord of four notes with three accidentals.
+#[cfg(test)]
+pub(crate) fn satb_chorale() -> Score {
+    use crate::app::App;
+    let mut a = App::new(true);
+    a.score.text.title = "Coral a quatro vozes".into();
+    a.score.text.subtitle = "exemplo original do time Fermata".into();
+    for m in a.score.measures.iter_mut() {
+        m.key = 1;
+    }
+    // (staff, voice, bars of (midi notes, quarters)); a chord is several notes in one step
+    type Bar = &'static [(&'static [i32], u32)];
+    let parts: [(usize, u8, [Bar; 8]); 4] = [
+        (0, 1, [&[(&[71], 1), (&[71], 1), (&[69], 1), (&[67], 1)], &[(&[69], 2), (&[71], 1), (&[72], 1)], &[(&[74], 1), (&[72], 1), (&[71], 1), (&[69], 1)], &[(&[67], 3), (&[67], 1)], &[(&[71], 1), (&[69], 1), (&[68], 1), (&[69], 1)], &[(&[74], 1), (&[72], 1), (&[71], 1), (&[69], 1)], &[(&[67], 1), (&[69], 1), (&[71], 2)], &[(&[67], 4)]]),
+        (0, 2, [&[(&[67], 1), (&[67], 1), (&[66], 1), (&[62], 1)], &[(&[66], 2), (&[69], 1), (&[69], 1)], &[(&[67], 1), (&[72], 1), (&[67], 1), (&[66], 1)], &[(&[62], 3), (&[62], 1)], &[(&[64], 1), (&[64], 1), (&[64], 1), (&[64], 1)], &[(&[66], 1), (&[66], 1), (&[67], 1), (&[66], 1)], &[(&[62], 1), (&[66], 1), (&[67], 2)], &[(&[62], 4)]]),
+        (1, 1, [&[(&[62], 1), (&[62], 1), (&[62], 1), (&[59], 1)], &[(&[62], 2), (&[62], 1), (&[64], 1)], &[(&[59], 1), (&[64], 1), (&[62], 1), (&[62], 1)], &[(&[59], 3), (&[59], 1)], &[(&[59], 1), (&[61], 1), (&[59], 1), (&[57], 1)], &[(&[62], 1), (&[60], 1), (&[62], 1), (&[60], 1)], &[(&[59], 1), (&[60], 1), (&[62], 2)], &[(&[59], 4)]]),
+        (1, 2, [&[(&[55], 1), (&[55], 1), (&[50], 1), (&[55], 1)], &[(&[50], 2), (&[55], 1), (&[57], 1)], &[(&[55], 1), (&[57], 1), (&[50], 1), (&[50], 1)], &[(&[43], 3), (&[43], 1)], &[(&[56], 1), (&[57], 1), (&[52], 1), (&[45], 1)], &[(&[50], 1), (&[45], 1), (&[43], 1), (&[50], 1)], &[(&[47], 1), (&[48], 1), (&[43], 2)], &[(&[43], 4)]]),
+    ];
+    let value_of = |q: u32| -> (u8, u8) {
+        match q {
+            4 => (1, 0),
+            3 => (2, 1),
+            2 => (2, 0),
+            _ => (3, 0),
+        }
+    };
+    while a.score.measures.len() < 9 {
+        a.score.measures.push(a.score.measures[0].clone());
+        for st in a.score.events.iter_mut() {
+            st.push(vec![]);
+        }
+    }
+    for (staff, voice, bars) in parts {
+        a.voice = voice;
+        for (m, bar) in bars.iter().enumerate() {
+            let mut t = 0;
+            for (notes, q) in bar.iter() {
+                let (v, d) = value_of(*q);
+                for &n in notes.iter() {
+                    a.enter(staff, m, t, Some(Pitch::from_midi(n, false)), v, d, false);
+                }
+                t += q * TPQ;
+            }
+        }
+    }
+    // bar 9: C sharp, E flat, F natural (the key has F sharp) and A in one chord: a second inside and three
+    // accidentals; then a rest
+    a.voice = 1;
+    let c5 = Pitch::from_midi(72, false).step;
+    for (st, al) in [(0, 1), (2, -1), (3, 0), (5, 0)] {
+        a.enter(0, 8, 0, Some(Pitch { step: c5 + st, alter: al }), 2, 1, false);
+    }
+    a.enter(0, 8, TPQ * 3, None, 3, 0, false);
+    a.score
+}
+
+#[cfg(test)]
+mod collisions {
+    use super::*;
+
+    /// Lays out and draws a score, returning the noteheads (with their event) and the accidentals and dots drawn.
+    fn ink(score: &Score) -> (Vec<(NoteRef, Rect)>, Vec<(u8, Rect)>) {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx, Some(egui::Theme::Light));
+        let mut heads = vec![];
+        INK.with(|v| v.borrow_mut().clear());
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let p = egui::Painter::new(ui.ctx().clone(), egui::LayerId::background(), Rect::EVERYTHING);
+            let geo = layout(score, pos2(0.0, 0.0), 1.35, false);
+            let sel = HashSet::new();
+            let selg = HashSet::new();
+            let st = DrawState {
+                selected: &sel,
+                sel_graphics: &selg,
+                cursor: None,
+                play_tick: None,
+                show_voice: None,
+                show_control_points: false,
+                show_hidden: false,
+                sel_measures: None,
+                hover_ghost: None,
+                flash: None,
+            };
+            let mut hits = vec![];
+            let mut gh = vec![];
+            draw(&p, score, &geo, &st, &mut hits, &mut gh);
+            heads = hits.into_iter().filter(|h| h.pitch.is_some()).map(|h| (h.r, h.rect)).collect();
+        });
+        (heads, INK.with(|v| v.borrow().clone()))
+    }
+
+    #[test]
+    fn a_four_part_chorale_has_no_collisions() {
+        let score = satb_chorale();
+        let (heads, other) = ink(&score);
+        assert!(heads.len() > 100, "the chorale has its notes ({})", heads.len());
+        // noteheads of different notes never overlap, except a unison sharing one head (same place)
+        for (i, (ra, a)) in heads.iter().enumerate() {
+            for (rb, b) in heads.iter().skip(i + 1) {
+                if ra == rb {
+                    continue;
+                }
+                let same_place = (a.center() - b.center()).length() < 0.5;
+                assert!(same_place || !a.shrink(1.5).intersects(b.shrink(1.5)), "heads of {ra:?} and {rb:?} overlap");
+            }
+        }
+        let accs: Vec<Rect> = other.iter().filter(|o| o.0 == 1).map(|o| o.1).collect();
+        let dots: Vec<Rect> = other.iter().filter(|o| o.0 == 2).map(|o| o.1).collect();
+        assert!(accs.len() >= 6 && dots.len() >= 4, "{} accidentals, {} dots", accs.len(), dots.len());
+        for a in &accs {
+            for (r, h) in &heads {
+                assert!(!a.shrink(0.5).intersects(h.shrink(1.5)), "an accidental touches the head of {r:?}");
+            }
+        }
+        for (i, a) in accs.iter().enumerate() {
+            for b in accs.iter().skip(i + 1) {
+                assert!(!a.shrink(0.5).intersects(b.shrink(0.5)), "two accidentals touch: {a:?} {b:?}");
+            }
+        }
+        for d in &dots {
+            for (r, h) in &heads {
+                assert!(!d.intersects(h.shrink(1.5)), "a dot touches the head of {r:?}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn write_chorale() {
+        let path = std::env::temp_dir().join("coral-a-quatro-vozes.fmt");
+        std::fs::write(&path, crate::io::score_bytes(&satb_chorale()).unwrap()).unwrap();
         println!("wrote {}", path.display());
     }
 }
