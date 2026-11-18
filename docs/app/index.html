@@ -77,8 +77,8 @@
 </script>
 <script type="module">
   // relative paths: works from the site root or a subfolder such as /fermata/app/
-  import("./fermata.js?v=0.3.5-808601c4")
-    .then((m) => m.default({ module_or_path: new URL("./fermata_bg.wasm?v=0.3.5-808601c4", import.meta.url) }))
+  import("./fermata.js?v=0.3.5-172db57e")
+    .then((m) => m.default({ module_or_path: new URL("./fermata_bg.wasm?v=0.3.5-172db57e", import.meta.url) }))
     .catch((e) => window.fermataLoadFailed((e && e.message) || e));
 </script>
 <script>

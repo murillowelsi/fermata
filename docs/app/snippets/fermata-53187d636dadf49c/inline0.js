@@ -113,8 +113,12 @@ export function is_mac() {
 let docHandle = null, busy = 0, nextId = 1;
 const opened = [], saved = [], handles = new Map();
 function track(p) { busy++; return p.finally(() => { busy--; }); }
+function bytesOf(file) {
+  if (file.arrayBuffer) return file.arrayBuffer();
+  return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(r.error); r.readAsArrayBuffer(file); });
+}
 function readInto(file, handle, picked) {
-  return file.arrayBuffer().then((b) => {
+  return bytesOf(file).then((b) => {
     const id = nextId++;
     if (handle) handles.set(id, handle);
     opened.push({ id, name: file.name, bytes: new Uint8Array(b), picked });
@@ -127,15 +131,98 @@ function download(name, bytes) {
   setTimeout(() => URL.revokeObjectURL(u), 10000);
 }
 export function busy_count() { return busy; }
-export function open_file(exts) {
+// Opening files (F-26).
+// - No type filter: iOS and iPadOS turn extensions into system file types and grey out the ones they don't know
+//   (.enc, .fmt). The app recognises a file by its content instead.
+// - On iPhone and iPad (and touch screens generally) the browser opens the file window only from inside the tap
+//   itself, and the app's logic runs a frame later. So the app tells this page, every frame, where its "open"
+//   targets are (the reader's folder, File > Open and Import when nothing is unsaved, Don't Save after Open); a tap
+//   that ends on one opens the window at once, from the tap. Ctrl/Cmd+O on a hardware keyboard does the same.
+// - When the window is asked for outside a tap (after saving first, the .enc model for Export), a real button
+//   appears ("Choose file…"): tapping it opens the window.
+// - The input stays in the page (iOS loses the choice of an input that isn't in the document).
+let fileInput = null, gestureOpenAt = -1e9, openTargets = [], openZoom = 1, keysOpen = false, sheet = null;
+function touchWebKit() {
+  const p = navigator.platform || "";
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (p === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+function needsGesture() {
+  return touchWebKit() || (!!window.matchMedia && matchMedia("(pointer: coarse)").matches);
+}
+function getInput() {
+  if (!fileInput) {
+    fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.id = "fermata_file";
+    fileInput.setAttribute("aria-hidden", "true");
+    fileInput.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+    fileInput.addEventListener("change", () => {
+      const f = fileInput.files && fileInput.files[0];
+      if (f) track(readInto(f, null, true));
+      hideSheet();
+    });
+    document.body.appendChild(fileInput);
+  }
+  return fileInput;
+}
+function openNow() {
+  hideSheet();
+  gestureOpenAt = performance.now();
+  const i = getInput();
+  i.value = "";
+  i.click();
+}
+function hideSheet() { if (sheet) { sheet.remove(); sheet = null; } }
+function showSheet() {
+  hideSheet();
+  const dark = !!window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  sheet = document.createElement("div");
+  sheet.id = "fermata_open_sheet";
+  sheet.style.cssText = "position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:20;display:flex;gap:10px;align-items:center;padding:12px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" + (dark ? "background:#2C2C2F;color:#ECECEE" : "background:#FFFFFF;color:#1D1D1F");
+  const go = document.createElement("button");
+  go.type = "button"; go.textContent = "Choose file…";
+  go.style.cssText = "border:0;border-radius:10px;padding:12px 20px;min-height:44px;background:" + (dark ? "#0A84FF" : "#007AFF") + ";color:#fff;font:600 16px inherit";
+  go.addEventListener("click", openNow);
+  const no = document.createElement("button");
+  no.type = "button"; no.textContent = "Cancel";
+  no.style.cssText = "border:0;border-radius:10px;padding:12px 16px;min-height:44px;background:transparent;color:inherit;font:16px inherit";
+  no.addEventListener("click", hideSheet);
+  sheet.append(go, no);
+  document.body.appendChild(sheet);
+}
+function onTapEnd(x, y) {
+  if (!needsGesture() || performance.now() - gestureOpenAt < 800) return;
+  const c = document.getElementById("fermata_canvas");
+  if (!c) return;
+  const r = c.getBoundingClientRect();
+  const px = (x - r.left) / openZoom, py = (y - r.top) / openZoom;
+  for (const t of openTargets) {
+    if (px >= t[0] && py >= t[1] && px <= t[0] + t[2] && py <= t[1] + t[3]) { openNow(); return; }
+  }
+}
+if (typeof window !== "undefined") {
+  document.addEventListener("touchend", (e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) onTapEnd(t.clientX, t.clientY); }, true);
+  document.addEventListener("pointerup", (e) => { if (e.pointerType !== "touch") onTapEnd(e.clientX, e.clientY); }, true);
+  document.addEventListener("keydown", (e) => {
+    if (needsGesture() && keysOpen && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key || "").toLowerCase() === "o") openNow();
+  }, true);
+}
+// every frame: the "open" targets (x, y, w, h in the app's points), the app's zoom, and whether Ctrl+O opens
+export function set_open_targets(flat, zoom, keys) {
+  openTargets = [];
+  for (let k = 0; k + 3 < flat.length; k += 4) openTargets.push([flat[k], flat[k + 1], flat[k + 2], flat[k + 3]]);
+  openZoom = zoom || 1;
+  keysOpen = !!keys;
+}
+export function open_file() {
+  // the tap already opened it
+  if (performance.now() - gestureOpenAt < 2500) return;
+  if (needsGesture()) { showSheet(); return; }
   if (window.showOpenFilePicker) {
-    track(window.showOpenFilePicker({ types: [{ description: "Scores, Encore files and MIDI", accept: { "application/octet-stream": exts } }] })
+    track(window.showOpenFilePicker()
       .then(async ([h]) => { await readInto(await h.getFile(), h, true); }).catch(() => {}));
   } else {
-    const i = document.createElement("input");
-    i.type = "file"; i.accept = exts.join(",");
-    i.onchange = () => { if (i.files && i.files[0]) track(readInto(i.files[0], null, true)); };
-    i.click();
+    openNow();
   }
 }
 export function take_opened() { return opened.splice(0); }

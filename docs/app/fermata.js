@@ -1,14 +1,15 @@
-import { adopt, device_info, export_file, midi_play, midi_send, midi_state, open_file, open_tab, save_doc, set_title, set_unsaved } from './snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4';
-import * as import1 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import2 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import3 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import4 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import5 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import6 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import7 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import8 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import9 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
-import * as import10 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-808601c4"
+import { adopt, device_info, export_file, midi_play, midi_send, midi_state, open_tab, save_doc, set_open_targets, set_title, set_unsaved } from './snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e';
+import * as import1 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import2 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import3 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import4 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import5 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import6 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import7 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import8 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import9 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import10 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
+import * as import11 from "./snippets/fermata-53187d636dadf49c/inline0.js?v=0.3.5-172db57e"
 
 
 /**
@@ -243,7 +244,7 @@ function __wbg_get_imports() {
         __wbg_addEventListener_f2d27251d333a631: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
             arg0.addEventListener(getStringFromWasm0(arg1, arg2), arg3, arg4);
         }, arguments); },
-        __wbg_adopt_9a5079cbd1717230: function(arg0, arg1, arg2) {
+        __wbg_adopt_de05a87b63aa41b2: function(arg0, arg1, arg2) {
             adopt(arg0 >>> 0, getStringFromWasm0(arg1, arg2));
         },
         __wbg_altKey_423da1d67b588078: function(arg0) {
@@ -557,7 +558,7 @@ function __wbg_get_imports() {
             const ret = arg0.devicePixelRatio;
             return ret;
         },
-        __wbg_device_info_0c97d7c5c3cb3d01: function(arg0) {
+        __wbg_device_info_f2030a2016c5c4b0: function(arg0) {
             const ret = device_info();
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
@@ -620,7 +621,7 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
-        __wbg_export_file_5c8a4c1043f7ffce: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+        __wbg_export_file_f567e3ff4d80e1fb: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
             export_file(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), getStringFromWasm0(arg4, arg5), getStringFromWasm0(arg6, arg7));
         },
         __wbg_files_2d8b9138ca028e2c: function(arg0) {
@@ -1134,14 +1135,14 @@ function __wbg_get_imports() {
             const ret = arg0.metaKey;
             return ret;
         },
-        __wbg_midi_play_50b15fb1747ea5a2: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+        __wbg_midi_play_2ba43eb42a4b857c: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
             midi_play(getStringFromWasm0(arg0, arg1), getStringFromWasm0(arg2, arg3), getArrayF64FromWasm0(arg4, arg5), getArrayU8FromWasm0(arg6, arg7), getArrayU8FromWasm0(arg8, arg9), getArrayU32FromWasm0(arg10, arg11));
         },
-        __wbg_midi_send_eccfcf72a09ffaf7: function(arg0, arg1, arg2, arg3, arg4) {
+        __wbg_midi_send_12545d40bf9ae677: function(arg0, arg1, arg2, arg3, arg4) {
             const ret = midi_send(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), arg4);
             return ret;
         },
-        __wbg_midi_state_ca183a9cc65ed34e: function(arg0) {
+        __wbg_midi_state_cfb46877ddc124d3: function(arg0) {
             const ret = midi_state();
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len1 = WASM_VECTOR_LEN;
@@ -1241,12 +1242,7 @@ function __wbg_get_imports() {
             const ret = arg0.open();
             return ret;
         },
-        __wbg_open_file_a88dcf8a7a2e1378: function(arg0, arg1) {
-            var v0 = getArrayJsValueFromWasm0(arg0, arg1);
-            wasm.__wbindgen_free(arg0, arg1 * 4, 4);
-            open_file(v0);
-        },
-        __wbg_open_tab_995f63f58c25bcd1: function(arg0, arg1) {
+        __wbg_open_tab_d0e66d0080f41e3c: function(arg0, arg1) {
             open_tab(getStringFromWasm0(arg0, arg1));
         },
         __wbg_origin_dafa41a3ee9236b1: function() { return handleError(function (arg0, arg1) {
@@ -1344,7 +1340,7 @@ function __wbg_get_imports() {
             const ret = arg0.right;
             return ret;
         },
-        __wbg_save_doc_944ad5bbdfe40d0f: function(arg0, arg1, arg2, arg3, arg4) {
+        __wbg_save_doc_7cc0ddfa983162f7: function(arg0, arg1, arg2, arg3, arg4) {
             save_doc(getStringFromWasm0(arg0, arg1), getArrayU8FromWasm0(arg2, arg3), arg4 !== 0);
         },
         __wbg_scissor_17956d9d23dfe025: function(arg0, arg1, arg2, arg3, arg4) {
@@ -1412,6 +1408,9 @@ function __wbg_get_imports() {
         __wbg_set_onmidimessage_ab835c8dadda0b64: function(arg0, arg1) {
             arg0.onmidimessage = arg1;
         },
+        __wbg_set_open_targets_527e36255d2b2d03: function(arg0, arg1, arg2, arg3) {
+            set_open_targets(getArrayF32FromWasm0(arg0, arg1), arg2, arg3 !== 0);
+        },
         __wbg_set_prevent_scroll_1d8392770c4be456: function(arg0, arg1) {
             arg0.preventScroll = arg1 !== 0;
         },
@@ -1430,7 +1429,7 @@ function __wbg_get_imports() {
         __wbg_set_textContent_0177b2a6d9293c2c: function(arg0, arg1, arg2) {
             arg0.textContent = arg1 === 0 ? undefined : getStringFromWasm0(arg1, arg2);
         },
-        __wbg_set_title_718065f1a3236e40: function(arg0, arg1) {
+        __wbg_set_title_06b5ee83126635f8: function(arg0, arg1) {
             set_title(getStringFromWasm0(arg0, arg1));
         },
         __wbg_set_type_609b0cea6429d7bb: function(arg0, arg1, arg2) {
@@ -1439,7 +1438,7 @@ function __wbg_get_imports() {
         __wbg_set_type_9f32b0fcce9b6bbd: function(arg0, arg1, arg2) {
             arg0.type = getStringFromWasm0(arg1, arg2);
         },
-        __wbg_set_unsaved_41721bd08de54e28: function(arg0) {
+        __wbg_set_unsaved_77fd6dd0089c1d10: function(arg0) {
             set_unsaved(arg0 !== 0);
         },
         __wbg_set_value_cb7e77c93a95e491: function(arg0, arg1, arg2) {
@@ -1679,6 +1678,7 @@ function __wbg_get_imports() {
         "./snippets/fermata-53187d636dadf49c/inline0.js": import8,
         "./snippets/fermata-53187d636dadf49c/inline0.js": import9,
         "./snippets/fermata-53187d636dadf49c/inline0.js": import10,
+        "./snippets/fermata-53187d636dadf49c/inline0.js": import11,
     };
 }
 
@@ -1803,17 +1803,6 @@ function getArrayF32FromWasm0(ptr, len) {
 function getArrayF64FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
-}
-
-function getArrayJsValueFromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    const mem = getDataViewMemory0();
-    const result = [];
-    for (let i = ptr; i < ptr + 4 * len; i += 4) {
-        result.push(wasm.__wbindgen_externrefs.get(mem.getUint32(i, true)));
-    }
-    wasm.__externref_drop_slice(ptr, len);
-    return result;
 }
 
 function getArrayU32FromWasm0(ptr, len) {
