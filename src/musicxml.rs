@@ -585,11 +585,9 @@ impl Reader {
                 match c.name.as_str() {
                     "score-part" => {
                         let id = c.attr("id").unwrap_or("").to_string();
-                        // the interface font has no ♭ / ♯ (e.g. "Clarinet in B♭")
-                        let plain = |t: &str| t.replace('♭', "b").replace('♯', "#").replace('♮', "");
                         let mut pi = PartInfo {
-                            name: plain(c.text_of("part-name").unwrap_or("")),
-                            abbrev: plain(c.text_of("part-abbreviation").unwrap_or("")),
+                            name: c.text_of("part-name").unwrap_or("").to_string(),
+                            abbrev: c.text_of("part-abbreviation").unwrap_or("").to_string(),
                             ..Default::default()
                         };
                         if let Some(mi) = c.child("midi-instrument") {

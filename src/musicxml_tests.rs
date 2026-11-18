@@ -163,7 +163,7 @@ fn cantiga_lyrics_chords_and_transposition() {
     assert_eq!(sc.text.title, "Cantiga da manhã");
     assert_eq!(sc.text.lyricist, "Fermata Dev 2");
     assert_eq!(sc.staves.len(), 2);
-    assert_eq!(sc.staves[1].name, "Trompete em Sib", "♭ becomes b: the interface font has no ♭");
+    assert_eq!(sc.staves[1].name, "Trompete em Si♭", "kept as written (the fonts draw ♭ with Bravura)");
     assert_eq!(sc.staves[1].transpose, -2);
     assert_eq!(sc.staves[1].program, 56);
     assert_eq!(sc.staves[1].channel, 1);
