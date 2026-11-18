@@ -1875,15 +1875,17 @@ impl App {
         }
     }
 
-    /// F-31: measures where a voice's notes don't fill the time signature (too few or too many beats), for the
-    /// orange marks on a score read from a photo.
-    pub fn count_problems(&self) -> Vec<usize> {
+    /// F-31: measures to check on a score read from a photo: a voice whose notes don't fill the time signature
+    /// (too few or too many beats), or a staff left empty while others of the system have notes (OMR often loses a
+    /// chord or a whole note there). One problem per measure, the count first.
+    pub fn count_problems(&self) -> Vec<(usize, CheckProblem)> {
         let sc = &self.score;
+        let visible: Vec<usize> = (0..sc.staves.len()).filter(|&s| !sc.staves[s].hidden).collect();
         (0..sc.measures.len())
-            .filter(|&m| {
+            .filter_map(|m| {
                 let want = sc.measures[m].ticks();
-                sc.events.iter().any(|st| {
-                    let evs = &st[m];
+                let count = visible.iter().any(|&s| {
+                    let evs = &sc.events[s][m];
                     let mut voices: Vec<u8> = evs.iter().map(|e| e.voice).collect();
                     voices.sort();
                     voices.dedup();
@@ -1891,7 +1893,13 @@ impl App {
                         let sum: u32 = evs.iter().filter(|e| e.voice == v && !e.grace).map(|e| e.ticks()).sum();
                         sum != 0 && sum != want
                     })
-                })
+                });
+                if count {
+                    return Some((m, CheckProblem::Count));
+                }
+                let has_notes = |s: usize| sc.events[s][m].iter().any(|e| !e.is_rest());
+                let missing = visible.len() > 1 && visible.iter().any(|&s| has_notes(s)) && visible.iter().any(|&s| !has_notes(s));
+                missing.then_some((m, CheckProblem::Missing))
             })
             .collect()
     }
@@ -2001,6 +2009,15 @@ impl App {
         self.sel_measures = None;
         self.cursor = (0, 0, 0);
     }
+}
+
+/// F-31: why a measure of a score read from a photo is marked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckProblem {
+    /// "Measure N: count doesn't add up"
+    Count,
+    /// "Measure N: notes may be missing"
+    Missing,
 }
 
 /// The original's New Score defaults: 2 staves per system, 5 systems per page, 3 measures per system (Quick Start p. QS-2).

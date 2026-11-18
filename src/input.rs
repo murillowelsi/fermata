@@ -273,7 +273,7 @@ impl App {
     }
 
     /// The scrolling page area with the score.
-    /// F-31: the orange marks on measures whose beats don't add up (`count_problems`); they go away when fixed.
+    /// F-31: the orange marks on measures to check (`count_problems`); they go away when fixed.
     fn draw_count_marks(&self, painter: &egui::Painter, geo: &sv::Geometry) {
         let bad = self.count_problems();
         if bad.is_empty() {
@@ -285,7 +285,7 @@ impl App {
             // several marked measures in one system: their labels stack down the margin
             let mut nth = 0.0;
             for mg in &sys.measures {
-                let Some(&m) = bad.iter().find(|&&m| mg.covers(m)) else { continue };
+                let Some(&(m, why)) = bad.iter().find(|x| mg.covers(x.0)) else { continue };
                 let r = Rect::from_min_max(pos2(mg.x0 + sp * 0.3, sys.top(sp) - sp * 1.5), pos2(mg.x1 - sp * 0.3, sys.bottom(sp) + sp * 1.5));
                 painter.rect_filled(r, sp * 0.4, Color32::from_rgba_unmultiplied(214, 128, 20, 22));
                 // dashed outline
@@ -302,7 +302,10 @@ impl App {
                 }
                 // the label in the margin to the right of the page
                 let page_right = geo.pages.get(sys.page).map(|p| p.right()).unwrap_or(sys.right + sp * 4.0);
-                let text = format!("Measure {}: count doesn't add up", m + 1);
+                let text = match why {
+                    CheckProblem::Count => format!("Measure {}: count doesn't add up", m + 1),
+                    CheckProblem::Missing => format!("Measure {}: notes may be missing", m + 1),
+                };
                 let g = painter.layout_no_wrap(text, crate::theme::font_semibold(12.0), Color32::WHITE);
                 let lr = Rect::from_min_size(pos2(page_right + 12.0, r.center().y - 11.0 + nth * 30.0), g.size() + vec2(18.0, 8.0));
                 nth += 1.0;

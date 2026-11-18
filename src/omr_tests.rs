@@ -257,10 +257,16 @@ fn measures_whose_count_does_not_add_up_are_found_and_fixed_ones_are_not() {
     sc.events[0][0] = vec![Event::new(1, 0, 1, vec![Pitch::from_midi(60, false)])];
     sc.events[0][1] = vec![Event::new(1, 0, 2, vec![Pitch::from_midi(62, false)])];
     sc.events[0][2] = (0..3).map(|i| Event::new(1, i * 2 * TPQ, 2, vec![Pitch::from_midi(64, false)])).collect();
-    assert_eq!(a.count_problems(), vec![1, 2]);
-    // fixing measure 2 removes its mark
+    use crate::app::CheckProblem::*;
+    // (the default score has two staves: the lower one is empty in these measures, so they would also be "missing";
+    // the count comes first)
+    assert_eq!(a.count_problems(), vec![(0, Missing), (1, Count), (2, Count)]);
+    // fixing measure 2 removes its count mark; filling the lower staff of measure 1 removes its "missing"
     a.score.events[0][1].push(Event::new(1, 2 * TPQ, 2, vec![Pitch::from_midi(64, false)]));
-    assert_eq!(a.count_problems(), vec![2]);
+    a.score.events[1][0] = vec![Event::new(1, 0, 1, vec![Pitch::from_midi(48, false)])];
+    assert_eq!(a.count_problems(), vec![(1, Missing), (2, Count)]);
+    a.score.events[1][1] = vec![Event::new(1, 0, 1, vec![Pitch::from_midi(48, false)])];
+    assert_eq!(a.count_problems(), vec![(2, Count)]);
 }
 
 #[test]
