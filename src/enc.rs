@@ -261,6 +261,27 @@ pub fn import(bytes: &[u8]) -> Result<Score, String> {
             }
         }
     }
+    // a short first bar before full ones is a pickup (F-05): it shows the next bar's time signature and keeps its
+    // own length (Encore writes it as a smaller signature, such as 1/8 before 6/8)
+    if meas.len() > 1 {
+        let (a, b) = (&meas[0], &meas[1]);
+        let len = |m: &RawMeas| tpq_file * 4 * m.num as u32 / m.den.max(1) as u32;
+        if len(a) < len(b) {
+            let pick = conv(len(a));
+            sc.measures[0].num = b.num;
+            sc.measures[0].den = b.den;
+            sc.measures[0].pickup = Some(pick);
+        }
+    }
+    // a tempo counted in dotted quarters (compound meter) is shown that way
+    for (i, m) in meas.iter().enumerate() {
+        if m.tempo > 0 && m.beat as u32 * 2 == tpq_file * 3 {
+            let at = (0..=i.min(sc.measures.len() - 1)).rev().find(|&k| sc.measures[k].tempo.is_some());
+            if let Some(k) = at {
+                sc.measures[k].tempo_dotted = true;
+            }
+        }
+    }
     if sc.measures[0].tempo.is_none() {
         sc.measures[0].tempo = Some(120);
     }
@@ -742,14 +763,16 @@ pub fn export(score: &Score, model: &[u8]) -> Result<Vec<u8>, String> {
     let mut meas_out: Vec<u8> = vec![];
     for (mi, info) in score.measures.iter().enumerate() {
         let mut h = if mi < mh.len() { mh[mi].clone() } else { mh[if mh.len() > 1 { 1 } else { 0 }].clone() };
-        let mt_file = FILE_TPQ_ENC * 4 * info.num as u32 / info.den.max(1) as u32;
-        let beat = if info.den >= 8 && info.num % 3 == 0 && info.num > 3 { FILE_TPQ_ENC * 4 * 3 / info.den as u32 } else { FILE_TPQ_ENC * 4 / info.den.max(1) as u32 };
+        // Encore has no pickup: a pickup is written as the smaller signature that holds it (1/8 before 6/8)
+        let (num, den) = if info.pickup.is_some() { crate::model::short_signature(info.ticks()) } else { (info.num, info.den) };
+        let mt_file = FILE_TPQ_ENC * 4 * num as u32 / den.max(1) as u32;
+        let beat = if den >= 8 && num % 3 == 0 && num > 3 { FILE_TPQ_ENC * 4 * 3 / den as u32 } else { FILE_TPQ_ENC * 4 / den.max(1) as u32 };
         let q = score.tempo_at(mi).max(1);
         put16(&mut h, 8, (q * FILE_TPQ_ENC / beat.max(1)).max(1));
         put16(&mut h, 12, beat);
         put16(&mut h, 14, mt_file);
-        h[16] = info.num;
-        h[17] = info.den;
+        h[16] = num;
+        h[17] = den;
         let (x0, w, content) = mpos[mi];
         put32(&mut h, 24, w);
         put32(&mut h, 28, x0);

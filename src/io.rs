@@ -400,7 +400,9 @@ pub fn musicxml_string(score: &Score) -> String {
     for (si, staff) in score.staves.iter().enumerate() {
         x.push_str(&format!("<part id=\"P{}\">\n", si + 1));
         for (m, mi) in score.measures.iter().enumerate() {
-            x.push_str(&format!("<measure number=\"{}\">\n", m + 1));
+            // a pickup is measure 0, marked implicit (it doesn't count as a full measure)
+            let implicit = if mi.pickup.is_some() { " implicit=\"yes\"" } else { "" };
+            x.push_str(&format!("<measure number=\"{}\"{implicit}>\n", score.measure_label(m)));
             let prev = if m > 0 { Some(&score.measures[m - 1]) } else { None };
             let clef_change = staff.clefs.iter().find(|c| c.0 == m).map(|c| c.1);
             if m == 0 || prev.map(|p| p.key != mi.key || p.num != mi.num || p.den != mi.den).unwrap_or(false) || clef_change.is_some() {
@@ -427,8 +429,9 @@ pub fn musicxml_string(score: &Score) -> String {
                 }
                 x.push_str("</attributes>\n");
             }
-            if let Some(t) = mi.tempo {
-                x.push_str(&format!("<direction placement=\"above\"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>{t}</per-minute></metronome></direction-type><sound tempo=\"{t}\"/></direction>\n"));
+            if let (Some(t), Some(shown)) = (mi.tempo, mi.tempo_shown()) {
+                let dot = if mi.tempo_dotted { "<beat-unit-dot/>" } else { "" };
+                x.push_str(&format!("<direction placement=\"above\"><direction-type><metronome><beat-unit>quarter</beat-unit>{dot}<per-minute>{shown}</per-minute></metronome></direction-type><sound tempo=\"{t}\"/></direction>\n"));
             }
             let evs = &score.events[si][m];
             let mut voices: Vec<u8> = evs.iter().map(|e| e.voice).collect();

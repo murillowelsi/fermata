@@ -401,12 +401,39 @@ pub struct MeasureInfo {
     /// Compress multi-measure rests starting here.
     #[serde(default)]
     pub rehearsal: Option<String>,
+    /// A pickup (anacrusis, F-05): the measure shows its time signature (num/den) but lasts only these ticks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pickup: Option<u32>,
+    /// The tempo mark counts dotted quarters (compound meter); `tempo` itself stays in quarter notes per minute.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tempo_dotted: bool,
 }
 
 impl MeasureInfo {
+    /// Length in ticks: the time signature's, or the written length of a pickup.
     pub fn ticks(&self) -> u32 {
+        let full = self.full_ticks();
+        self.pickup.map(|p| p.clamp(1, full)).unwrap_or(full)
+    }
+    /// Length of a whole measure of this time signature.
+    pub fn full_ticks(&self) -> u32 {
         TPQ * 4 * self.num as u32 / self.den.max(1) as u32
     }
+    /// The number the tempo mark shows: quarters, or dotted quarters when the tempo was given that way.
+    pub fn tempo_shown(&self) -> Option<u32> {
+        self.tempo.map(|t| if self.tempo_dotted { ((t as f32) * 2.0 / 3.0).round() as u32 } else { t })
+    }
+}
+
+/// The smallest time signature that holds `ticks` exactly (how a pickup is written where formats have no pickup).
+pub fn short_signature(ticks: u32) -> (u8, u8) {
+    for den in [1u32, 2, 4, 8, 16, 32, 64] {
+        let unit = TPQ * 4 / den;
+        if unit > 0 && ticks.is_multiple_of(unit) && ticks / unit <= 32 {
+            return ((ticks / unit).max(1) as u8, den as u8);
+        }
+    }
+    (1, 64)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -689,6 +716,8 @@ impl Score {
             m.coda_phrase = None;
             m.system_break = false;
             m.rehearsal = None;
+            m.pickup = None;
+            m.tempo_dotted = false;
             m
         });
         self.measures.push(mi.unwrap_or(MeasureInfo {
@@ -703,6 +732,8 @@ impl Score {
             repeat_times: 2,
             system_break: false,
             rehearsal: None,
+            pickup: None,
+            tempo_dotted: false,
         }));
         for st in self.events.iter_mut() {
             st.push(vec![]);
@@ -721,8 +752,12 @@ impl Score {
             repeat_times: 2,
             system_break: false,
             rehearsal: None,
+            pickup: None,
+            tempo_dotted: false,
         });
         m.tempo = if at == 0 { m.tempo } else { None };
+        m.tempo_dotted = at == 0 && m.tempo_dotted;
+        m.pickup = None;
         m.barline = Barline::Single;
         m.ending = None;
         m.coda_phrase = None;
@@ -795,6 +830,15 @@ impl Score {
                 g.staff -= 1;
             }
         }
+    }
+    /// The number a measure has on the page and in messages: a pickup at the start is measure 0 (F-05).
+    pub fn measure_label(&self, m: usize) -> usize {
+        if self.measures.first().map(|x| x.pickup.is_some()).unwrap_or(false) { m } else { m + 1 }
+    }
+    /// The measure index for a number the user typed (the inverse of `measure_label`).
+    pub fn measure_from_label(&self, n: usize) -> usize {
+        let i = if self.measures.first().map(|x| x.pickup.is_some()).unwrap_or(false) { n } else { n.saturating_sub(1) };
+        i.min(self.measures.len().saturating_sub(1))
     }
     pub fn tempo_at(&self, m: usize) -> u32 {
         let mut t = self.playback.default_tempo;

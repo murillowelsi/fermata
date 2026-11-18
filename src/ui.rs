@@ -383,7 +383,7 @@ impl App {
             }
             bar_sep(ui);
             let m = self.play_position().map(|x| x.0).unwrap_or(self.cursor.1);
-            if tip(measure_box(ui, m + 1), "Jump to Measure", &shortcut_text(Cmd::JumpToMeasure)).clicked() {
+            if tip(measure_box(ui, self.score.measure_label(m)), "Jump to Measure", &shortcut_text(Cmd::JumpToMeasure)).clicked() {
                 self.pending_cmd = Some(Cmd::JumpToMeasure);
             }
         });
@@ -407,9 +407,10 @@ impl App {
             let txt = |s: String| egui::RichText::new(s).font(theme::font(11.5)).color(k.text_2);
             let (s, m, t) = self.cursor;
             let mi = &self.score.measures[m.min(self.score.measures.len() - 1)];
-            let beat = t / (TPQ * 4 / mi.den.max(1) as u32) + 1;
+            // a pickup's notes are the last beats of a measure: its first note may be beat 6 of 6/8
+            let beat = (t + mi.full_ticks() - mi.ticks()) / (TPQ * 4 / mi.den.max(1) as u32) + 1;
             ui.add_space(4.0);
-            ui.label(txt(format!("Staff {} · Measure {} · Beat {}", s + 1, m + 1, beat)));
+            ui.label(txt(format!("Staff {} · Measure {} · Beat {}", s + 1, self.score.measure_label(m), beat)));
             status_sep(ui);
             ui.label(txt(format!("{}/{}", mi.num, mi.den)));
             status_sep(ui);
@@ -1592,7 +1593,7 @@ impl App {
                 kit::help(ui, "Instruments, channels, volume and pan per staff are in Windows > Staff Sheet.");
             }
             Dialog::JumpTo { measure } => {
-                kit::form(ui, "jump", |ui| kit::row(ui, "Measure", |ui| kit::num(ui, measure, 1..=nm)));
+                kit::form(ui, "jump", |ui| kit::row(ui, "Measure", |ui| kit::num(ui, measure, self.score.measure_label(0)..=self.score.measure_label(nm.saturating_sub(1)))));
             }
             Dialog::PageSetup { w, h, margin, staff_space, staff_gap, system_gap } => {
                 kit::form(ui, "page", |ui| {
@@ -1925,6 +1926,10 @@ impl App {
                     };
                     // "Set all Tempos to": every measure of the range gets the new tempo, also those with their own mark
                     self.score.measures[m].tempo = Some(v.clamp(1, 400) as u32);
+                    // the dialog counts quarter notes: a typed tempo shows a quarter; a percentage keeps the beat
+                    if mode != 1 {
+                        self.score.measures[m].tempo_dotted = false;
+                    }
                 }
             }
             Dialog::Barline { kind, measure, times } => {
@@ -2033,7 +2038,7 @@ impl App {
                 self.score.playback.swing_note = note;
             }
             Dialog::JumpTo { measure } => {
-                self.cursor = (self.cursor.0, measure.saturating_sub(1).min(self.score.measures.len() - 1), 0);
+                self.cursor = (self.cursor.0, self.score.measure_from_label(measure), 0);
                 self.scroll_to_cursor = true;
             }
             Dialog::PageSetup { w, h, margin, staff_space, staff_gap, system_gap } => {

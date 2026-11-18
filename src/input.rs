@@ -303,8 +303,8 @@ impl App {
                 // the label in the margin to the right of the page
                 let page_right = geo.pages.get(sys.page).map(|p| p.right()).unwrap_or(sys.right + sp * 4.0);
                 let text = match why {
-                    CheckProblem::Count => format!("Measure {}: count doesn't add up", m + 1),
-                    CheckProblem::Missing => format!("Measure {}: notes may be missing", m + 1),
+                    CheckProblem::Count => format!("Measure {}: count doesn't add up", self.score.measure_label(m)),
+                    CheckProblem::Missing => format!("Measure {}: notes may be missing", self.score.measure_label(m)),
                 };
                 let g = painter.layout_no_wrap(text, crate::theme::font_semibold(12.0), Color32::WHITE);
                 let lr = Rect::from_min_size(pos2(page_right + 12.0, r.center().y - 11.0 + nth * 30.0), g.size() + vec2(18.0, 8.0));

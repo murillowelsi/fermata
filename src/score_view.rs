@@ -54,9 +54,43 @@ pub struct SysGeo {
     pub right: f32,
     pub measures: Vec<MeasGeo>,
     pub first: bool,
+    /// How far each staff's content reaches (same order as `staves`), F-05.
+    pub ext: Vec<Ext>,
+    /// Heights of the system's marks above the top staff.
+    pub marks: SysMarks,
+}
+
+/// How far a staff's content reaches beyond its outer lines in one system, in staff spaces (F-05).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ext {
+    /// Notes, stems, flags, accidentals and marks above the top line and below the bottom line.
+    pub notes_above: f32,
+    pub notes_below: f32,
+    /// Everything: also chord symbols, expressions, dynamics, lyrics and the system's marks.
+    pub above: f32,
+    pub below: f32,
+    /// Rows above the top line (chord symbols, expressions) and below the bottom line (dynamics, first lyric line),
+    /// in staff spaces, the same in the whole system.
+    pub chord_y: f32,
+    pub expr_y: f32,
+    pub dyn_y: f32,
+    pub lyric_y: f32,
+}
+
+/// Rows of the marks above a system's top staff, in staff spaces above its top line: volta brackets, tempo mark (the
+/// notehead's centre) and rehearsal marks, stacked away from the staff so they don't touch notes or each other.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SysMarks {
+    pub ending: f32,
+    pub tempo: f32,
+    pub rehearsal: f32,
 }
 
 impl SysGeo {
+    /// The content rows of staff `s` in this system.
+    pub fn ext_of(&self, s: usize) -> Ext {
+        self.staves.iter().position(|x| x.0 == s).and_then(|k| self.ext.get(k).copied()).unwrap_or_default()
+    }
     pub fn staff_y(&self, s: usize) -> Option<f32> {
         self.staves.iter().find(|x| x.0 == s).map(|x| x.1)
     }
@@ -172,16 +206,146 @@ fn measure_slots(score: &Score, m: usize, staves: &[usize], sp: f32) -> (Vec<(u3
     (out, x.max(sp * 5.0))
 }
 
+/// How far one staff's notes and texts reach in measures `m0..m1`, in staff spaces beyond its outer lines (F-05).
+fn staff_ext(score: &Score, s: usize, m0: usize, m1: usize) -> Ext {
+    let staff = &score.staves[s];
+    let (mut na, mut nb) = (0.0f32, 0.0f32);
+    let (mut chord, mut expr, mut dynamic, mut lyrics) = (false, false, false, 0usize);
+    for m in m0..m1.min(score.measures.len()) {
+        let mid = staff.clef_at(m).middle_step();
+        let Some(evs) = score.events.get(s).and_then(|x| x.get(m)) else { continue };
+        let multi = evs.iter().any(|e| e.voice != evs[0].voice);
+        for e in evs {
+            chord |= e.chord_symbol.is_some();
+            expr |= e.expression.is_some();
+            dynamic |= e.dynamic.is_some();
+            lyrics = lyrics.max(e.lyric.iter().rposition(|l| !l.is_empty()).map(|i| i + 1).unwrap_or(0));
+            if e.pitches.is_empty() {
+                continue;
+            }
+            // half spaces from the middle line, as staff spaces (up positive)
+            let hi = (e.pitches.iter().map(|p| p.step).max().unwrap_or(mid) - mid) as f32 * 0.5;
+            let lo = (e.pitches.iter().map(|p| p.step).min().unwrap_or(mid) - mid) as f32 * 0.5;
+            let k = if e.grace { 0.6 } else { 1.0 };
+            // an octave of stem, longer for the flags of 32nds and shorter values
+            let stem = if e.value >= 2 { (3.5 + 0.5 * (e.value as f32 - 5.0).max(0.0)) * k } else { 0.0 };
+            let up = auto_stem_up(e, mid, multi);
+            let (mut top, mut bot) = (hi + 0.5, lo - 0.5);
+            if up {
+                top = top.max(hi + stem);
+            } else {
+                bot = bot.min(lo - stem);
+            }
+            if e.pitches.iter().any(|p| p.alter != 0) {
+                top = top.max(hi + 1.5);
+            }
+            if !e.marks.is_empty() {
+                // marks above stack from a space over the top line or the stem, whichever is higher
+                top = (top + 0.5).max(3.0) + 1.6 * e.marks.len() as f32;
+            }
+            na = na.max(top - 2.0);
+            nb = nb.max(-bot - 2.0);
+        }
+    }
+    let mut x = Ext { notes_above: na, notes_below: nb, ..Default::default() };
+    // texts keep their usual rows and move out only when the notes reach them
+    x.chord_y = 2.5f32.max(na + 1.6);
+    x.expr_y = if chord { x.chord_y + 2.1 } else { 2.5f32.max(na + 1.6) }.max(4.6);
+    x.dyn_y = 3.0f32.max(nb + 1.6);
+    x.lyric_y = 5.5f32.max(nb + 2.4).max(if dynamic { x.dyn_y + 2.5 } else { 0.0 });
+    x.above = na;
+    if chord {
+        x.above = x.above.max(x.chord_y + 1.0);
+    }
+    if expr {
+        x.above = x.above.max(x.expr_y + 0.9);
+    }
+    x.below = nb;
+    if dynamic {
+        x.below = x.below.max(x.dyn_y + 1.1);
+    }
+    if lyrics > 0 {
+        x.below = x.below.max(x.lyric_y + (lyrics - 1) as f32 * 2.0 + 1.0);
+    }
+    x
+}
+
+/// One system's vertical plan: each staff's middle line below the top line of the first staff, the height from the
+/// first staff's top line to the last staff's bottom line, and how far content reaches above and below that (pixels).
+struct SysVert {
+    /// Gaps between the staves in staff spaces: the Page Setup gap (or more, when the content needs it) and the
+    /// least the content allows, for a page that is short of room.
+    gaps: Vec<(f32, f32)>,
+    sp: f32,
+    /// Height at the least gaps.
+    h: f32,
+    above: f32,
+    below: f32,
+    ext: Vec<Ext>,
+    marks: SysMarks,
+}
+
+fn sys_vert(score: &Score, staves: &[usize], m0: usize, m1: usize, sp: f32) -> SysVert {
+    let mut ext: Vec<Ext> = staves.iter().map(|&s| staff_ext(score, s, m0, m1)).collect();
+    let ms = &score.measures[m0.min(score.measures.len())..m1.min(score.measures.len())];
+    // the system's marks over the top staff, each row above the one before
+    let mut level = ext[0].above.max(if score.layout.show_measure_numbers != MeasureNumbers::None { 2.4 } else { 0.0 });
+    let ending = 2.8f32.max(level + 1.6);
+    if ms.iter().any(|m| m.ending.is_some()) {
+        level = ending + 0.3;
+    }
+    let tempo = 3.6f32.max(level + 1.4);
+    if ms.iter().any(|m| m.tempo.is_some()) {
+        level = tempo + 2.4;
+    }
+    let rehearsal = 5.5f32.max(level + 1.6);
+    if ms.iter().any(|m| m.rehearsal.is_some()) {
+        level = rehearsal + 1.3;
+    }
+    let marks = SysMarks { ending, tempo, rehearsal };
+    ext[0].above = level;
+    let n = ext.len();
+    if ms.iter().any(|m| m.coda_phrase.is_some()) {
+        ext[n - 1].below = ext[n - 1].below.max(5.4);
+    }
+    // between staves: the gap from Page Setup, wider when the content of the two staves needs more; on a full page
+    // it may close down to what the content needs (at least 5 spaces)
+    let gap = score.layout.staff_gap;
+    let gaps: Vec<(f32, f32)> = (0..n.saturating_sub(1))
+        .map(|k| {
+            let need = ext[k].below + ext[k + 1].above + 1.0;
+            (gap.max(need), gap.min(5.0).max(need))
+        })
+        .collect();
+    let h = (4.0 * n as f32 + gaps.iter().map(|g| g.1).sum::<f32>()) * sp;
+    SysVert { gaps, sp, h, above: ext[0].above * sp, below: ext[n - 1].below * sp, ext, marks }
+}
+
+impl SysVert {
+    /// Extra height when the gaps open fully to the Page Setup gap.
+    fn slack(&self) -> f32 {
+        self.gaps.iter().map(|g| g.0 - g.1).sum::<f32>() * self.sp
+    }
+    /// Middle lines below the first staff's top line with the gaps opened by `t` (0 = least, 1 = Page Setup), and
+    /// the height.
+    fn mids(&self, t: f32) -> (Vec<f32>, f32) {
+        let mut y = 2.0;
+        let mut v = vec![y * self.sp];
+        for g in &self.gaps {
+            y += 4.0 + g.1 + (g.0 - g.1) * t;
+            v.push(y * self.sp);
+        }
+        (v, (y + 2.0) * self.sp)
+    }
+}
+
 pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry {
     let sp = score.layout.staff_space * zoom;
     let page_w = score.layout.page_w * zoom;
     let page_h = score.layout.page_h * zoom;
     let margin = score.layout.margin * zoom;
     let staves = visible_staves(score);
-    let staff_h = 4.0 * sp;
-    let gap = score.layout.staff_gap * sp;
     let sys_gap = score.layout.system_gap * sp;
-    let sys_h = staves.len() as f32 * staff_h + (staves.len() as f32 - 1.0).max(0.0) * gap;
     let name_indent = {
         let longest = staves.iter().map(|&s| score.staves[s].name.chars().count()).max().unwrap_or(0) as f32;
         (longest * sp * 0.75 + sp * 2.0).min(sp * 14.0)
@@ -191,15 +355,22 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
     let mut geo = Geometry { sp, ..Default::default() };
     let system_ranges = if linear { vec![(0, score.measures.len())] } else { score.systems() };
     let spp = score.layout.systems_per_page.max(1);
-    // the title area grows with the subtitle and credit lines, so they never reach the first staff
-    let title_h = sp * title_block(&score.text).3.max(12.0);
+    // each system's height and how far its content reaches above and below (F-05)
+    let vert: Vec<SysVert> = system_ranges.iter().map(|&(m0, m1)| sys_vert(score, &staves, m0, m1, sp)).collect();
+    // the title area grows with the subtitle and credit lines, and the first system's top line stays clear of the
+    // last text line by its own content (tempo mark, chord symbols, high notes) and a space and a half
+    let tb = title_block(&score.text);
+    let title_h = (sp * tb.3.max(12.0)).max(sp * (tb.2 + 0.9 + 1.5) + vert.first().map(|v| v.above).unwrap_or(0.0));
 
     let mut page_idx = 0usize;
     let mut sys_on_page = 0usize;
     let mut page_cap = spp;
-    let mut sys_space = sys_gap;
+    let mut extra = 0.0f32;
+    let mut open = 1.0f32;
     let page_gap = sp * 5.0;
     let mut cur_y = 0.0f32;
+    // the least distance from one system's bottom line to the next one's top line
+    let min_gap = |a: &SysVert, b: &SysVert| (sp * 4.0).max(a.below + b.above + sp * 1.5);
 
     let page_rect = |i: usize| -> Rect {
         let y = origin.y + i as f32 * (page_h + page_gap);
@@ -208,44 +379,55 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
 
     for (si, &(m0, m1)) in system_ranges.iter().enumerate() {
         let first = si == 0;
-        let (left, right, top_mid);
+        let v = &vert[si];
+        let (left, right, top);
         if linear {
             left = origin.x + margin + name_indent;
             right = f32::MAX;
-            top_mid = origin.y + margin + title_h * 0.4 + 2.0 * sp;
+            top = origin.y + margin + (title_h * 0.4).max(v.above + sp);
         } else {
-            // Start a new page when the page holds its systems-per-page, or the next system wouldn't fit.
-            let min_gap = sp * 4.0;
-            let need_new = sys_on_page > 0 && (sys_on_page >= page_cap || cur_y + sys_h > page_rect(page_idx).bottom() - margin);
-            if need_new {
+            if sys_on_page >= page_cap {
                 page_idx += 1;
                 sys_on_page = 0;
             }
             if sys_on_page == 0 {
                 let pr = page_rect(page_idx);
                 geo.pages.push(pr);
-                cur_y = pr.top() + margin + if page_idx == 0 { title_h } else { sp * 4.0 };
-                // how many systems this page takes, and an even gap between them
-                let usable = (pr.bottom() - margin - cur_y).max(sys_h);
-                let fit = (((usable + min_gap) / (sys_h + min_gap)).floor() as usize).max(1);
-                page_cap = spp.min(fit).min(system_ranges.len() - si).max(1);
-                sys_space = if page_cap > 1 {
-                    ((usable - page_cap as f32 * sys_h) / (page_cap - 1) as f32).clamp(min_gap, sys_gap + sp * 10.0)
-                } else {
-                    sys_gap
-                };
+                cur_y = pr.top() + margin + if page_idx == 0 { title_h } else { (sp * 4.0).max(v.above + sp) };
+                // the systems this page takes: up to systems-per-page, while the last one's bottom line and its content
+                // (up to two spaces into the bottom margin) stay on the page
+                let limit = pr.bottom() - margin;
+                let mut used = v.h;
+                let mut n = 1;
+                while n < spp && si + n < vert.len() {
+                    let (a, b) = (&vert[si + n - 1], &vert[si + n]);
+                    let next = used + min_gap(a, b) + b.h;
+                    if cur_y + next + (b.below - sp * 2.0).max(0.0) > limit {
+                        break;
+                    }
+                    used = next;
+                    n += 1;
+                }
+                page_cap = n;
+                // the room left first opens the staff gaps back to the Page Setup gap, and the rest is shared evenly
+                // between the systems
+                let room = (limit - cur_y - used).max(0.0);
+                let slack: f32 = vert[si..si + n].iter().map(|v| v.slack()).sum();
+                open = if slack > 0.0 { (room / slack).min(1.0) } else { 1.0 };
+                let left = (room - slack * open).max(0.0);
+                extra = if n > 1 { left / (n - 1) as f32 } else { 0.0 };
             }
             let pr = page_rect(page_idx);
             left = pr.left() + margin + if first { name_indent } else { short_indent };
             right = pr.right() - margin;
-            top_mid = cur_y + 2.0 * sp;
-            cur_y += sys_h + sys_space;
+            top = cur_y;
+            if let Some(next) = vert.get(si + 1) {
+                let g = min_gap(v, next);
+                cur_y += v.mids(open).1 + (g + extra).min(g.max(sys_gap + sp * 10.0));
+            }
             sys_on_page += 1;
         }
-        let mut staves_y = vec![];
-        for (k, &s) in staves.iter().enumerate() {
-            staves_y.push((s, top_mid + k as f32 * (staff_h + gap)));
-        }
+        let staves_y: Vec<(usize, f32)> = staves.iter().zip(&v.mids(if linear { 1.0 } else { open }).0).map(|(&s, &y)| (s, top + y)).collect();
         // natural widths; a compressed run becomes one measure
         let runs = score.compressed_runs();
         let mut nat = vec![];
@@ -291,7 +473,7 @@ pub fn layout(score: &Score, origin: Pos2, zoom: f32, linear: bool) -> Geometry 
             x = x1;
         }
         let right = if linear { x } else { right.min(x).max(x) };
-        geo.systems.push(SysGeo { page: page_idx, m0, m1, staves: staves_y, left, right, measures, first });
+        geo.systems.push(SysGeo { page: page_idx, m0, m1, staves: staves_y, left, right, measures, first, ext: v.ext.clone(), marks: v.marks });
     }
     if linear {
         let r = geo.systems.last().map(|s| s.right).unwrap_or(origin.x + page_w);
@@ -644,31 +826,33 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 }
             }
             // measure numbers
-            let show_num = match score.layout.show_measure_numbers {
-                MeasureNumbers::None => false,
-                MeasureNumbers::EverySystem => m == sys.m0 && m > 0,
-                MeasureNumbers::EveryMeasure => true,
-                MeasureNumbers::Every5 => (m + 1) % 5 == 0,
-            };
+            // a pickup is measure 0 and shows no number (F-05)
+            let num = score.measure_label(m);
+            let show_num = num > 0
+                && match score.layout.show_measure_numbers {
+                    MeasureNumbers::None => false,
+                    MeasureNumbers::EverySystem => m == sys.m0 && m > 0,
+                    MeasureNumbers::EveryMeasure => true,
+                    MeasureNumbers::Every5 => num.is_multiple_of(5),
+                };
             if show_num {
-                p.text(pos2(mg.x0 + sp * 0.2, sys.top(sp) - sp * 1.6), Align2::LEFT_CENTER, format!("{}", m + 1), font(sp * 1.2), black);
+                p.text(pos2(mg.x0 + sp * 0.2, sys.top(sp) - sp * 1.6), Align2::LEFT_CENTER, format!("{num}"), font(sp * 1.2), black);
             }
             // tempo
-            if let Some(t) = mi.tempo {
-                // above the chord symbols when the bar has any
-                let chords = score.events.iter().any(|st| st.get(m).map(|v| v.iter().any(|e| e.chord_symbol.is_some())).unwrap_or(false));
-                let y = sys.top(sp) - if chords { sp * 5.8 } else { sp * 3.6 };
-                let x = mg.content_x;
-                g::notehead(p, pos2(x, y), sp * 0.8, 3, black);
-                p.line_segment([pos2(x + sp * 0.45, y), pos2(x + sp * 0.45, y - sp * 2.4)], Stroke::new(sp * 0.1, black));
-                p.text(pos2(x + sp * 1.2, y), Align2::LEFT_CENTER, format!("= {t}"), font(sp * 1.5), black);
+            if let Some(t) = mi.tempo_shown() {
+                // over beat 1 (the first note of the measure), in the row above everything the staff holds (F-05); a
+                // dotted quarter in compound meter when the tempo was given that way
+                let y = sys.top(sp) - sp * sys.marks.tempo;
+                let x = mg.slots.first().map(|s| s.1).unwrap_or(mg.content_x);
+                let tw = draw_tempo(p, pos2(x, y), sp, mi.tempo_dotted, black);
+                p.text(pos2(x + tw + sp * 0.5, y), Align2::LEFT_CENTER, format!("= {t}"), font(sp * 1.5), black);
             }
             if let Some(r) = &mi.rehearsal {
-                let rr = p.text(pos2(mg.x0, sys.top(sp) - sp * 5.5), Align2::LEFT_CENTER, r, font(sp * 1.8), black);
+                let rr = p.text(pos2(mg.x0, sys.top(sp) - sp * sys.marks.rehearsal), Align2::LEFT_CENTER, r, font(sp * 1.8), black);
                 p.rect_stroke(rr.expand(sp * 0.3), 0.0, Stroke::new(sp * 0.1, black), egui::StrokeKind::Outside);
             }
             if let Some(e) = &mi.ending {
-                let y = sys.top(sp) - sp * 2.8;
+                let y = sys.top(sp) - sp * sys.marks.ending;
                 let x1 = mg.x1 - sp * 0.5;
                 let st2 = Stroke::new(sp * 0.12, black);
                 p.line_segment([pos2(mg.x0 + sp * 0.3, y + sp * 1.5), pos2(mg.x0 + sp * 0.3, y)], st2);
@@ -986,7 +1170,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                             p.circle_filled(pos2(x + sp * (1.0 + d as f32 * 0.6), y - sp * 0.5), sp * 0.18, c);
                         }
                         out_hits.push(NoteHit { r, pitch: None, rect: Rect::from_center_size(pos2(x, y), vec2(sp * 1.6, sp * 3.0)) });
-                        draw_event_extras(p, score, e, x, mid, y, y, true, sp, c, s, m, &mut dyn_rects);
+                        draw_event_extras(p, score, e, x, mid, y, y, true, sp, c, sys.ext_of(s), &mut dyn_rects);
                         continue;
                     }
                     let n = match nl.get(&i) {
@@ -1070,7 +1254,7 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     }
                     let (ytop, ybot) = n.ys.iter().fold((f32::MAX, f32::MIN), |a, &y| (a.0.min(y), a.1.max(y)));
                     draw_marks(p, e, x, ytop, ybot, n.up, n.stem_end, mid, sp, c, acc_top);
-                    draw_event_extras(p, score, e, x, mid, ytop, ybot, n.up, sp, c, s, m, &mut dyn_rects);
+                    draw_event_extras(p, score, e, x, mid, ytop, ybot, n.up, sp, c, sys.ext_of(s), &mut dyn_rects);
                 }
                 // cursor
                 if let Some((cs, cm, ct)) = st.cursor {
@@ -1307,12 +1491,13 @@ fn draw_marks(p: &Painter, e: &Event, x: f32, ytop: f32, ybot: f32, up: bool, st
 
 /// `dyn_rects`: the dynamics already drawn on the page; a dynamic that would touch one goes a row lower.
 #[allow(clippy::too_many_arguments)]
-fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _ytop: f32, _ybot: f32, _up: bool, sp: f32, c: Color32, _s: usize, _m: usize, dyn_rects: &mut Vec<Rect>) {
+fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _ytop: f32, _ybot: f32, _up: bool, sp: f32, c: Color32, ext: Ext, dyn_rects: &mut Vec<Rect>) {
     let bottom = mid + 2.0 * sp;
     let top = mid - 2.0 * sp;
+    // rows of the system, moved out when its notes reach them (F-05)
     if let Some(d) = &e.dynamic {
         let w = g::dynamic_width(sp, d);
-        let mut y = bottom + sp * 3.0;
+        let mut y = bottom + sp * ext.dyn_y;
         let mut r = Rect::from_center_size(pos2(x, y), vec2(w, sp * 2.0));
         for _ in 0..3 {
             if !dyn_rects.iter().any(|o| o.expand2(vec2(sp * 1.2, 0.0)).intersects(r)) {
@@ -1326,16 +1511,31 @@ fn draw_event_extras(p: &Painter, score: &Score, e: &Event, x: f32, mid: f32, _y
     }
     for (i, l) in e.lyric.iter().enumerate() {
         if !l.is_empty() {
-            p.text(pos2(x, bottom + sp * (5.5 + i as f32 * 2.0)), Align2::CENTER_CENTER, l, FontId::proportional(sp * 1.6), c);
+            p.text(pos2(x, bottom + sp * (ext.lyric_y + i as f32 * 2.0)), Align2::CENTER_CENTER, l, FontId::proportional(sp * 1.6), c);
         }
     }
     if let Some(ch) = &e.chord_symbol {
-        p.text(pos2(x - sp * 0.5, top - sp * 2.5), Align2::LEFT_CENTER, ch, FontId::proportional(sp * 1.8), c);
+        p.text(pos2(x - sp * 0.5, top - sp * ext.chord_y), Align2::LEFT_CENTER, ch, FontId::proportional(sp * 1.8), c);
     }
     if let Some(ex) = &e.expression {
-        p.text(pos2(x - sp * 0.5, top - sp * 4.6), Align2::LEFT_CENTER, ex, FontId::proportional(sp * 1.5), c);
+        p.text(pos2(x - sp * 0.5, top - sp * ext.expr_y), Align2::LEFT_CENTER, ex, FontId::proportional(sp * 1.5), c);
     }
     let _ = score;
+}
+
+/// The note of a tempo mark (a quarter, or a dotted quarter), its notehead centred on `c`, at 0.8 of the staff size.
+/// Returns its width from `c.x`.
+fn draw_tempo(p: &Painter, c: Pos2, sp: f32, dotted: bool, col: Color32) -> f32 {
+    let k = sp * 0.8;
+    g::notehead(p, c, k, 3, col);
+    let w = g::notehead_width(k, 3);
+    let stem = g::stem_attach(c, k, 3, true, k * 0.12);
+    p.line_segment([stem, pos2(stem.x, c.y - k * 3.2)], Stroke::new(k * 0.12, col));
+    if dotted {
+        p.circle_filled(pos2(c.x + w * 0.5 + k * 0.55, c.y), k * 0.2, col);
+        return w * 0.5 + k * 0.9;
+    }
+    w * 0.5
 }
 
 /// A dynamic centred on `c`, with the font's dynamic letters (F-03).
@@ -1731,5 +1931,256 @@ mod collisions {
         let path = std::env::temp_dir().join("coral-a-quatro-vozes.fmt");
         std::fs::write(&path, crate::io::score_bytes(&satb_chorale()).unwrap()).unwrap();
         println!("wrote {}", path.display());
+    }
+}
+
+/// F-05 test scores: a piano page with high and low ledger notes, chord symbols, dynamics, lyrics and a tempo mark;
+/// and a 6/8 tune that starts with a pickup and counts its tempo in dotted quarters. Both are original.
+#[cfg(test)]
+pub(crate) mod page_demo {
+    use super::*;
+
+    pub fn piano_page() -> Score {
+        let mut treble = Staff::new("Piano", Clef::Treble, 0);
+        treble.brace_with_next = true;
+        let bass = Staff::new("", Clef::Bass, 0);
+        let mut sc = Score::new(vec![treble, bass], 16);
+        sc.layout.measures_per_system = 4;
+        sc.text.title = "Página de piano".into();
+        sc.text.subtitle = "exemplo original do time Fermata".into();
+        sc.text.composer = "Fermata Dev".into();
+        sc.text.instructions = "Andante".into();
+        sc.measures[0].tempo = Some(84);
+        sc.measures[8].rehearsal = Some("A".into());
+        let chords = ["C", "Am", "F", "G7"];
+        for m in 0..16 {
+            // system 2: the right hand climbs to the ledger lines above; system 3: the left hand goes below; system 4
+            // has chord symbols
+            let sys = m / 4;
+            for b in 0..4u32 {
+                let top = match sys {
+                    1 => [81, 84, 83, 86][b as usize],
+                    _ => [72, 74, 76, 77][b as usize],
+                };
+                let mut e = Event::new(1, b * TPQ, 3, vec![Pitch::from_midi(top - if top % 12 == 5 || top % 12 == 11 { 6 } else { 7 }, false), Pitch::from_midi(top, false)]);
+                if b == 0 && sys == 3 {
+                    e.chord_symbol = Some(chords[m % 4].into());
+                }
+                if b == 0 && m % 4 == 0 {
+                    e.dynamic = Some(["p", "mf", "f", "mp"][sys].into());
+                }
+                sc.events[0][m].push(e);
+                let low = match sys {
+                    2 => [33, 35, 33, 31][b as usize],
+                    _ => [48, 47, 45, 43][b as usize],
+                };
+                sc.events[1][m].push(Event::new(1, b * TPQ, 3, vec![Pitch::from_midi(low, false)]));
+            }
+        }
+        sc
+    }
+
+    /// A jig in 6/8 (original): an eighth-note pickup, then full bars; "dotted quarter = 116".
+    pub fn pickup_jig() -> Score {
+        let mut sc = Score::new(vec![Staff::new("Flauta", Clef::Treble, 73)], 9);
+        sc.text.title = "Giga da anacruse".into();
+        sc.text.subtitle = "exemplo original do time Fermata".into();
+        for m in sc.measures.iter_mut() {
+            m.num = 6;
+            m.den = 8;
+            m.key = 1;
+        }
+        sc.measures[0].pickup = Some(TPQ / 2);
+        sc.measures[0].tempo = Some(174);
+        sc.measures[0].tempo_dotted = true;
+        let e8 = TPQ / 2;
+        sc.events[0][0].push(Event::new(1, 0, 4, vec![Pitch::from_midi(62, false)]));
+        let tune: [[i32; 6]; 8] = [
+            [67, 71, 74, 72, 71, 69],
+            [67, 69, 71, 69, 67, 66],
+            [64, 66, 67, 69, 71, 72],
+            [74, 72, 71, 69, 67, 66],
+            [67, 71, 74, 76, 74, 72],
+            [71, 72, 74, 72, 71, 69],
+            [67, 64, 66, 67, 69, 66],
+            [67, 67, 67, 67, 67, 67],
+        ];
+        for (k, bar) in tune.iter().enumerate() {
+            let m = k + 1;
+            if m == 8 {
+                sc.events[0][m].push(Event::new(1, 0, 2, vec![Pitch::from_midi(67, false)]));
+                sc.events[0][m].last_mut().unwrap().dots = 1;
+                continue;
+            }
+            for (i, &n) in bar.iter().enumerate() {
+                sc.events[0][m].push(Event::new(1, i as u32 * e8, 4, vec![Pitch::from_midi(n, false)]));
+            }
+        }
+        sc.measures[8].barline = Barline::Final;
+        sc
+    }
+
+    /// `cargo test -- --ignored write_page_demos` writes both scores to the temp folder.
+    #[test]
+    #[ignore]
+    fn write_page_demos() {
+        for (name, sc) in [("pagina-de-piano.fmt", piano_page()), ("giga-da-anacruse.fmt", pickup_jig())] {
+            let path = std::env::temp_dir().join(name);
+            std::fs::write(&path, crate::io::score_bytes(&sc).unwrap()).unwrap();
+            println!("wrote {}", path.display());
+        }
+    }
+}
+
+#[cfg(test)]
+mod page_layout_tests {
+    use super::page_demo::*;
+    use super::*;
+
+    fn page(sc: &mut Score, w: f32, h: f32) -> Geometry {
+        sc.layout.page_w = w;
+        sc.layout.page_h = h;
+        layout(sc, Pos2::ZERO, 1.0, false)
+    }
+
+    #[test]
+    fn a_four_system_piano_page_fits_letter_and_a4() {
+        let corpus = || -> Score {
+            let mut sc: Score = serde_json::from_slice(include_bytes!("../tests/corpus/piano.fmt")).unwrap();
+            sc.text.title = "Piano".into();
+            sc
+        };
+        for (w, h, name, mut sc) in [
+            (612.0, 792.0, "Letter", piano_page()),
+            (595.3, 841.9, "A4", piano_page()),
+            (612.0, 792.0, "Letter (QA piano.fmt)", corpus()),
+            (595.3, 841.9, "A4 (QA piano.fmt)", corpus()),
+        ] {
+            let geo = page(&mut sc, w, h);
+            let on_first = geo.systems.iter().filter(|s| s.page == 0).count();
+            assert!(on_first >= 4, "{name}: {on_first} systems on page 1");
+            // nothing of the last system leaves the page (its content may reach two spaces into the margin)
+            let sp = geo.sp;
+            for s in geo.systems.iter().filter(|s| s.page == 0) {
+                let low = s.bottom(sp) + s.ext.last().unwrap().below * sp;
+                assert!(low <= geo.pages[0].bottom() - sc.layout.margin + sp * 2.0 + 0.5, "{name}: system {} runs off the page", s.m0);
+            }
+        }
+    }
+
+    #[test]
+    fn the_title_block_is_clear_of_the_first_system() {
+        let mut sc = piano_page();
+        let geo = page(&mut sc, 612.0, 792.0);
+        let sp = geo.sp;
+        let tb = title_block(&sc.text);
+        let text_bottom = geo.pages[0].top() + sc.layout.margin + sp * (tb.2 + 0.9);
+        let s0 = &geo.systems[0];
+        let reach = s0.top(sp) - s0.ext[0].above * sp;
+        assert!(reach >= text_bottom + sp, "the first system reaches {reach}, the title block ends at {text_bottom}");
+        // the tempo mark sits above the high notes and chord symbols of the first staff
+        assert!(s0.marks.tempo > s0.ext[0].notes_above + 1.0);
+        // and over chord symbols: the system with chords puts its tempo row above them
+        let mut sc2 = piano_page();
+        sc2.measures[12].tempo = Some(72);
+        let g2 = page(&mut sc2, 612.0, 792.0);
+        let s3 = g2.systems.iter().find(|s| s.m0 == 12).unwrap();
+        assert!(s3.marks.tempo > s3.ext[0].chord_y + 1.0, "{:?} {:?}", s3.marks, s3.ext[0]);
+    }
+
+    #[test]
+    fn systems_and_staves_keep_their_content_apart() {
+        let mut sc = piano_page();
+        let geo = page(&mut sc, 612.0, 792.0);
+        let sp = geo.sp;
+        for s in &geo.systems {
+            for k in 0..s.staves.len() - 1 {
+                let low = s.staves[k].1 + 2.0 * sp + s.ext[k].below * sp;
+                let high = s.staves[k + 1].1 - 2.0 * sp - s.ext[k + 1].above * sp;
+                assert!(high - low >= sp * 0.99, "staves {k} and {} of system {} touch", k + 1, s.m0);
+            }
+        }
+        for w in geo.systems.windows(2) {
+            if w[0].page != w[1].page {
+                continue;
+            }
+            let low = w[0].bottom(sp) + w[0].ext.last().unwrap().below * sp;
+            let high = w[1].top(sp) - w[1].ext[0].above * sp;
+            assert!(high - low >= sp * 1.49, "systems {} and {} touch", w[0].m0, w[1].m0);
+        }
+    }
+
+    #[test]
+    fn ledger_notes_widen_the_gap_between_the_staves() {
+        let mut sc = piano_page();
+        let base = sc.layout.staff_gap;
+        // the right hand far below its staff and the left hand far above its own
+        sc.events[0][0][0].pitches = vec![Pitch::from_midi(48, false)];
+        sc.events[1][0][0].pitches = vec![Pitch::from_midi(72, false)];
+        let geo = page(&mut sc, 612.0, 792.0);
+        let sp = geo.sp;
+        let s0 = &geo.systems[0];
+        let gap = (s0.staves[1].1 - s0.staves[0].1) / sp - 4.0;
+        assert!(gap > base + 1.0, "gap {gap} spaces, Page Setup says {base}");
+        let s1 = &geo.systems[1];
+        let gap1 = (s1.staves[1].1 - s1.staves[0].1) / sp - 4.0;
+        assert!((gap1 - base).abs() < 0.01, "a system without such notes keeps the Page Setup gap");
+    }
+
+    #[test]
+    fn a_pickup_shows_its_signature_counts_as_measure_0_and_plays_its_length() {
+        let sc = pickup_jig();
+        let mi = &sc.measures[0];
+        assert_eq!((mi.num, mi.den), (6, 8), "the real time signature");
+        assert_eq!(mi.ticks(), TPQ / 2);
+        assert_eq!(mi.full_ticks(), TPQ * 3);
+        assert_eq!(sc.measure_label(0), 0);
+        assert_eq!(sc.measure_label(1), 1);
+        assert_eq!(sc.measure_from_label(1), 1);
+        assert_eq!(sc.measure_from_label(0), 0);
+        // playback: the first full bar starts one eighth after the start
+        let (notes, _, _) = crate::audio::build(&sc, 0);
+        let spt = 60.0 / 174.0 / TPQ as f64;
+        let first_bar = notes.iter().map(|n| n.at).filter(|&t| t > 1e-6).fold(f64::MAX, f64::min);
+        assert!((first_bar - spt * (TPQ / 2) as f64).abs() < 1e-6, "bar 1 starts at {first_bar}");
+        // the pickup is narrow: it holds one eighth, not a full 6/8 bar
+        let geo = layout(&sc, Pos2::ZERO, 1.0, false);
+        let m0 = &geo.systems[0].measures[0];
+        let m1 = &geo.systems[0].measures[1];
+        assert!(m0.x1 - m0.content_x < (m1.x1 - m1.content_x) / 2.0);
+        // without a pickup, the measures count from 1 again
+        let mut full = sc.clone();
+        full.measures[0].pickup = None;
+        assert_eq!(full.measure_label(0), 1);
+        assert_eq!(full.measures[0].ticks(), TPQ * 3);
+    }
+
+    #[test]
+    fn a_dotted_quarter_tempo_is_shown_as_given() {
+        let sc = pickup_jig();
+        assert_eq!(sc.tempo_at(0), 174, "playback counts quarters");
+        assert_eq!(sc.measures[0].tempo_shown(), Some(116), "the mark shows dotted quarter = 116");
+        let xml = crate::io::musicxml_string(&sc);
+        assert!(xml.contains("<beat-unit>quarter</beat-unit><beat-unit-dot/><per-minute>116</per-minute>"));
+        assert!(xml.contains("<measure number=\"0\" implicit=\"yes\">"));
+    }
+
+    #[test]
+    fn short_signatures_for_pickups() {
+        assert_eq!(crate::model::short_signature(TPQ / 2), (1, 8));
+        assert_eq!(crate::model::short_signature(TPQ), (1, 4));
+        assert_eq!(crate::model::short_signature(TPQ * 3 / 2), (3, 8));
+        assert_eq!(crate::model::short_signature(TPQ / 4), (1, 16));
+    }
+
+    #[test]
+    fn the_file_keeps_pickup_and_dotted_tempo_and_old_files_still_open() {
+        let sc = pickup_jig();
+        let back: Score = serde_json::from_slice(&crate::io::score_bytes(&sc).unwrap()).unwrap();
+        assert_eq!(back.measures[0].pickup, Some(TPQ / 2));
+        assert!(back.measures[0].tempo_dotted);
+        // a measure without them writes neither field, so files of earlier versions read the same
+        let j = serde_json::to_string(&back.measures[1]).unwrap();
+        assert!(!j.contains("pickup") && !j.contains("tempo_dotted"));
     }
 }

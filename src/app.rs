@@ -863,7 +863,7 @@ impl App {
 
     /// The warning when a new time signature doesn't fit: "Measure 1 has more beats than 3/4. Nothing was changed."
     pub fn warn_time_signature(&mut self, s: usize, m: usize, num: u8, den: u8) {
-        let msg = format!("Measure {} has more beats than {num}/{den}. Nothing was changed.", m + 1);
+        let msg = format!("Measure {} has more beats than {num}/{den}. Nothing was changed.", self.score.measure_label(m));
         self.status = msg.clone();
         self.warn = Some((msg, crate::clock::Instant::now(), Some((s, m))));
     }
@@ -1100,9 +1100,9 @@ impl App {
             return;
         }
         self.status = if ext {
-            format!("Playing from measure {} on {}. Space stops.", measure + 1, self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_default())
+            format!("Playing from measure {} on {}. Space stops.", self.score.measure_label(measure), self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_default())
         } else {
-            format!("Playing from measure {}. Space stops.", measure + 1)
+            format!("Playing from measure {}. Space stops.", self.score.measure_label(measure))
         };
     }
 

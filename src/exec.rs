@@ -452,7 +452,7 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             ClavinovaGuide => self.dialog = Some(Dialog::ClavinovaGuide),
             ClickSetup => self.dialog = Some(Dialog::ClickSetup(self.prefs.clone())),
-            JumpToMeasure => self.dialog = Some(Dialog::JumpTo { measure: cm + 1 }),
+            JumpToMeasure => self.dialog = Some(Dialog::JumpTo { measure: self.score.measure_label(cm) }),
             Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             About => self.dialog = Some(Dialog::About),
         }
