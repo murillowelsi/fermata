@@ -1110,9 +1110,26 @@ impl App {
     }
 
     pub fn play_from(&mut self, measure: usize) {
+        self.play_from_tick(measure, 0);
+    }
+
+    /// Space and the toolbar's Play (F-36): from the cursor's exact tick, not the start of its measure.
+    pub fn play_from_cursor(&mut self) {
+        let (_, m, t) = self.cursor;
+        let m = m.min(self.score.measures.len().saturating_sub(1));
+        self.play_from_tick(m, t.min(self.score.measures[m].ticks().saturating_sub(1)));
+    }
+
+    /// The beat a tick of a measure falls on, counted as the status bar does (a pickup's notes end on the last beats).
+    pub fn beat_of(&self, measure: usize, tick: u32) -> u32 {
+        let mi = &self.score.measures[measure];
+        (tick + mi.full_ticks() - mi.ticks()) / (TPQ * 4 / mi.den.max(1) as u32) + 1
+    }
+
+    pub fn play_from_tick(&mut self, measure: usize, tick: u32) {
         // Click On/Off is a setting kept between sessions, applied to every score
         self.score.playback.click = self.prefs.click_on;
-        let (mut notes, tm, start) = audio::build(&self.score, measure);
+        let (mut notes, tm, start) = audio::build_at(&self.score, measure, tick);
         self.apply_click_prefs(&mut notes, true);
         self.timemap = tm;
         let qpm = self.score.tempo_at(measure) as f64;
@@ -1125,10 +1142,11 @@ impl App {
             self.status = crate::web::SILENT_HINT.into();
             return;
         }
+        let from = if tick == 0 { format!("measure {}", self.score.measure_label(measure)) } else { format!("measure {}, beat {}", self.score.measure_label(measure), self.beat_of(measure, tick)) };
         self.status = if ext {
-            format!("Playing from measure {} on {}. Space stops.", self.score.measure_label(measure), self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_default())
+            format!("Playing from {from} on {}. Space stops.", self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_default())
         } else {
-            format!("Playing from measure {}. Space stops.", self.score.measure_label(measure))
+            format!("Playing from {from}. Space stops.")
         };
     }
 
@@ -2722,5 +2740,41 @@ mod pencil_tests {
         assert_eq!(st(&back, 0), vec![2 * TPQ]);
         assert_eq!(st(&back, 1), vec![0, 3 * TPQ]);
         println!("enc: measure 1 {:?}, measure 2 {:?}", st(&back, 0), st(&back, 1));
+    }
+}
+
+/// F-36: Space plays from the cursor's exact tick.
+#[cfg(test)]
+mod play_from_cursor_tests {
+    use super::*;
+    use crate::model::TPQ;
+
+    #[test]
+    fn playback_starts_at_the_cursor_with_the_click_on_the_beats() {
+        let mut a = App::new(true);
+        a.voice = 1;
+        // eighth notes through the first bar, MIDI 60, 61 … 67 (chromatic)
+        for k in 0..8u32 {
+            a.enter_clicked(0, 0, k * TPQ / 2, Some(Pitch::from_midi(60 + k as i32, false)), 4, 0);
+        }
+        a.score.playback.click = true;
+        // the cursor on the 2nd eighth of beat 3 (tick 2400): the 6th eighth, MIDI 65
+        let tick = 2 * TPQ + TPQ / 2;
+        let (notes, tm, start) = crate::audio::build_at(&a.score, 0, tick);
+        let mut played: Vec<&crate::audio::PlayNote> = notes.iter().filter(|n| n.at >= start).collect();
+        played.sort_by(|x, y| x.at.partial_cmp(&y.at).unwrap());
+        let first = played.iter().find(|n| !n.click).unwrap();
+        assert_eq!(first.midi, 65, "the first note heard is the cursor's");
+        assert!((first.at - start).abs() < 1e-9);
+        assert!(!notes.iter().any(|n| !n.click && n.at < start && n.at >= start - 1e-9), "nothing before the cursor at the start");
+        // the green line starts at the cursor
+        assert_eq!(tm.locate(start), Some((0, tick)));
+        // the next click is beat 4 of the bar, not the starting point
+        let spt = 60.0 / a.score.tempo_at(0) as f64 / TPQ as f64;
+        let click = played.iter().find(|n| n.click).unwrap();
+        assert!((click.at - 3.0 * TPQ as f64 * spt).abs() < 1e-9, "click at {} s", click.at);
+        // from the start of a bar it is as before
+        assert_eq!(crate::audio::build_at(&a.score, 1, 0).2, crate::audio::build(&a.score, 1).2);
+        assert_eq!(a.beat_of(0, tick), 3);
     }
 }

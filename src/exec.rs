@@ -424,7 +424,7 @@ impl App {
                 } else if self.is_playing() {
                     self.stop()
                 } else {
-                    self.play_from(cm)
+                    self.play_from_cursor()
                 }
             }
             Stop => {

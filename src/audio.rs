@@ -514,6 +514,13 @@ pub fn play_order(score: &Score) -> Vec<usize> {
 
 /// Turn the score into timed notes. `swing` 50 = straight, up to 75 (Swing Playback).
 pub fn build(score: &Score, from_measure: usize) -> (Vec<PlayNote>, TimeMap, f64) {
+    build_at(score, from_measure, 0)
+}
+
+/// Every note of the piece and the time to start from: the first time measure `from_measure` is played, at its tick
+/// `from_tick` (the cursor; 0 = its start). Players skip what comes before the start, so notes that begin before the
+/// cursor don't sound and the click stays on the measure's beats.
+pub fn build_at(score: &Score, from_measure: usize, from_tick: u32) -> (Vec<PlayNote>, TimeMap, f64) {
     let order = play_order(score);
     let any_solo = score.staves.iter().any(|s| s.solo);
     let mut notes = vec![];
@@ -523,10 +530,6 @@ pub fn build(score: &Score, from_measure: usize) -> (Vec<PlayNote>, TimeMap, f64
     let swing = score.playback.swing.clamp(50, 80) as f64 / 100.0;
     let mut started = false;
     for &m in &order {
-        if m == from_measure && !started {
-            start_at = t;
-            started = true;
-        }
         let mi = &score.measures[m];
         let tempo = score.tempo_at(m).max(10) as f64;
         let spt = 60.0 / tempo / TPQ as f64;
@@ -543,6 +546,10 @@ pub fn build(score: &Score, from_measure: usize) -> (Vec<PlayNote>, TimeMap, f64
             let f2 = if f <= 0.5 { f / 0.5 * swing } else { swing + (f - 0.5) / 0.5 * (1.0 - swing) };
             (k + f2) * pair * spt
         };
+        if m == from_measure && !started {
+            start_at = t + swing_time(from_tick.min(ticks));
+            started = true;
+        }
         for (si, staff) in score.staves.iter().enumerate() {
             if staff.muted || (any_solo && !staff.solo) {
                 continue;

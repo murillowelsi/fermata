@@ -373,15 +373,18 @@ impl App {
                 None
             };
             // F-36: the insertion cursor blinks like a text cursor (0.5 s on, 0.5 s off) and is back on with every click
-            // or key; it stays on while playing or recording, in screenshots and when the window isn't in front
+            // or key; it stays on in screenshots and when the window isn't in front. While playing or recording only the
+            // green position line shows; when that stops, the cursor is back where it was, on, blinking
             let now = ui.input(|i| i.time);
-            if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::PointerButton { .. } | egui::Event::Text(_)))) {
+            let running = play.is_some() || self.rec.is_some();
+            if running || ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::PointerButton { .. } | egui::Event::Text(_)))) {
                 self.cursor_since = now;
             }
-            let steady = self.screenshot_mode || play.is_some() || self.rec.is_some() || !ui.input(|i| i.focused);
+            let hidden = running && !self.screenshot_mode;
+            let steady = self.screenshot_mode || !ui.input(|i| i.focused);
             let phase = (now - self.cursor_since).rem_euclid(1.0);
-            let cursor_on = steady || phase < 0.5;
-            if !steady && !reader {
+            let cursor_on = !hidden && (steady || phase < 0.5);
+            if !steady && !running && !reader {
                 ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.5 - phase.rem_euclid(0.5) + 0.01));
             }
             let mut hits = vec![];
