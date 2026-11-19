@@ -64,7 +64,9 @@ jobs:
 
   windows:
     name: Windows (zip, cross-compiled with mingw-w64)
-    runs-on: ubuntu-24.04
+    # on a Mac runner with Homebrew's mingw-w64, the same toolchain as the release Mac: apt on the Ubuntu images
+    # stalled for many minutes installing mingw (twice)
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -72,16 +74,13 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
-      - name: mingw-w64 (only the 64-bit compiler and windres)
+      - name: mingw-w64 (Homebrew)
         timeout-minutes: 10
         env:
-          DEBIAN_FRONTEND: noninteractive
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
-          # the man-db trigger can stall apt on GitHub's Ubuntu images for many minutes
-          echo "set man-db/auto-update false" | sudo debconf-communicate >/dev/null || true
-          sudo rm -f /var/lib/man-db/auto-update
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 zip
+          brew install mingw-w64
           x86_64-w64-mingw32-gcc --version | head -1
           x86_64-w64-mingw32-windres --version | head -1
       - name: Build the Windows zip
