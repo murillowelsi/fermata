@@ -50,7 +50,7 @@ pub struct Prefs {
     /// View ▸ Appearance: follow macOS, or always light or dark (F-15). Older files without it follow macOS.
     #[serde(default)]
     pub appearance: Appearance,
-    /// F-34: look for a new version when Fermata opens (at most once a day).
+    /// F-34: look for a new version each time Fermata opens.
     #[serde(default = "yes")]
     pub check_updates: bool,
     /// F-34: when the last check started (seconds since 1970), and the version "Skip This Version" chose.

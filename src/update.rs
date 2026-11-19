@@ -1,6 +1,6 @@
 //! F-34: Fermata updates itself (Mac and Windows; the browser has its service worker).
 //!
-//! - **Check:** the latest release from GitHub's API, over HTTPS only, at most once a day, in the background, with a
+//! - **Check:** the latest release from GitHub's API, over HTTPS only, each time Fermata opens, in the background, with a
 //!   short timeout. No connection: nothing happens.
 //! - **Download:** the update file and its `.sig` (signed by the release, see `update_sig.rs`), through the system's
 //!   own `curl` (macOS, and Windows 10 and later, ship it), so no HTTP or TLS library is built into the app.
@@ -18,8 +18,6 @@ use std::time::{Duration, Instant};
 
 pub const API: &str = "https://api.github.com/repos/murillowelsi/fermata/releases/latest";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// One check a day at most.
-pub const CHECK_EVERY: u64 = 24 * 60 * 60;
 
 /// The public key that update files must be signed with (hex). The release's key goes in this file; an empty file
 /// means this build installs no updates (they all fail the security check).

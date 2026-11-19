@@ -20,6 +20,26 @@ lipo -create -output "$APP/Contents/MacOS/Fermata" \
 
 # icon "Traço" (F-14): the approved PNGs, made from assets/icone-traco-light.svg
 iconutil -c icns assets/AppIcon.iconset -o "$APP/Contents/Resources/Fermata.icns"
+# macOS 26 and later darken icons that have no dark version of their own when the Mac uses dark icons: the icon in
+# the Icon Composer format (assets/Fermata.icon) keeps the blue in every appearance. Compiling it needs Xcode's actool
+# (GitHub's Mac runners have it); without it the app has only the .icns above, which macOS 26 may show darkened.
+ICON_NAME_KEY=""
+if xcrun --find actool >/dev/null 2>&1; then
+  ICONTMP=$(mktemp -d)
+  if xcrun actool assets/Fermata.icon --compile "$ICONTMP" --platform macosx --minimum-deployment-target 10.13 \
+      --app-icon Fermata --output-partial-info-plist "$ICONTMP/partial.plist" >"$ICONTMP/actool.log" 2>&1 \
+      && [ -f "$ICONTMP/Assets.car" ]; then
+    cp "$ICONTMP/Assets.car" "$APP/Contents/Resources/Assets.car"
+    ICON_NAME_KEY="<key>CFBundleIconName</key><string>Fermata</string>"
+    echo "Icon: Assets.car from assets/Fermata.icon (blue in light and dark)"
+  else
+    cat "$ICONTMP/actool.log" >&2
+    echo "warning: actool couldn't compile assets/Fermata.icon; the app has only the .icns" >&2
+  fi
+  rm -rf "$ICONTMP"
+else
+  echo "note: no actool (Xcode): the app has only the .icns, which macOS 26 may darken in dark mode" >&2
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -31,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>app.fermata.notation</string>
   <key>CFBundleExecutable</key><string>Fermata</string>
   <key>CFBundleIconFile</key><string>Fermata</string>
+  $ICON_NAME_KEY
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
@@ -169,6 +190,10 @@ simple_dmg() {
 if [ "${FERMATA_DMG_SIMPLE:-0}" = 1 ]; then
   echo "note: FERMATA_DMG_SIMPLE=1, building a plain .dmg without the window layout" >&2
   simple_dmg
+elif command -v dmgbuild >/dev/null 2>&1; then
+  # the same window written straight into .DS_Store (assets/dmg/dmgbuild-settings.py): no Finder needed
+  rm -f "$DMG"
+  dmgbuild -s assets/dmg/dmgbuild-settings.py -D app="$APP" Fermata "$DMG" >/dev/null
 elif ! layout_dmg; then
   echo "warning: couldn't lay out the .dmg window with the Finder (no graphical session, or no Automation permission);" >&2
   echo "warning: building a plain .dmg instead (it works, without the background and icon positions)" >&2

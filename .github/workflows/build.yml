@@ -1,0 +1,131 @@
+# Builds Fermata on GitHub's machines, all at once: the Mac app and installer, the Windows zip and the web version.
+# - A push to a branch ci/** (or "Run workflow"): builds and keeps the files as the run's artifacts.
+# - A tag v*: the same, plus a DRAFT release with the files. Nothing reaches anyone yet: the update files still
+#   need their .sig, signed on the release Mac (the secret key never comes to GitHub); then the draft is published.
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["ci/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  mac:
+    name: Mac (universal app, installer, update zip, tests)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Xcode (actool compiles the icon) and dmgbuild (lays out the installer)
+        run: |
+          xcodebuild -version
+          xcrun --find actool
+          python3 -m venv "$RUNNER_TEMP/dmg"
+          "$RUNNER_TEMP/dmg/bin/pip" install --quiet "dmgbuild==1.6.5"
+          echo "$RUNNER_TEMP/dmg/bin" >> "$GITHUB_PATH"
+      - name: Tests
+        run: cargo test --release
+      - name: Build Fermata.app, the installer and the update zip
+        run: ./make_mac_app.sh
+      - name: Check the app
+        run: |
+          APP=dist/Fermata.app/Contents/MacOS/Fermata
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/Fermata.app/Contents/Info.plist)" = "$V"
+          test -f dist/Fermata.app/Contents/Resources/Assets.car
+          lipo -info "$APP"
+          codesign -v dist/Fermata.app
+          for t in tie tuplet fit; do "$APP" --$t-selftest > /dev/null; done
+          "$APP" --keys-selftest | grep -v "audio error\|SoundFont" > dist/keys-selftest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/Fermata-Installer.dmg
+            dist/Fermata-macOS-update.zip
+            dist/keys-selftest.txt
+          if-no-files-found: error
+
+  windows:
+    name: Windows (zip, cross-compiled with mingw-w64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: mingw-w64
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mingw-w64 zip
+      - name: Build the Windows zip
+        run: ./make_windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/Fermata-Windows-x64.zip
+          if-no-files-found: error
+
+  web:
+    name: Web (wasm, for docs/app)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen (the version in Cargo.lock) and wasm-opt
+        run: |
+          WB=$(awk '/^name = "wasm-bindgen"$/{getline; sub(/version = "/,""); sub(/"/,""); print; exit}' Cargo.lock)
+          echo "wasm-bindgen $WB"
+          cargo install --locked wasm-bindgen-cli --version "$WB"
+          sudo apt-get install -y -qq binaryen
+      - name: Build the web version
+        run: ./make_web.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/web
+          if-no-files-found: error
+
+  draft-release:
+    name: Draft release (tags only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "$TAG" = "v$V" || { echo "tag $TAG doesn't match Cargo.toml $V" >&2; exit 1; }
+          # the web version stays an artifact of the run (gh run download -n web), copied to docs/app by hand
+          gh release create "$TAG" --draft --title "Fermata $V" \
+            --notes "Rascunho do CI: assinar os arquivos de atualização (.sig), escrever as notas e publicar." \
+            out/mac/Fermata-Installer.dmg out/mac/Fermata-macOS-update.zip out/windows/Fermata-Windows-x64.zip

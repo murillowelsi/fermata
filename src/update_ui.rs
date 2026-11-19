@@ -90,8 +90,8 @@ impl App {
                 }
                 crate::prefs::save(&self.prefs);
             }
-            let due = now_secs().saturating_sub(self.prefs.last_update_check) >= update::CHECK_EVERY;
-            if self.prefs.check_updates && due {
+            // each time Fermata opens; the card only shows when there is a newer version
+            if self.prefs.check_updates {
                 self.start_update_check(false);
             }
         }
