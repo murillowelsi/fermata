@@ -35,7 +35,6 @@ impl App {
             }
             ImportMidi => self.replace_score(Then::ImportMidi),
             ImportXml => self.replace_score(Then::ImportXml),
-            ImportPhoto => self.import_photo(),
             ExportMidi => {
                 let b = crate::io::midi_bytes(&self.score);
                 self.export_bytes("mid", "MIDI file", &b);

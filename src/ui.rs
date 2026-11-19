@@ -4,7 +4,6 @@ use crate::commands::{self, Cmd};
 use crate::kit;
 use crate::model::*;
 use crate::theme;
-use crate::ui_photo::{photo_icon, photo_tips, PhotoIcon};
 use egui::{pos2, vec2, Align2, Color32, Rect, Sense, Stroke, Ui};
 
 /// The shortcut text of a command as menus, tips and Keyboard Shortcuts show it (Mac key symbols, Ctrl first).
@@ -91,13 +90,6 @@ impl App {
                 ui.menu_button("Import", |ui| {
                     self.mi(ui, ImportMidi);
                     self.mi(ui, ImportXml);
-                    // F-31: reading photos needs the desktop app (the reader is a separate program)
-                    if cfg!(target_arch = "wasm32") {
-                        let r = kit::menu_item(ui, &commands::label(ImportPhoto), "", false, false);
-                        tip(r, "Available in the Mac and Windows apps", "");
-                    } else {
-                        self.mi(ui, ImportPhoto);
-                    }
                 });
                 self.mi(ui, ExtractPart);
                 ui.separator();
@@ -761,7 +753,7 @@ impl App {
         let title = dialog_title(&d);
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        let alert = matches!(d, Dialog::ConfirmClose(_) | Dialog::Message(_) | Dialog::About | Dialog::Recover(_) | Dialog::PhotoFirstUse(_) | Dialog::PhotoFail);
+        let alert = matches!(d, Dialog::ConfirmClose(_) | Dialog::Message(_) | Dialog::About | Dialog::Recover(_));
         let wid = egui::Id::unique(("dialog_w", title));
         egui::Window::new(title)
             .id(egui::Id::unique("dialog"))
@@ -789,12 +781,6 @@ impl App {
                         Dialog::Shortcuts | Dialog::ClavinovaGuide => {
                             if kit::btn_primary(ui, "OK").clicked() || enter {
                                 keep = false;
-                            }
-                        }
-                        Dialog::PhotoProgress => {
-                            if kit::btn(ui, "Cancel").clicked() {
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.cancel_photo();
                             }
                         }
                         Dialog::NewScore { .. } => {
@@ -833,11 +819,6 @@ impl App {
         if esc {
             cancel = true;
         }
-        // F-31: closing the progress window (Esc, its close button) stops the download or the reading
-        #[cfg(not(target_arch = "wasm32"))]
-        if cancel && matches!(d, Dialog::PhotoProgress) {
-            self.cancel_photo();
-        }
         if cancel {
             keep = false;
             ok = false;
@@ -871,14 +852,13 @@ impl App {
         let k = theme::t(ui);
         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
         egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 22, bottom: 20 }).show(ui, |ui| {
-            ui.set_width(if matches!(d, Dialog::PhotoFail) { 520.0 } else { 380.0 });
+            ui.set_width(380.0);
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
-                match d {
-                    Dialog::Recover(_) => recover_icon(ui),
-                    Dialog::PhotoFirstUse(_) => photo_icon(ui, PhotoIcon::Camera),
-                    Dialog::PhotoFail => kit::alert_icon(ui, true, 44.0),
-                    _ => kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 }),
+                if matches!(d, Dialog::Recover(_)) {
+                    recover_icon(ui);
+                } else {
+                    kit::alert_icon(ui, matches!(d, Dialog::Message(_)), if matches!(d, Dialog::About) { 64.0 } else { 44.0 });
                 }
                 let (head, sub) = match d {
                     Dialog::ConfirmClose(Then::Revert(_)) => (
@@ -888,15 +868,10 @@ impl App {
                     Dialog::ConfirmClose(_) => ("Save changes to this score first?".to_string(), self.doc_name()),
                     Dialog::Recover(b) => (format!("Recover unsaved changes to \u{201c}{}\u{201d}?", b.name), recover_when(b.saved_at)),
                     Dialog::Message(m) => (m.clone(), String::new()),
-                    Dialog::PhotoFirstUse(_) => (
-                        "Photo import needs a one-time download".to_string(),
-                        "About 85 MB to download (160 MB on disk). It's saved inside Fermata and only happens once.".to_string(),
-                    ),
-                    Dialog::PhotoFail => ("Couldn't read this image.".to_string(), "Try a straighter, brighter photo or a PDF scan.".to_string()),
                     _ => (
                         "Fermata".to_string(),
                         format!(
-                            "A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.\nVersion {} - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.\nPhoto import uses Audiveris (AGPL-3.0).",
+                            "A free music notation editor, rebuilt with the same workflow as a classic desktop notation program.\nVersion {} - score layout, palettes, shortcuts, note entry, playback, MIDI and MusicXML.",
                             env!("CARGO_PKG_VERSION")
                         ),
                     ),
@@ -907,10 +882,6 @@ impl App {
                 }
                 if matches!(d, Dialog::Recover(_)) {
                     ui.add(egui::Label::new(egui::RichText::new("Discard keeps the file as it was last saved.").font(theme::font(11.0)).color(k.text_3)).wrap());
-                }
-                if matches!(d, Dialog::PhotoFail) {
-                    ui.add_space(6.0);
-                    photo_tips(ui);
                 }
             });
             ui.add_space(14.0);
@@ -966,32 +937,6 @@ impl App {
                             if kit::btn(ui, "Cancel").clicked() {
                                 self.answer_unsaved(then.clone(), Answer::Cancel);
                                 *cancel = true;
-                            }
-                        });
-                    }
-                    Dialog::PhotoFirstUse(picture) => {
-                        kit::footer(ui, |ui| {
-                            if kit::btn_primary(ui, "Download").clicked() || enter {
-                                *keep = false;
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.download_reader(picture.clone());
-                                #[cfg(target_arch = "wasm32")]
-                                let _ = picture;
-                            }
-                            if kit::btn(ui, "Cancel").clicked() {
-                                *cancel = true;
-                            }
-                        });
-                    }
-                    Dialog::PhotoFail => {
-                        if kit::btn(ui, "Choose Another File...").clicked() {
-                            *keep = false;
-                            self.pending_cmd = Some(Cmd::ImportPhoto);
-                        }
-                        // OK at the right edge, Choose Another File... at the left (the alert is wider than the rest)
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if kit::btn_primary(ui, "OK").clicked() || enter {
-                                *keep = false;
                             }
                         });
                     }
@@ -1134,8 +1079,6 @@ impl App {
         let pitch_fmt = |v: f64| Pitch::from_midi(v as i32, false).name();
         let int_fmt = |v: f64| format!("{}", v as i64);
         match d {
-            Dialog::PhotoProgress => self.photo_progress_body(ui),
-            Dialog::PhotoFirstUse(_) | Dialog::PhotoFail => {}
             Dialog::NewScore { staves, systems, mps, c_score, handwritten, template } => {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 24.0;
@@ -2213,7 +2156,6 @@ impl App {
                 self.status = format!("MIDI Out A: {}.", self.midi_out.as_ref().map(|m| m.port_label(0)).unwrap_or_else(|| "built-in sound".into()));
             }
             Dialog::ClavinovaGuide | Dialog::MidiPlayback | Dialog::Shortcuts | Dialog::About | Dialog::Message(_) | Dialog::Recover(_) => {}
-            Dialog::PhotoFirstUse(_) | Dialog::PhotoProgress | Dialog::PhotoFail => {}
         }
     }
 
@@ -2309,8 +2251,6 @@ fn dialog_title(d: &Dialog) -> &'static str {
         Dialog::Shortcuts => "Keyboard Shortcuts",
         Dialog::About => "About Fermata",
         Dialog::Message(_) => "Fermata",
-        Dialog::PhotoFirstUse(_) | Dialog::PhotoFail => "Fermata",
-        Dialog::PhotoProgress => "Import from Photo or PDF",
         Dialog::ConfirmClose(_) => "Unsaved Changes",
         Dialog::Recover(_) => "Recover",
     }

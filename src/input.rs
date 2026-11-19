@@ -273,85 +273,7 @@ impl App {
     }
 
     /// The scrolling page area with the score.
-    /// F-31: the orange marks on measures to check (`count_problems`); they go away when fixed.
-    fn draw_count_marks(&self, painter: &egui::Painter, geo: &sv::Geometry) {
-        let bad = self.count_problems();
-        if bad.is_empty() {
-            return;
-        }
-        let orange = Color32::from_rgb(214, 128, 20);
-        let sp = geo.sp;
-        for sys in &geo.systems {
-            // several marked measures in one system: their labels stack down the margin
-            let mut nth = 0.0;
-            for mg in &sys.measures {
-                let Some(&(m, why)) = bad.iter().find(|x| mg.covers(x.0)) else { continue };
-                let r = Rect::from_min_max(pos2(mg.x0 + sp * 0.3, sys.top(sp) - sp * 1.5), pos2(mg.x1 - sp * 0.3, sys.bottom(sp) + sp * 1.5));
-                painter.rect_filled(r, sp * 0.4, Color32::from_rgba_unmultiplied(214, 128, 20, 22));
-                // dashed outline
-                let pts = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-                for w in pts.windows(2) {
-                    let (a, b) = (w[0], w[1]);
-                    let len = a.distance(b);
-                    let n = (len / (sp * 0.9)).max(1.0) as usize;
-                    for i in (0..n).step_by(2) {
-                        let t0 = i as f32 / n as f32;
-                        let t1 = ((i + 1) as f32 / n as f32).min(1.0);
-                        painter.line_segment([a + (b - a) * t0, a + (b - a) * t1], Stroke::new(1.5, orange));
-                    }
-                }
-                // the label in the margin to the right of the page
-                let page_right = geo.pages.get(sys.page).map(|p| p.right()).unwrap_or(sys.right + sp * 4.0);
-                let text = match why {
-                    CheckProblem::Count => format!("Measure {}: count doesn't add up", self.score.measure_label(m)),
-                    CheckProblem::Missing => format!("Measure {}: notes may be missing", self.score.measure_label(m)),
-                };
-                let g = painter.layout_no_wrap(text, crate::theme::font_semibold(12.0), Color32::WHITE);
-                let lr = Rect::from_min_size(pos2(page_right + 12.0, r.center().y - 11.0 + nth * 30.0), g.size() + vec2(18.0, 8.0));
-                nth += 1.0;
-                painter.rect_filled(lr, 11.0, orange);
-                painter.galley(lr.min + vec2(9.0, 4.0), g, Color32::WHITE);
-            }
-        }
-    }
-
-    /// F-31: "Imported from a photo: check notes and measures" at the top of the score area, until the first edit,
-    /// closing the score, or its ×.
-    fn photo_banner(&mut self, ui: &mut Ui) {
-        if !self.photo_banner || self.export_png_requested {
-            return;
-        }
-        let k = crate::theme::t(ui);
-        let clip = ui.clip_rect();
-        let w = 380.0;
-        let pos = pos2(clip.center().x - w / 2.0, clip.top() + 12.0);
-        let mut close = false;
-        egui::Area::new(egui::Id::unique("photo-banner")).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
-            egui::Frame::new().fill(k.panel).stroke(Stroke::new(1.0, k.accent.gamma_multiply(0.5))).corner_radius(10.0).inner_margin(egui::Margin::symmetric(10, 8)).shadow(egui::Shadow { offset: [0, 3], blur: 12, spread: 0, color: Color32::from_black_alpha(30) }).show(ui, |ui| {
-                ui.set_width(w - 20.0);
-                ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-                    ui.painter().rect_filled(r, 6.0, k.accent_soft);
-                    crate::ui_photo::draw_photo_icon(ui.painter(), r.center(), 16.0, crate::ui_photo::PhotoIcon::Camera, k.accent);
-                    let mut job = egui::text::LayoutJob::default();
-                    job.append("Imported from a photo: ", 0.0, egui::TextFormat { font_id: crate::theme::font_semibold(12.5), color: k.text, ..Default::default() });
-                    job.append("check notes and measures", 0.0, egui::TextFormat { font_id: crate::theme::font(12.5), color: k.text, ..Default::default() });
-                    ui.label(job);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(egui::Button::new(egui::RichText::new("×").font(crate::theme::font(16.0)).color(k.text_3)).frame(false)).on_hover_text("Close").clicked() {
-                            close = true;
-                        }
-                    });
-                });
-            });
-        });
-        if close {
-            self.photo_banner = false;
-        }
-    }
-
     pub fn score_area(&mut self, ui: &mut Ui) {
-        self.photo_banner(ui);
         let play = self.play_position();
         let reader = self.device == crate::touch::Device::Reader;
         let fingers = self.device != crate::touch::Device::Desktop;
@@ -482,11 +404,6 @@ impl App {
             let mut geo = geo;
             geo.notes = hits;
             geo.graphics = ghits;
-            // F-31: on a score read from a photo, the measures whose count doesn't add up, in dashed orange with a
-            // label beside the page (on screen only: not in a page image or print)
-            if self.photo_check && !self.export_png_requested {
-                self.draw_count_marks(&painter, &geo);
-            }
             self.geo = geo;
             if reader {
                 // a tap chooses the measure playback starts from (nothing is edited)

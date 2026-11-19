@@ -43,9 +43,6 @@ pub struct Prefs {
     /// Click On/Off (Setup menu, toolbar metronome button), kept between sessions.
     #[serde(default = "yes")]
     pub click_on: bool,
-    /// F-31: where Audiveris (read scores from photos) is installed, when it isn't in the usual place.
-    #[serde(default)]
-    pub audiveris_path: Option<String>,
     /// Send everything to the instrument on channel 1 without changing its voice: for pianos that only play
     /// channel 1 (a Clavinova in MIDI Accord mode receives CH1 = KEYBOARD, every other channel OFF).
     #[serde(default = "yes")]
@@ -131,6 +128,25 @@ impl Default for Prefs {
     fn default() -> Self {
         serde_json::from_str("{}").unwrap()
     }
+}
+
+/// F-35: versions 0.3.7 to 0.3.11 could download a photo reader (Audiveris) into `omr/` beside the settings. The
+/// feature is gone, so on the first start of this version its folder is removed quietly, in the background. Only
+/// that folder: the settings (`prefs.json`) and the autosaves stay as they are.
+pub fn remove_old_photo_reader() {
+    if let Some(d) = dir() {
+        if d.join("omr").symlink_metadata().is_ok() {
+            std::thread::spawn(move || remove_photo_reader_in(&d));
+        }
+    }
+}
+
+/// Removes `<dir>/omr` if it is there (a link is removed, never followed). True when something was removed.
+pub fn remove_photo_reader_in(dir: &std::path::Path) -> bool {
+    let p = dir.join("omr");
+    let Ok(meta) = p.symlink_metadata() else { return false };
+    let r = if meta.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+    r.is_ok()
 }
 
 /// The folder the settings live in.
@@ -220,6 +236,32 @@ fn save_to(p: &Prefs, path: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_old_photo_reader_folder_goes_and_nothing_else() {
+        let d = std::env::temp_dir().join(format!("fermata-f35-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let reader = d.join("omr").join("audiveris-5.11.0").join("bin");
+        std::fs::create_dir_all(&reader).unwrap();
+        std::fs::write(reader.join("Audiveris"), b"program").unwrap();
+        std::fs::write(d.join("omr").join("NOTICE.txt"), b"notice").unwrap();
+        std::fs::create_dir_all(d.join("Autosave")).unwrap();
+        std::fs::write(d.join("Autosave").join("abc.fermata-backup"), b"backup").unwrap();
+        // settings of 0.3.11 with the reader's path
+        let old = r#"{"version":4,"audiveris_path":"/Applications/Audiveris.app/Contents/MacOS/Audiveris","click_on":false}"#;
+        std::fs::write(d.join("prefs.json"), old).unwrap();
+
+        assert!(super::remove_photo_reader_in(&d));
+        assert!(!d.join("omr").exists());
+        assert_eq!(std::fs::read(d.join("Autosave").join("abc.fermata-backup")).unwrap(), b"backup");
+        assert_eq!(std::fs::read_to_string(d.join("prefs.json")).unwrap(), old, "prefs.json isn't touched");
+        // the old reader path is ignored without error; the rest of the settings still read
+        let p: super::Prefs = serde_json::from_str(old).unwrap();
+        assert!(!p.click_on);
+        // nothing left to remove: no error
+        assert!(!super::remove_photo_reader_in(&d));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     use super::*;
 
     #[test]

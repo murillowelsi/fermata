@@ -87,13 +87,6 @@ pub fn open(app: &mut App, name: &str) -> bool {
             saved_at: crate::autosave::now_ms() - 3.0 * 60_000.0,
             score: String::new(),
         }))),
-            // F-31 (the progress window shows the reading of a sample picture name)
-            "PhotoFirstUse" => Some(Dialog::PhotoFirstUse("hino-coral.jpg".into())),
-            "PhotoFail" => Some(Dialog::PhotoFail),
-            "PhotoProgress" => {
-                app.omr_picture = Some(("hino-coral.jpg".into(), "Photo · 3024 × 4032".into(), None));
-                Some(Dialog::PhotoProgress)
-            }
             _ => None,
         };
     }
