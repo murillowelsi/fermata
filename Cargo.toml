@@ -1,6 +1,6 @@
 [package]
 name = "fermata"
-version = "0.3.14"
+version = "0.3.15"
 edition = "2021"
 description = "Fermata - a free music notation editor"
 

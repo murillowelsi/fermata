@@ -862,7 +862,13 @@ fn main() -> eframe::Result<()> {
         open = Some(std::path::PathBuf::from(&args[i]));
         i += 1;
     }
-    let mut vp = egui::ViewportBuilder::default().with_icon(icon::icon_data()).with_inner_size([1440.0, 900.0]).with_min_inner_size([800.0, 500.0]).with_title("Fermata");
+    // macOS: no icon of our own, so the Dock shows the bundle's icon and follows the Mac's icon style (blue by
+    // default, dark with the blue arch in dark mode), the same as Finder and Spotlight (an empty icon is "none")
+    #[cfg(target_os = "macos")]
+    let window_icon = egui::IconData::default();
+    #[cfg(not(target_os = "macos"))]
+    let window_icon = icon::icon_data();
+    let mut vp = egui::ViewportBuilder::default().with_icon(window_icon).with_inner_size([1440.0, 900.0]).with_min_inner_size([800.0, 500.0]).with_title("Fermata");
     if shot.is_some() {
         vp = vp.with_active(false);
         #[cfg(target_os = "windows")]

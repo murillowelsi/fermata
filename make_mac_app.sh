@@ -20,9 +20,10 @@ lipo -create -output "$APP/Contents/MacOS/Fermata" \
 
 # icon "Traço" (F-14): the approved PNGs, made from assets/icone-traco-light.svg
 iconutil -c icns assets/AppIcon.iconset -o "$APP/Contents/Resources/Fermata.icns"
-# macOS 26 and later darken icons that have no dark version of their own when the Mac uses dark icons: the icon in
-# the Icon Composer format (assets/Fermata.icon) keeps the blue in every appearance. Compiling it needs Xcode's actool
-# (GitHub's Mac runners have it); without it the app has only the .icns above, which macOS 26 may show darkened.
+# macOS 26 and later: the icon in the Icon Composer format (assets/Fermata.icon) follows the Mac's icon style, blue
+# by default and dark with the blue arch in dark mode (approved by the user). The app sets no Dock icon of its own on
+# the Mac, so the Dock shows the same. Compiling it needs Xcode's actool (GitHub's Mac runners have it); without it
+# the app has only the .icns above, which macOS 26 darkens with a white arch.
 ICON_NAME_KEY=""
 if xcrun --find actool >/dev/null 2>&1; then
   ICONTMP=$(mktemp -d)
