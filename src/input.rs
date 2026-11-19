@@ -346,7 +346,8 @@ impl App {
             let pointer = resp.hover_pos();
             // F-37: over the score, the Eraser and the Pencil are the pointer (a mouse; a finger has no hover)
             let tool_pointer = pointer.filter(|_| !reader && !crate::kit::touch() && self.drag.is_none() && matches!(self.tool, Tool::Eraser | Tool::Pencil));
-            let ghost = if !reader && self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.drag.is_none() {
+            // (F-38: no preview note once a pen writes: the ink and its guide show where the note goes)
+            let ghost = if !reader && self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.drag.is_none() && !self.pen.pen_seen && !(self.prefs.pen_mode && self.device == crate::touch::Device::Touch) {
                 pointer.and_then(|p| sv::locate(&self.score, &geo, p, self.grid())).map(|mut l| {
                     let rest = matches!(self.item, Item::Rest(_));
                     let tuplet = self.cur_tuplet_opt();
@@ -430,7 +431,17 @@ impl App {
             geo.notes = hits;
             geo.graphics = ghits;
             self.geo = geo;
-            if reader {
+            // F-38: the pen (and a finger in Pen Mode) writes ink with the Pencil; the ink is read after a pause
+            let now = ui.input(|i| i.time);
+            if self.device == crate::touch::Device::Touch {
+                self.track_touches(ui, now);
+            }
+            let pen_owns = !reader && self.pen_frame(ui, &resp, now);
+            self.pen_tick(now);
+            self.pen_draw(ui, &painter, now);
+            if pen_owns {
+                // the pen's own taps and drags don't also work the tool
+            } else if reader {
                 // a tap chooses the measure playback starts from (nothing is edited)
                 if resp.clicked() {
                     if let Some(l) = resp.interact_pointer_pos().and_then(|p| sv::locate(&self.score, &self.geo, p, self.grid())) {
@@ -449,25 +460,8 @@ impl App {
     /// The tablet: the tool follows one finger; a second finger turns the press into scrolling and zooming, and
     /// when it lands within 120 ms it undoes what the first finger started, without an undo step (F-25).
     fn touch_mouse(&mut self, ui: &mut Ui, resp: &egui::Response, painter: &egui::Painter) {
-        // the most fingers on the screen at any moment of this frame (several touch events can arrive in one frame)
-        let (mut fingers, pressed, now) = (self.touch_ids.len(), ui.input(|i| i.pointer.primary_pressed()), ui.input(|i| i.time));
-        // (a release frame still counts the fingers it had, so the gesture resets only on the next frame)
-        ui.input(|i| {
-            for e in &i.events {
-                if let egui::Event::Touch { id, phase, .. } = e {
-                    match phase {
-                        egui::TouchPhase::Start => {
-                            self.touch_ids.insert(id.0);
-                        }
-                        egui::TouchPhase::End | egui::TouchPhase::Cancel => {
-                            self.touch_ids.remove(&id.0);
-                        }
-                        egui::TouchPhase::Move => {}
-                    }
-                    fingers = fingers.max(self.touch_ids.len());
-                }
-            }
-        });
+        // the most fingers on the screen at any moment of this frame (counted by `track_touches`)
+        let (fingers, pressed, now) = (self.pen.max_fingers, ui.input(|i| i.pointer.primary_pressed()), ui.input(|i| i.time));
         if pressed && !self.gesture.multi {
             self.gesture_undo = Some((self.score.clone(), self.undo.len()));
         }
@@ -484,6 +478,15 @@ impl App {
             crate::touch::FingerAct::Normal => {}
         }
         if blocked {
+            return;
+        }
+        // F-38: once a pen is in use (Pen Mode off), the finger scrolls; its long press is still the right click
+        if self.pen.pen_seen && !self.prefs.pen_mode {
+            let d = resp.drag_delta();
+            if d != vec2(0.0, 0.0) {
+                ui.scroll_with_delta(d);
+            }
+            self.right_click(resp);
             return;
         }
         // with the pencil, the finger may slide to the right line or space before lifting: the note goes where
@@ -541,13 +544,11 @@ impl App {
         })
     }
 
-    fn mouse(&mut self, ui: &mut Ui, resp: &egui::Response) {
-        let mods = ui.input(|i| i.modifiers);
-        let grid = self.grid();
-        // right click: audition pitch under pointer
+    /// Right click (a long press on a tablet): audition the pitch under the pointer.
+    fn right_click(&mut self, resp: &egui::Response) {
         if resp.secondary_clicked() {
             if let Some(p) = resp.interact_pointer_pos() {
-                if let Some(l) = sv::locate(&self.score, &self.geo, p, grid) {
+                if let Some(l) = sv::locate(&self.score, &self.geo, p, self.grid()) {
                     let key = self.score.measures[l.measure].key;
                     let pitch = Pitch { step: l.step, alter: key_alter(key, l.step.rem_euclid(7) as usize) };
                     self.sound_note(l.staff, pitch.midi(), 90);
@@ -555,6 +556,100 @@ impl App {
                 }
             }
         }
+    }
+
+    /// F-38: the fingers on the screen this frame (the most at any moment), and the two-finger tap: both fingers
+    /// down and up within `pen::TWO_FINGER_TAP` without moving = Undo.
+    fn track_touches(&mut self, ui: &mut Ui, now: f64) {
+        let mut most = self.touch_ids.len();
+        let mut ended = false;
+        ui.input(|i| {
+            for e in &i.events {
+                if let egui::Event::Touch { id, phase, pos, .. } = e {
+                    match phase {
+                        egui::TouchPhase::Start => {
+                            self.touch_ids.insert(id.0);
+                            match &mut self.pen.two_tap {
+                                Some((_, starts, _)) if starts.len() < 3 => starts.push((id.0, *pos)),
+                                None if self.touch_ids.len() == 1 => self.pen.two_tap = Some((now, vec![(id.0, *pos)], 0.0)),
+                                _ => {}
+                            }
+                        }
+                        egui::TouchPhase::Move => {
+                            if let Some((_, starts, moved)) = &mut self.pen.two_tap {
+                                if let Some((_, p0)) = starts.iter().find(|(k, _)| *k == id.0) {
+                                    *moved = moved.max(p0.distance(*pos));
+                                }
+                            }
+                        }
+                        egui::TouchPhase::End | egui::TouchPhase::Cancel => {
+                            self.touch_ids.remove(&id.0);
+                            ended |= self.touch_ids.is_empty();
+                        }
+                    }
+                    most = most.max(self.touch_ids.len());
+                }
+            }
+        });
+        self.pen.max_fingers = most;
+        if ended {
+            if let Some((t0, starts, moved)) = self.pen.two_tap.take() {
+                if starts.len() == 2 && now - t0 <= crate::pen::TWO_FINGER_TAP + 0.05 && moved <= crate::pen::TWO_FINGER_SLOP {
+                    self.do_undo();
+                    self.pen.alts = None;
+                    self.status = "Undone (two-finger tap).".into();
+                }
+            }
+        }
+    }
+
+    /// F-38: the pen's samples this frame (the browser's `pointerType == "pen"`), and a single finger on the staff
+    /// in Pen Mode. True while the pen owns the pointer (so its taps don't also work the tool).
+    fn pen_frame(&mut self, ui: &mut Ui, resp: &egui::Response, now: f64) -> bool {
+        // (never under a dialog: its window has the pointer)
+        let writes = self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.dialog.is_none();
+        #[cfg(target_arch = "wasm32")]
+        {
+            let z = ui.ctx().zoom_factor();
+            let samples = crate::web::pen_take();
+            if !samples.is_empty() {
+                self.pen.pen_seen = true;
+            }
+            if writes {
+                for (ph, x, y) in samples {
+                    self.pen_feed(ph, pos2(x / z, y / z), now);
+                }
+                if self.pen.cur.is_some() || crate::web::pen_recent() {
+                    return true;
+                }
+            }
+        }
+        if writes && self.prefs.pen_mode && self.device == crate::touch::Device::Touch {
+            if self.pen.max_fingers >= 2 {
+                self.pen_cancel_stroke();
+                return false;
+            }
+            let (pressed, down, released, pos) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.latest_pos()));
+            if let Some(p) = pos {
+                if pressed && resp.rect.contains(p) {
+                    self.pen_feed(0, p, now);
+                } else if down && self.pen.cur.is_some() {
+                    self.pen_feed(1, p, now);
+                } else if released && self.pen.cur.is_some() {
+                    self.pen_feed(2, p, now);
+                    return true;
+                }
+            }
+            return self.pen.cur.is_some();
+        }
+        false
+    }
+
+    fn mouse(&mut self, ui: &mut Ui, resp: &egui::Response) {
+        let mods = ui.input(|i| i.modifiers);
+        let grid = self.grid();
+        // right click: audition pitch under pointer
+        self.right_click(resp);
         if resp.double_clicked() {
             if let Some(p) = resp.interact_pointer_pos() {
                 if let Some(gi) = self.hit_graphic(p) {

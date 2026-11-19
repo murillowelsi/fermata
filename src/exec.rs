@@ -458,6 +458,13 @@ impl App {
             CheckUpdates => self.start_update_check(true),
             #[cfg(target_arch = "wasm32")]
             CheckUpdates => {}
+            // F-38: the pen on tablets in the browser
+            PenGestures => self.pen.sheet = !self.pen.sheet,
+            PenMode => {
+                self.prefs.pen_mode = !self.prefs.pen_mode;
+                crate::prefs::save(&self.prefs);
+                self.status = if self.prefs.pen_mode { "Pen Mode on: touching the staff writes; scroll with two fingers.".into() } else { "Pen Mode off.".into() };
+            }
             ClickSetup => self.dialog = Some(Dialog::ClickSetup(self.prefs.clone())),
             JumpToMeasure => self.dialog = Some(Dialog::JumpTo { measure: self.score.measure_label(cm) }),
             Shortcuts => self.dialog = Some(Dialog::Shortcuts),

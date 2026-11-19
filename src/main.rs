@@ -21,6 +21,8 @@ mod model;
 mod musicxml;
 mod palettes;
 mod pdf;
+mod pen;
+mod pen_ui;
 mod platform;
 mod rec;
 mod soundfont;
@@ -320,6 +322,7 @@ impl eframe::App for Shell {
             }
             a.side_windows(&ctx);
             a.dialogs(&ctx);
+            a.pen_sheet(&ctx);
             #[cfg(not(target_arch = "wasm32"))]
             a.updater_ui(&ctx);
         }

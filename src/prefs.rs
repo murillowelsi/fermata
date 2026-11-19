@@ -62,6 +62,9 @@ pub struct Prefs {
     /// version, says "Updated to …" once and clears it.
     #[serde(default)]
     pub update_installed: Option<String>,
+    /// F-38: Pen Mode (passive pens on tablets): touching the staff writes; scrolling takes two fingers.
+    #[serde(default)]
+    pub pen_mode: bool,
     /// Settings format; older files get the new click defaults.
     #[serde(default)]
     pub version: u32,

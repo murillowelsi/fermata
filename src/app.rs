@@ -201,6 +201,8 @@ pub struct App {
     pub print_after_setup: bool,
     /// New Score: a template was double-clicked (= Create).
     pub new_score_create: bool,
+    /// F-38: the pen on the score (ink, the symbol being read, feedback).
+    pub pen: crate::pen_ui::PenState,
     /// F-36: when the insertion cursor last came back on (a click or a key; the frame clock, seconds).
     pub cursor_since: f64,
     /// F-34: the updater (check, download, card).
@@ -320,6 +322,7 @@ impl App {
             after_new_wizard: false,
             print_after_setup: false,
             new_score_create: false,
+            pen: Default::default(),
             cursor_since: 0.0,
             #[cfg(not(target_arch = "wasm32"))]
             updater: Default::default(),

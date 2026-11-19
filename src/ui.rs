@@ -228,6 +228,11 @@ impl App {
                 ui.separator();
                 self.mi_check(ui, LinearView, c2);
                 self.mi_check(ui, FloatingWindows, !d);
+                // F-38: passive pens on touch screens (the browser)
+                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                    let on = self.prefs.pen_mode;
+                    self.mi_check(ui, PenMode, on);
+                }
                 ui.separator();
                 for c in [ZoomIn, ZoomOut] {
                     self.mi(ui, c);
@@ -303,6 +308,11 @@ impl App {
                     ui.separator();
                     self.mi(ui, CheckUpdates);
                 }
+                // F-38: writing with a pen, in the browser on tablets
+                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                    ui.separator();
+                    self.mi(ui, PenGestures);
+                }
             });
         });
     }
@@ -340,7 +350,12 @@ impl App {
             });
             bar_sep(ui);
             for (t, icon, name, key) in [(Tool::Arrow, Icon::Arrow, "Arrow tool", "A · Esc"), (Tool::Eraser, Icon::Eraser, "Eraser tool", "E"), (Tool::Pencil, Icon::Pencil, "Pencil tool", "P")] {
-                if tip(icon_button(ui, icon, self.tool == t), name, key).clicked() {
+                let b = icon_button(ui, icon, self.tool == t);
+                // F-38: Pen Mode on: a blue dot on the Pencil
+                if t == Tool::Pencil && self.prefs.pen_mode {
+                    ui.painter().circle_filled(b.rect.right_top() + vec2(-6.0, 6.0), 4.0, crate::theme::t(ui).accent);
+                }
+                if tip(b, name, key).clicked() {
                     self.tool = t;
                 }
             }
@@ -473,6 +488,11 @@ impl App {
                 status_tag(ui, "● REC", k.danger, k.danger_fg);
             }
             if self.qwerty || self.rec.is_some() {
+                status_sep(ui);
+            }
+            // F-38: on a tablet in the browser, what the pen and the finger do
+            if cfg!(target_arch = "wasm32") && self.device == crate::touch::Device::Touch {
+                self.pen_chip(ui);
                 status_sep(ui);
             }
             // a tablet starts with how the fingers work instead of the mouse hint
