@@ -344,6 +344,8 @@ impl App {
             }
 
             let pointer = resp.hover_pos();
+            // F-37: over the score, the Eraser and the Pencil are the pointer (a mouse; a finger has no hover)
+            let tool_pointer = pointer.filter(|_| !reader && !crate::kit::touch() && self.drag.is_none() && matches!(self.tool, Tool::Eraser | Tool::Pencil));
             let ghost = if !reader && self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.drag.is_none() {
                 pointer.and_then(|p| sv::locate(&self.score, &geo, p, self.grid())).map(|mut l| {
                     let rest = matches!(self.item, Item::Rest(_));
@@ -400,8 +402,14 @@ impl App {
                         let age = t.elapsed().as_secs_f32();
                         at.filter(|_| age < 2.5).map(|(s, m)| (s, m, (1.0 - age / 2.5).max(0.0)))
                     }),
+                    erase: tool_pointer.filter(|_| self.tool == Tool::Eraser).and_then(|p| self.eraser_target(p)),
                 };
                 sv::draw(&painter, &self.score, &geo, &st, &mut hits, &mut ghits);
+            }
+            if let Some(p) = tool_pointer {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                let top = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("tool-pointer")));
+                crate::ui::paint_tool_pointer(&top, p, if self.tool == Tool::Eraser { crate::ui::Icon::Eraser } else { crate::ui::Icon::Pencil });
             }
             if let Some(Drag::Rubber { start }) = &self.drag {
                 if let Some(p) = pointer.or(ui.ctx().pointer_latest_pos()) {
@@ -514,6 +522,20 @@ impl App {
     }
     fn hit_graphic(&self, p: egui::Pos2) -> Option<usize> {
         self.geo.graphics.iter().rev().find(|(_, r)| r.expand(3.0).contains(p)).map(|x| x.0)
+    }
+
+    /// F-37: what a click of the Eraser at `p` removes: a symbol first, else the note or rest (one note of a chord
+    /// when the pointer is on that notehead). The click and the red highlight both ask this.
+    pub fn eraser_target(&self, p: egui::Pos2) -> Option<sv::EraseHover> {
+        if let Some(gi) = self.hit_graphic(p) {
+            return Some(sv::EraseHover::Graphic(gi));
+        }
+        let h = self.hit_note(p)?;
+        let chord = self.ev(h.r).map(|e| e.pitches.len() > 1).unwrap_or(false);
+        Some(match h.pitch {
+            Some(k) if chord => sv::EraseHover::Pitch(h.r, k),
+            k => sv::EraseHover::Event(h.r, k),
+        })
     }
 
     fn mouse(&mut self, ui: &mut Ui, resp: &egui::Response) {
@@ -742,18 +764,16 @@ impl App {
                     }
                 }
             }
-            Tool::Eraser => {
-                if let Some(gi) = self.hit_graphic(p) {
+            Tool::Eraser => match self.eraser_target(p) {
+                Some(sv::EraseHover::Graphic(gi)) => {
                     self.checkpoint();
                     self.score.graphics.remove(gi);
                     self.sel_graphics.clear();
-                } else if let Some(h) = hit {
-                    match h.pitch {
-                        Some(k) => self.delete_pitch(h.r, k),
-                        None => self.delete_refs(&[h.r]),
-                    }
                 }
-            }
+                Some(sv::EraseHover::Pitch(r, k)) | Some(sv::EraseHover::Event(r, Some(k))) => self.delete_pitch(r, k),
+                Some(sv::EraseHover::Event(r, None)) => self.delete_refs(&[r]),
+                None => {}
+            },
             Tool::Pencil => {
                 let item = self.item.clone();
                 match item {
@@ -957,5 +977,73 @@ pub fn dyn_velocity_in(pb: &PlaybackSettings, d: &str) -> u8 {
         lo + (r % (hi - lo + 1) as u32) as u8
     } else {
         ((lo as u16 + hi as u16) / 2) as u8
+    }
+}
+
+/// F-37: what the Eraser shows in red is what its click removes.
+#[cfg(test)]
+mod eraser_pointer_tests {
+    use super::*;
+
+    /// A bar with a note, a three-note chord and a rest, laid out and drawn as the score area does (so the hit areas
+    /// the Eraser uses are filled).
+    fn drawn() -> App {
+        let mut a = App::new(true);
+        a.voice = 1;
+        a.enter_clicked(0, 0, 0, Some(Pitch::from_midi(60, false)), 3, 0);
+        for n in [60, 64, 67] {
+            a.enter_clicked(0, 0, TPQ, Some(Pitch::from_midi(n, false)), 3, 0);
+        }
+        a.enter_clicked(0, 0, 2 * TPQ, None, 3, 0);
+        a.selected.clear();
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx, Some(egui::Theme::Light));
+        let mut geo = sv::layout(&a.score, egui::Pos2::ZERO, 1.0, false);
+        let mut hits = vec![];
+        let mut ghits = vec![];
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let p = egui::Painter::new(ui.ctx().clone(), egui::LayerId::background(), Rect::EVERYTHING);
+            let (sel, selg) = (HashSet::new(), HashSet::new());
+            let st = DrawState { selected: &sel, sel_graphics: &selg, cursor: None, play_tick: None, show_voice: None, show_control_points: false, show_hidden: false, sel_measures: None, hover_ghost: None, flash: None, erase: None };
+            sv::draw(&p, &a.score, &geo, &st, &mut hits, &mut ghits);
+        });
+        out.textures_delta.clear();
+        geo.notes = hits;
+        geo.graphics = ghits;
+        a.geo = geo;
+        a.tool = Tool::Eraser;
+        a
+    }
+
+    #[test]
+    fn the_red_target_is_what_the_click_erases() {
+        let a = drawn();
+        let mut points: Vec<egui::Pos2> = a.geo.notes.iter().map(|h| h.rect.center()).collect();
+        points.push(egui::pos2(-500.0, -500.0)); // nothing there
+        let mut kinds = HashSet::new();
+        for p in points {
+            let target = a.eraser_target(p);
+            let mut b = drawn();
+            let before = b.score.events[0][0].clone();
+            b.click(p, egui::Modifiers::default());
+            let after = &b.score.events[0][0];
+            match target {
+                None => assert_eq!(&before, after, "no target: nothing erased"),
+                Some(sv::EraseHover::Pitch(r, k)) => {
+                    kinds.insert("pitch");
+                    let gone = before[r.idx].pitches[k];
+                    assert_eq!(after.len(), before.len(), "one note of the chord, not the chord");
+                    assert!(!after[r.idx].pitches.contains(&gone));
+                    assert_eq!(after[r.idx].pitches.len(), before[r.idx].pitches.len() - 1);
+                }
+                Some(sv::EraseHover::Event(r, _)) => {
+                    kinds.insert(if before[r.idx].is_rest() { "rest" } else { "note" });
+                    assert_eq!(after.len(), before.len() - 1);
+                    assert!(!after.iter().any(|e| e.start == before[r.idx].start && e.voice == before[r.idx].voice), "the event under the pointer is gone");
+                }
+                Some(sv::EraseHover::Graphic(_)) => kinds.insert("graphic").then_some(()).unwrap_or(()),
+            }
+        }
+        assert!(kinds.contains("note") && kinds.contains("pitch") && kinds.contains("rest"), "{kinds:?}");
     }
 }

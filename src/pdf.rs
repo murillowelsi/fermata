@@ -96,6 +96,7 @@ pub fn page_shapes(score: &Score) -> (Vec<Rect>, Vec<Vec<Shape>>) {
         sel_measures: None,
         hover_ghost: None,
         flash: None,
+        erase: None,
     };
     let mut all = vec![];
     for pass in 0..2 {

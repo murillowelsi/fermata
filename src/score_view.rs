@@ -6,6 +6,17 @@ use egui::{pos2, vec2, Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect,
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub const SEL: Color32 = Color32::from_rgb(30, 90, 230);
+/// F-37: what a click of the Eraser would remove, while the pointer is on it.
+pub const ERASE: Color32 = Color32::from_rgb(220, 40, 40);
+
+/// F-37: the Eraser's target under the pointer: a whole note or rest (the hit notehead, if any, is what the click
+/// passes on), one note of a chord, or a symbol.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EraseHover {
+    Event(NoteRef, Option<usize>),
+    Pitch(NoteRef, usize),
+    Graphic(usize),
+}
 pub const STAFF_LINE: f32 = 0.11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -136,6 +147,8 @@ pub struct DrawState<'a> {
     pub hover_ghost: Option<(Locate, u8, bool, bool)>,
     /// A measure flashing red after something didn't fit: staff, measure, strength 0..1.
     pub flash: Option<(usize, usize, f32)>,
+    /// F-37: drawn red, what the Eraser would remove.
+    pub erase: Option<EraseHover>,
 }
 
 fn col(c: Rgb) -> Color32 {
@@ -1127,6 +1140,9 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     let r = NoteRef { staff: s, measure: m, idx: i };
                     let dimmed = st.show_voice.map(|v| v != e.voice).unwrap_or(false);
                     let mut c = if st.selected.contains(&r) { SEL } else { col(e.color) };
+                    if matches!(st.erase, Some(EraseHover::Event(er, _)) if er == r) {
+                        c = ERASE;
+                    }
                     if dimmed {
                         c = c.gamma_multiply(0.3);
                     }
@@ -1207,10 +1223,12 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                     for (k, pp) in e.pitches.iter().enumerate() {
                         let y = n.ys[k];
                         let nx = x + xoff[k];
+                        // one note of a chord that the Eraser would take out alone
+                        let hc = if st.erase == Some(EraseHover::Pitch(r, k)) { ERASE } else { c };
                         if staff.drum && false {
-                            g::x_notehead(p, pos2(nx, y), sp, c);
+                            g::x_notehead(p, pos2(nx, y), sp, hc);
                         } else {
-                            g::notehead(p, pos2(nx, y), sp, e.value, c);
+                            g::notehead(p, pos2(nx, y), sp, e.value, hc);
                         }
                         ledger(p, nx, mid, pp.step - mid_step, hw, sp, Color32::BLACK);
                         // dots: in a space (a note on a line puts it in the space above, the lower voice below), in one
@@ -1315,7 +1333,8 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
 
     // graphics
     for (gi, gr) in score.graphics.iter().enumerate() {
-        if let Some(r) = draw_graphic(p, score, geo, gr, st.sel_graphics.contains(&gi), st.show_control_points) {
+        let erase = st.erase == Some(EraseHover::Graphic(gi));
+        if let Some(r) = draw_graphic(p, score, geo, gr, st.sel_graphics.contains(&gi), erase, st.show_control_points) {
             out_graphics.push((gi, r));
         }
     }
@@ -1558,7 +1577,8 @@ fn anchor_pos(score: &Score, geo: &Geometry, staff: usize, m: usize, tick: u32) 
     None
 }
 
-pub fn draw_graphic(p: &Painter, score: &Score, geo: &Geometry, gr: &Graphic, selected: bool, ctrl: bool) -> Option<Rect> {
+#[allow(clippy::too_many_arguments)]
+pub fn draw_graphic(p: &Painter, score: &Score, geo: &Geometry, gr: &Graphic, selected: bool, erase: bool, ctrl: bool) -> Option<Rect> {
     let sp = geo.sp;
     let (a, sa) = anchor_pos(score, geo, gr.staff, gr.measure, gr.tick)?;
     let a = a + vec2(gr.dx * sp, gr.dy * sp);
@@ -1571,7 +1591,13 @@ pub fn draw_graphic(p: &Painter, score: &Score, geo: &Geometry, gr: &Graphic, se
     if (gr.end_measure, gr.end_tick) <= (gr.measure, gr.tick) && !matches!(gr.kind, GraphicKind::Text) {
         b = a + vec2(sp * 6.0, (gr.end_dy - gr.dy) * sp);
     }
-    let c = if selected { SEL } else { col(gr.color) };
+    let c = if erase {
+        ERASE
+    } else if selected {
+        SEL
+    } else {
+        col(gr.color)
+    };
     let st = Stroke::new(sp * 0.13, c);
     let rect = match gr.kind {
         GraphicKind::Text => {
@@ -1885,6 +1911,7 @@ mod collisions {
                 sel_measures: None,
                 hover_ghost: None,
                 flash: None,
+        erase: None,
             };
             let mut hits = vec![];
             let mut gh = vec![];

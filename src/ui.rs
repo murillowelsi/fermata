@@ -2451,6 +2451,43 @@ fn icon_button(ui: &mut Ui, icon: Icon, on: bool) -> egui::Response {
 }
 
 /// The toolbar icons, drawn in code (no icon font or image files). `c` is the centre of an 18-point box.
+/// F-37: the Eraser or the Pencil as the mouse pointer, the size of a system pointer (about 22 pt), its working end
+/// on `tip`: the pencil's point, the eraser's rubbing end. Dark lines with a thin light outline and a light body,
+/// so it reads on the white page and on the canvas around it, in light and dark mode.
+pub fn paint_tool_pointer(p: &egui::Painter, tip: egui::Pos2, icon: Icon) {
+    let s = 1.45;
+    let (sn, co) = (-std::f32::consts::FRAC_PI_4).sin_cos();
+    // the toolbar icon's shape (a box rotated 45° up to the right), scaled, placed so that its working end is `tip`
+    let end = match icon {
+        Icon::Pencil => vec2(-8.0, 0.0),
+        _ => vec2(-7.0, 0.0),
+    };
+    let rot = |v: egui::Vec2| vec2(v.x * co - v.y * sn, v.x * sn + v.y * co) * s;
+    let c = tip - rot(end);
+    let at = |x: f32, y: f32| c + rot(vec2(x, y));
+    let ink = Color32::from_rgb(28, 28, 32);
+    let halo = Stroke::new(3.6, Color32::from_white_alpha(235));
+    let line = Stroke::new(1.6, ink);
+    let (body, bands): (Vec<egui::Pos2>, Vec<(egui::Pos2, egui::Pos2)>) = match icon {
+        Icon::Pencil => (vec![at(-3.5, -2.4), at(7.5, -2.4), at(7.5, 2.4), at(-3.5, 2.4), at(-8.0, 0.0)], vec![(at(4.5, -2.4), at(4.5, 2.4)), (at(-3.5, -2.4), at(-3.5, 2.4))]),
+        _ => (vec![at(-7.0, -3.2), at(5.5, -3.2), at(5.5, 3.2), at(-7.0, 3.2)], vec![(at(-2.0, -3.2), at(-2.0, 3.2))]),
+    };
+    p.add(egui::Shape::closed_line(body.clone(), halo));
+    if icon == Icon::Eraser {
+        // see-through, so the note it would erase shows red under it; the rubbing end shaded, as on a real eraser
+        p.add(egui::Shape::convex_polygon(body.clone(), Color32::from_white_alpha(90), Stroke::NONE));
+        p.add(egui::Shape::convex_polygon(vec![at(-7.0, -3.2), at(-2.0, -3.2), at(-2.0, 3.2), at(-7.0, 3.2)], Color32::from_rgba_unmultiplied(232, 120, 120, 70), Stroke::NONE));
+    } else {
+        p.add(egui::Shape::convex_polygon(body.clone(), Color32::WHITE, Stroke::NONE));
+        // the pencil's point darker
+        p.add(egui::Shape::convex_polygon(vec![at(-5.6, -1.1), at(-5.6, 1.1), at(-8.0, 0.0)], ink, Stroke::NONE));
+    }
+    p.add(egui::Shape::closed_line(body, line));
+    for (a, b) in bands {
+        p.line_segment([a, b], line);
+    }
+}
+
 pub fn paint_icon(p: &egui::Painter, c: egui::Pos2, icon: Icon, col: Color32, k: &theme::Tokens) {
     let st = Stroke::new(1.5, col);
     // a point in a box rotated 45° up to the right, for the eraser and the pencil
@@ -2825,6 +2862,7 @@ fn page_setup_preview(ui: &mut Ui, score: &Score, page: &mut usize) {
             sel_measures: None,
             hover_ghost: None,
             flash: None,
+        erase: None,
         };
         crate::score_view::draw(&painter.with_clip_rect(r), &ps, &geo, &st, &mut vec![], &mut vec![]);
         let [mt, mb, ml, mr] = score.layout.margins().map(|m| m * fit);
