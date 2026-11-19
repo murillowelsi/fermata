@@ -182,6 +182,13 @@ fn measure_slots(score: &Score, m: usize, staves: &[usize], sp: f32) -> (Vec<(u3
     }
     let mut out = vec![];
     let mut x = sp * 0.5 * score.layout.measure_space_hs[0] as f32 + sp * 0.2;
+    // F-36: beat 1 always has its place after the clef, key and time signature: in an empty measure (where the
+    // Pencil and the cursor start) and in a measure whose first note comes later, whose empty stretch then takes
+    // room like a rest of that length, so a note on beat 3 sits near the middle
+    if starts.is_empty() {
+        return (vec![(0, x)], sp * 8.0);
+    }
+    starts.insert(0);
     let starts: Vec<u32> = starts.into_iter().collect();
     for (i, &t) in starts.iter().enumerate() {
         if acc_at.contains(&t) {
@@ -199,9 +206,6 @@ fn measure_slots(score: &Score, m: usize, staves: &[usize], sp: f32) -> (Vec<(u3
             w += slot_min_width(sp, next - t - d) * 0.6;
         }
         x += w;
-    }
-    if out.is_empty() {
-        x = sp * 8.0;
     }
     (out, x.max(sp * 5.0))
 }
@@ -551,17 +555,19 @@ pub fn locate(score: &Score, geo: &Geometry, p: Pos2, grid: u32) -> Option<Locat
             }
         }
         let tick = tick.unwrap_or_else(|| {
-            // interpolate
+            // interpolate, with the same mapping `x_for_tick` draws with (so the Pencil's preview is where the
+            // pointer is)
             let mut lo = (0u32, mg.content_x);
-            let mut hi = (mt, mg.x1);
+            let mut hi = None;
             for &(t, x) in &mg.slots {
                 if x <= p.x {
                     lo = (t, x);
                 } else {
-                    hi = (t, x);
+                    hi = Some((t, x));
                     break;
                 }
             }
+            let hi = hi.unwrap_or((mt, mg.x1 - (mg.x1 - lo.1) * 0.15));
             let f = ((p.x - lo.1) / (hi.1 - lo.1).max(1.0)).clamp(0.0, 1.0);
             let raw = lo.0 as f32 + (hi.0 - lo.0) as f32 * f;
             let g = grid.max(1) as f32;
@@ -1261,13 +1267,9 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 // cursor
                 if let Some((cs, cm, ct)) = st.cursor {
                     if cs == s && mg.covers(cm) {
+                        // F-36: a thin black line the height of the staff, as in Encore (it blinks: see `cursor_on`)
                         let x = if mg.span > 1 { mg.content_x + sp * 0.4 } else { x_for_tick(mg, ct, mt) - sp * 0.9 };
-                        p.line_segment([pos2(x, mid - 3.5 * sp), pos2(x, mid + 3.5 * sp)], Stroke::new(sp * 0.18, Color32::from_rgb(220, 40, 40)));
-                        p.add(egui::Shape::convex_polygon(
-                            vec![pos2(x - sp * 0.6, mid - 4.3 * sp), pos2(x + sp * 0.6, mid - 4.3 * sp), pos2(x, mid - 3.4 * sp)],
-                            Color32::from_rgb(220, 40, 40),
-                            Stroke::NONE,
-                        ));
+                        p.line_segment([pos2(x, mid - 2.0 * sp), pos2(x, mid + 2.0 * sp)], Stroke::new((sp * 0.1).max(1.0), Color32::BLACK));
                     }
                 }
                 // ghost note for pencil hover

@@ -350,9 +350,11 @@ impl App {
                     let tuplet = self.cur_tuplet_opt();
                     let joins = !rest && self.score.events[l.staff][l.measure].iter().any(|e| e.voice == self.voice && e.start == l.tick && !e.is_rest() && !e.grace);
                     let len = dur_ticks(self.cur_value, self.cur_dots, tuplet);
-                    // show the note where it will really go (moved back before the bar line when needed)
+                    // show the note where it will really go: on the beat pointed at, after a note it points inside, or
+                    // moved back before the bar line (F-36)
+                    let placed = if joins { Some(l.tick) } else { self.pencil_tick(l.staff, l.measure, l.tick, len) };
                     if !joins {
-                        if let Some(t) = self.place_tick(l.staff, l.measure, l.tick, len) {
+                        if let Some(t) = placed {
                             if t != l.tick {
                                 l.tick = t;
                                 let mt = self.score.measures[l.measure].ticks();
@@ -362,12 +364,24 @@ impl App {
                             }
                         }
                     }
-                    let fits = joins || self.place_tick(l.staff, l.measure, l.tick, len).is_some() || self.room_after_closing(l.staff, l.measure, len);
+                    let fits = placed.is_some();
                     (l, self.cur_value, rest, fits)
                 })
             } else {
                 None
             };
+            // F-36: the insertion cursor blinks like a text cursor (0.5 s on, 0.5 s off) and is back on with every click
+            // or key; it stays on while playing or recording, in screenshots and when the window isn't in front
+            let now = ui.input(|i| i.time);
+            if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::PointerButton { .. } | egui::Event::Text(_)))) {
+                self.cursor_since = now;
+            }
+            let steady = self.screenshot_mode || play.is_some() || self.rec.is_some() || !ui.input(|i| i.focused);
+            let phase = (now - self.cursor_since).rem_euclid(1.0);
+            let cursor_on = steady || phase < 0.5;
+            if !steady && !reader {
+                ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.5 - phase.rem_euclid(0.5) + 0.01));
+            }
             let mut hits = vec![];
             let mut ghits = vec![];
             {
@@ -375,7 +389,7 @@ impl App {
                     selected: &self.selected,
                     sel_graphics: &self.sel_graphics,
                     // the reader has no insertion cursor
-                    cursor: if reader { None } else { Some(self.cursor) },
+                    cursor: if reader || !cursor_on { None } else { Some(self.cursor) },
                     play_tick: play,
                     show_voice: self.show_voice,
                     show_control_points: self.control_points,
@@ -758,7 +772,7 @@ impl App {
                             Some(Pitch { step: l.step, alter })
                         };
                         let d = self.cur_dots;
-                        let r = self.enter(l.staff, l.measure, l.tick, pitch, v, d, true);
+                        let r = self.enter_clicked(l.staff, l.measure, l.tick, pitch, v, d);
                         if mods.alt && !rest {
                             if let Some(e) = self.ev_mut(r) {
                                 let n = e.courtesy.len();

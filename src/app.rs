@@ -201,6 +201,8 @@ pub struct App {
     pub print_after_setup: bool,
     /// New Score: a template was double-clicked (= Create).
     pub new_score_create: bool,
+    /// F-36: when the insertion cursor last came back on (a click or a key; the frame clock, seconds).
+    pub cursor_since: f64,
     /// F-34: the updater (check, download, card).
     #[cfg(not(target_arch = "wasm32"))]
     pub updater: crate::update_ui::Updater,
@@ -318,6 +320,7 @@ impl App {
             after_new_wizard: false,
             print_after_setup: false,
             new_score_create: false,
+            cursor_since: 0.0,
             #[cfg(not(target_arch = "wasm32"))]
             updater: Default::default(),
             after_save: None,
@@ -469,8 +472,19 @@ impl App {
         keep.and_then(|k| idx.iter().position(|&i| i == k))
     }
 
-    /// Enter a note or rest (Pencil tool, QWERTY, keyboard window). Returns the event.
+    /// Enter a note or rest in sequence (QWERTY, keyboard window, MIDI): an empty stretch before it is closed up.
+    /// Returns the event.
     pub fn enter(&mut self, s: usize, m: usize, tick: u32, pitch: Option<Pitch>, value: u8, dots: u8, advance: bool) -> NoteRef {
+        self.enter_with(s, m, tick, pitch, value, dots, advance, false)
+    }
+
+    /// F-36: the Pencil's note or rest, on the beat clicked (see `pencil_tick`).
+    pub fn enter_clicked(&mut self, s: usize, m: usize, tick: u32, pitch: Option<Pitch>, value: u8, dots: u8) -> NoteRef {
+        self.enter_with(s, m, tick, pitch, value, dots, true, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn enter_with(&mut self, s: usize, m: usize, tick: u32, pitch: Option<Pitch>, value: u8, dots: u8, advance: bool, clicked: bool) -> NoteRef {
         let tuplet = self.cur_tuplet_opt();
         let voice = self.voice;
         // a note added to a chord keeps that chord's length; anything else must fit before the bar line
@@ -478,6 +492,14 @@ impl App {
         let len = dur_ticks(value, dots, tuplet);
         let tick = if joins_chord {
             tick
+        } else if clicked {
+            match self.pencil_tick(s, m, tick, len) {
+                Some(t) => t,
+                None => {
+                    self.warn_overflow(s, m, tick + len);
+                    return NoteRef { staff: s, measure: m, idx: usize::MAX };
+                }
+            }
         } else {
             match self.place_tick(s, m, tick, len) {
                 Some(t) => t,
@@ -768,6 +790,34 @@ impl App {
             Some(t)
         } else {
             None
+        }
+    }
+
+    /// F-36: where the Pencil puts a note of `len` ticks clicked at `tick` (already on the grid): right there, with
+    /// nothing added before it (the stretch before stays empty, as in Encore). A click inside a note of the voice
+    /// goes to where that note ends (no overlap, no duplicate). A note that would cross the bar line moves back to the
+    /// latest grid point where it fits without overlapping a note of the voice; None when there is no such place.
+    pub fn pencil_tick(&self, s: usize, m: usize, tick: u32, len: u32) -> Option<u32> {
+        let mt = self.score.measures.get(m)?.ticks();
+        let g = self.grid().max(1);
+        let notes: Vec<(u32, u32)> = self.score.events.get(s)?.get(m)?.iter().filter(|e| e.voice == self.voice && !e.grace).map(|e| (e.start, e.end())).collect();
+        let mut t = tick;
+        if let Some(end) = notes.iter().filter(|(a, b)| *a < t && t < *b).map(|x| x.1).max() {
+            t = end;
+        }
+        if t + len <= mt {
+            return Some(t);
+        }
+        let free = |a: u32| notes.iter().all(|&(s0, e0)| e0 <= a || s0 >= a + len);
+        let mut c = mt.checked_sub(len)? / g * g;
+        loop {
+            if free(c) {
+                return Some(c);
+            }
+            if c < g {
+                return None;
+            }
+            c -= g;
         }
     }
 
@@ -2509,5 +2559,168 @@ mod f29_tests {
         assert_eq!(sc.staves.len(), 2);
         assert!(sc.staves[0].brace_with_next);
         assert_eq!((sc.layout.systems_per_page, sc.layout.measures_per_system), (5, 3));
+    }
+}
+
+/// F-36: the Pencil puts the note on the beat clicked, with nothing added before it (as in Encore).
+#[cfg(test)]
+mod pencil_tests {
+    use super::*;
+    use crate::model::TPQ;
+    use crate::score_view as sv;
+
+    fn app() -> App {
+        let mut a = App::new(true);
+        a.cur_value = 3; // quarter
+        a.cur_dots = 0;
+        a.voice = 1;
+        a
+    }
+
+    fn c4() -> Option<Pitch> {
+        Some(Pitch::from_midi(60, false))
+    }
+
+    fn starts(a: &App, m: usize) -> Vec<(u32, bool)> {
+        a.score.events[0][m].iter().map(|e| (e.start, e.is_rest())).collect()
+    }
+
+    /// The point on the page where beat `tick` of measure `m` is drawn, on the top staff's middle line.
+    fn point(a: &App, m: usize, tick: u32) -> (sv::Geometry, egui::Pos2) {
+        let geo = sv::layout(&a.score, egui::Pos2::ZERO, 1.0, false);
+        let sys = geo.systems.iter().find(|s| s.measures.iter().any(|g| g.covers(m))).unwrap().clone();
+        let mg = sys.measures.iter().find(|g| g.covers(m)).unwrap();
+        let x = sv::x_for_tick(mg, tick, a.score.measures[m].ticks());
+        (geo.clone(), egui::pos2(x, sys.staves[0].1))
+    }
+
+    #[test]
+    fn a_click_on_beat_3_of_an_empty_bar_puts_the_note_there_and_nothing_before() {
+        let mut a = app();
+        // the click: where beat 3 is drawn, read back through the grid like the mouse
+        let (geo, p) = point(&a, 0, 2 * TPQ);
+        let l = sv::locate(&a.score, &geo, p, a.grid()).unwrap();
+        assert_eq!((l.measure, l.tick), (0, 2 * TPQ));
+        // the preview goes there too
+        assert_eq!(a.pencil_tick(0, 0, l.tick, TPQ), Some(2 * TPQ));
+        a.enter_clicked(0, 0, l.tick, c4(), 3, 0);
+        assert_eq!(starts(&a, 0), vec![(2 * TPQ, false)], "beats 1 and 2 stay empty, no rests");
+        // drawn near the middle of the bar
+        let geo = sv::layout(&a.score, egui::Pos2::ZERO, 1.0, false);
+        let mg = &geo.systems[0].measures[0];
+        let x = sv::x_for_tick(mg, 2 * TPQ, a.score.measures[0].ticks());
+        let f = (x - mg.content_x) / (mg.x1 - mg.content_x);
+        assert!((0.35..0.65).contains(&f), "beat 3 at {f:.2} of the bar");
+    }
+
+    #[test]
+    fn a_click_after_the_last_note_leaves_the_gap_empty() {
+        let mut a = app();
+        a.enter_clicked(0, 0, 0, c4(), 3, 0);
+        a.enter_clicked(0, 0, 3 * TPQ, Some(Pitch::from_midi(64, false)), 3, 0);
+        assert_eq!(starts(&a, 0), vec![(0, false), (3 * TPQ, false)], "not pulled back to beat 2");
+        // the empty stretch is silent; the note sounds on beat 4 (default tempo, 120)
+        let (notes, _, _) = crate::audio::build(&a.score, 0);
+        let mut at: Vec<f64> = notes.iter().map(|n| n.at).collect();
+        at.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        let beat = 60.0 / a.score.tempo_at(0) as f64;
+        assert_eq!(at.len(), 2);
+        assert!(at[0].abs() < 1e-6 && (at[1] - 3.0 * beat).abs() < 1e-6, "{at:?}");
+    }
+
+    #[test]
+    fn a_click_on_a_note_makes_a_chord_and_inside_a_note_goes_after_it() {
+        let mut a = app();
+        a.enter_clicked(0, 0, TPQ, c4(), 2, 0); // half note on beat 2 (ticks 960..2880)
+        a.enter_clicked(0, 0, TPQ, Some(Pitch::from_midi(64, false)), 3, 0);
+        assert_eq!(a.score.events[0][0].len(), 1);
+        assert_eq!(a.score.events[0][0][0].pitches.len(), 2, "same start: a chord");
+        // inside the half note: no overlap, no duplicate; it goes where the half note ends
+        assert_eq!(a.pencil_tick(0, 0, 2 * TPQ, TPQ), Some(3 * TPQ));
+        a.enter_clicked(0, 0, 2 * TPQ, Some(Pitch::from_midi(67, false)), 3, 0);
+        assert_eq!(starts(&a, 0), vec![(TPQ, false), (3 * TPQ, false)]);
+    }
+
+    #[test]
+    fn a_note_that_does_not_fit_moves_back_or_is_refused() {
+        let mut a = app();
+        // a half note clicked on beat 4 of an empty bar goes back to beat 3
+        a.cur_value = 2;
+        assert_eq!(a.pencil_tick(0, 0, 3 * TPQ, 2 * TPQ), Some(2 * TPQ));
+        a.enter_clicked(0, 0, 3 * TPQ, c4(), 2, 0);
+        assert_eq!(starts(&a, 0), vec![(2 * TPQ, false)]);
+        // a quarter on beat 1 leaves room for a half note only on beat 2 when beat 3 is taken
+        let mut b = app();
+        b.enter_clicked(0, 0, 0, c4(), 3, 0);
+        b.cur_value = 2;
+        assert_eq!(b.pencil_tick(0, 0, 3 * TPQ, 2 * TPQ), Some(2 * TPQ));
+        // a full bar: nowhere to go, red preview and the warning, nothing changes
+        let mut c = app();
+        c.enter_clicked(0, 0, 0, c4(), 1, 0); // whole note
+        assert_eq!(c.pencil_tick(0, 0, 2 * TPQ, TPQ), None);
+        let r = c.enter_clicked(0, 0, 2 * TPQ, Some(Pitch::from_midi(64, false)), 3, 0);
+        assert_eq!(r.idx, usize::MAX);
+        assert_eq!(starts(&c, 0), vec![(0, false)]);
+        assert!(c.warn.is_some());
+    }
+
+    #[test]
+    fn typing_still_enters_in_sequence() {
+        // QWERTY, the keyboard window and MIDI keep closing up the stretch before the note
+        let mut a = app();
+        a.enter(0, 0, 2 * TPQ, c4(), 3, 0, true);
+        assert_eq!(starts(&a, 0), vec![(0, false)]);
+    }
+
+    #[test]
+    fn beat_1_and_the_cursor_keep_clear_of_the_time_signature() {
+        let mut a = app();
+        let sp = a.score.layout.staff_space;
+        // an empty bar: beat 1 (where the preview and the cursor go) is a space and more after the header
+        let geo = sv::layout(&a.score, egui::Pos2::ZERO, 1.0, false);
+        let mg = &geo.systems[0].measures[0];
+        let empty = sv::x_for_tick(mg, 0, a.score.measures[0].ticks()) - mg.content_x;
+        assert!(empty >= sp * 1.1, "beat 1 is {:.1} spaces after the time signature", empty / sp);
+        // the same once a note is there
+        a.enter_clicked(0, 0, 0, c4(), 3, 0);
+        let geo = sv::layout(&a.score, egui::Pos2::ZERO, 1.0, false);
+        let mg = &geo.systems[0].measures[0];
+        let with_note = sv::x_for_tick(mg, 0, a.score.measures[0].ticks()) - mg.content_x;
+        assert!((with_note - empty).abs() < sp * 0.5);
+    }
+
+    #[test]
+    fn the_gap_stays_in_fmt_and_musicxml() {
+        let mut a = app();
+        a.enter_clicked(0, 0, 2 * TPQ, c4(), 3, 0);
+        let back = crate::io::open_bytes("x.fmt", &crate::io::score_bytes(&a.score).unwrap()).unwrap();
+        assert_eq!(back.events[0][0].iter().map(|e| e.start).collect::<Vec<_>>(), vec![2 * TPQ]);
+        // MusicXML writes the empty stretch as <forward>, and reading it back keeps the beat
+        let xml = crate::io::musicxml_string(&a.score);
+        let m1 = &xml[xml.find("<measure number=\"1\"").unwrap()..];
+        let m1 = &m1[..m1.find("</measure>").unwrap()];
+        assert!(m1.contains("<forward><duration>"), "{m1}");
+        assert!(!m1.contains("<rest"), "no rest before the note");
+        let imp = crate::musicxml::import("x.musicxml", xml.as_bytes()).unwrap();
+        assert_eq!(imp.score.events[0][0].iter().filter(|e| !e.is_rest()).map(|e| e.start).collect::<Vec<_>>(), vec![2 * TPQ]);
+    }
+
+    /// `.enc` keeps the gap. Encore files need a model (an existing .enc) to write into: give one with
+    /// `FERMATA_ENC_MODEL=<file.enc> cargo test --release -- --ignored the_gap_stays_in_enc`.
+    #[test]
+    #[ignore]
+    fn the_gap_stays_in_enc() {
+        let Ok(path) = std::env::var("FERMATA_ENC_MODEL") else { return };
+        let model = std::fs::read(path).unwrap();
+        let mut a = app();
+        a.enter_clicked(0, 0, 2 * TPQ, c4(), 3, 0);
+        a.enter_clicked(0, 1, 0, Some(Pitch::from_midi(64, false)), 3, 0);
+        a.enter_clicked(0, 1, 3 * TPQ, Some(Pitch::from_midi(67, false)), 3, 0);
+        let bytes = crate::enc::export(&a.score, &model).unwrap();
+        let back = crate::enc::import(&bytes).unwrap();
+        let st = |sc: &Score, m: usize| sc.events[0][m].iter().filter(|e| !e.is_rest()).map(|e| e.start).collect::<Vec<_>>();
+        assert_eq!(st(&back, 0), vec![2 * TPQ]);
+        assert_eq!(st(&back, 1), vec![0, 3 * TPQ]);
+        println!("enc: measure 1 {:?}, measure 2 {:?}", st(&back, 0), st(&back, 1));
     }
 }
