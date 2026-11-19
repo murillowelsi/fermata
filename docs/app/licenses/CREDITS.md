@@ -70,6 +70,12 @@ synthesizer plays, as before.
 | pdf-writer 0.15.0 (writes the PDF, F-06), from the Typst project | MIT OR Apache-2.0 |
 | subsetter 0.2.6 (font subsets for the PDF, F-06; default features off), from the Typst project | MIT OR Apache-2.0 |
 | ryu 1.0 (number formatting, a dependency of pdf-writer) | Apache-2.0 OR BSL-1.0 |
+| ed25519-dalek 2.2.0 and curve25519-dalek 4 (checks the signature of update files, F-34; Mac and Windows only) | BSD-3-Clause |
+| sha2 0.10.9 (SHA-256 of update files, F-34) and its RustCrypto helpers (digest, block-buffer, crypto-common, generic-array, typenum, cpufeatures, subtle, zeroize, signature, ed25519) | MIT OR Apache-2.0 (generic-array: MIT; subtle: BSD-3-Clause) |
+
+Updates (F-34) are downloaded with the operating system's own `curl` (built into macOS and Windows 10 and later), so
+no HTTP or TLS library is built into Fermata. `tools/sign-update` (the release's signing tool, not shipped in the app)
+also uses `getrandom` (MIT OR Apache-2.0) for new keys.
 
 Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).
 
@@ -78,13 +84,6 @@ Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo m
 The MusicXML reader (`src/musicxml.rs`), its XML parser and its ZIP reader are Fermata's own code, written from the
 public MusicXML 4.0 specification (W3C Music Notation Community Group) and the ZIP format note (PKWARE APPNOTE).
 The test files in `tests/musicxml/` were written by the Fermata team; `tests/corpus/` holds scores made by the team.
-
-## Photo import (separate program)
-
-Photo import uses Audiveris (AGPL-3.0). Fermata doesn't include it: on the first photo import it downloads the
-official Audiveris 5.11.0 release (github.com/Audiveris/audiveris, checked by SHA-256) into its own support folder and
-runs it as a separate program. The licence (`licenses/Audiveris-AGPL-3.0.txt`) and where to get its source code are
-kept beside that copy (`NOTICE.txt`).
 
 ## Compatibility
 
