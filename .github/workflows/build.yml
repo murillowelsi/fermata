@@ -72,8 +72,18 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
-      - name: mingw-w64
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq mingw-w64 zip
+      - name: mingw-w64 (only the 64-bit compiler and windres)
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          # the man-db trigger can stall apt on GitHub's Ubuntu images for many minutes
+          echo "set man-db/auto-update false" | sudo debconf-communicate >/dev/null || true
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 zip
+          x86_64-w64-mingw32-gcc --version | head -1
+          x86_64-w64-mingw32-windres --version | head -1
       - name: Build the Windows zip
         run: ./make_windows.sh
       - uses: actions/upload-artifact@v4
@@ -97,7 +107,8 @@ jobs:
           WB=$(awk '/^name = "wasm-bindgen"$/{getline; sub(/version = "/,""); sub(/"/,""); print; exit}' Cargo.lock)
           echo "wasm-bindgen $WB"
           cargo install --locked wasm-bindgen-cli --version "$WB"
-          sudo apt-get install -y -qq binaryen
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends binaryen
       - name: Build the web version
         run: ./make_web.sh
       - uses: actions/upload-artifact@v4
