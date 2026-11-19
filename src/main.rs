@@ -32,6 +32,12 @@ mod reader;
 #[cfg(target_arch = "wasm32")]
 mod web;
 mod ui;
+#[cfg(not(target_arch = "wasm32"))]
+mod update;
+#[cfg(not(target_arch = "wasm32"))]
+mod update_sig;
+#[cfg(not(target_arch = "wasm32"))]
+mod update_ui;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -88,6 +94,9 @@ impl eframe::App for Shell {
     // closing normally: the automatic backup isn't needed any more (F-28)
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.app.autosave_exit();
+        // F-34: an update left for later is put in place as Fermata closes
+        #[cfg(not(target_arch = "wasm32"))]
+        self.app.install_update_on_exit();
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -311,6 +320,8 @@ impl eframe::App for Shell {
             }
             a.side_windows(&ctx);
             a.dialogs(&ctx);
+            #[cfg(not(target_arch = "wasm32"))]
+            a.updater_ui(&ctx);
         }
         if let Some(c) = a.pending_cmd.take() {
             a.exec(c);
@@ -466,11 +477,14 @@ fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     // F-35: the photo reader earlier versions downloaded is no longer used
     prefs::remove_old_photo_reader();
+    // F-34: what a finished update left behind
+    update::cleanup();
     let mut shot = None;
     let mut open = None;
     let mut force_theme = None;
     let mut open_palettes: Option<Vec<usize>> = None;
     let mut open_dialog: Option<String> = None;
+    let mut update_demo: Option<String> = None;
     let mut steps: Vec<devshots::Step> = vec![];
     let mut sheet = false;
     let mut i = 1;
@@ -517,6 +531,37 @@ fn main() -> eframe::Result<()> {
             let builtin = args.get(i + 3).map(|a| a == "builtin").unwrap_or(false);
             match render_wav(&args[i + 1], &args[i + 2], builtin) {
                 Ok(msg) => println!("{msg}"),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+        // F-34: is there a newer version? (prints it, or "latest")
+        if args[i] == "--check-update" {
+            match update::check_now(10) {
+                Ok(update::Check::Newer(r)) => {
+                    let ready = r.asset.is_some() && r.sig.is_some();
+                    println!("{} ({}){}", r.version, r.page, if ready { "" } else { " — no signed update file for this computer" });
+                }
+                Ok(update::Check::Latest(v)) => println!("latest (this is {}, the latest release is {v})", update::VERSION),
+                Err(e) => {
+                    eprintln!("couldn't check: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+        // F-34: install from local files (a signed update zip and its .sig) and open the new version
+        if args[i] == "--self-update-from" && i + 2 < args.len() {
+            match update::self_update_from(std::path::Path::new(&args[i + 1]), std::path::Path::new(&args[i + 2])) {
+                Ok(msg) => {
+                    let mut p = prefs::load();
+                    p.update_installed = Some(update::VERSION.to_string());
+                    prefs::save(&p);
+                    println!("{msg}");
+                }
                 Err(e) => {
                     eprintln!("{e}");
                     std::process::exit(1);
@@ -780,6 +825,12 @@ fn main() -> eframe::Result<()> {
         }
         // which palettes are open (indices, e.g. 0,1,3,4,6), with a pixel check of their cells in the screenshot
         // development: open a dialog or floating window by name, then click / move the mouse (points)
+        // F-34: a state of the update card or dialog with a sample release (screenshots)
+        if args[i] == "--update-demo" && i + 1 < args.len() {
+            update_demo = Some(args[i + 1].clone());
+            i += 2;
+            continue;
+        }
         if args[i] == "--dialog" && i + 1 < args.len() {
             open_dialog = Some(args[i + 1].clone());
             i += 2;
@@ -859,6 +910,9 @@ fn main() -> eframe::Result<()> {
                     app.palettes[i] = true;
                 }
                 app.palette_cell_log = Some(vec![]);
+            }
+            if let Some(s) = update_demo.as_deref() {
+                app.update_demo(s);
             }
             if let Some(d) = open_dialog.as_deref() {
                 if !devshots::open(&mut app, d) {

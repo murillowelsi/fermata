@@ -1,0 +1,11 @@
+[package]
+name = "sign-update"
+version = "0.1.0"
+edition = "2021"
+description = "Signs Fermata's update files (F-34). The secret key never goes into the repository."
+publish = false
+
+[dependencies]
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+getrandom = "0.3"

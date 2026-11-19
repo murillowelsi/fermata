@@ -23,6 +23,14 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 cpal = "0.18"
 winit = "0.30"
 
+# F-34: signatures of update files (Ed25519, SHA-256), pure Rust; downloads go through the system's curl
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+
+[workspace]
+members = [".", "tools/sign-update"]
+
 # the browser build (F-23 spike): Web MIDI comes through midir, Web Audio through cpal's wasm-bindgen backend
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cpal = { version = "0.18", features = ["wasm-bindgen"] }

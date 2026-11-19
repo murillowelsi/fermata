@@ -55,6 +55,14 @@ codesign --force --deep -s - "$APP"
 echo "Built $APP"
 lipo -info "$APP/Contents/MacOS/Fermata"
 
+# F-34: the file the app updates itself from (the .app zipped with ditto); the release signs it with
+# tools/sign-update (the secret key stays outside the repository) and uploads both
+UPD=dist/Fermata-macOS-update.zip
+rm -f "$UPD" "$UPD.sig"
+(cd dist && ditto -c -k --keepParent Fermata.app Fermata-macOS-update.zip)
+echo "Built $UPD ($(wc -c < "$UPD" | tr -d ' ') bytes); sign it: cargo run --release -p sign-update -- sign <key> $UPD"
+[ -s assets/update/fermata-update.pub ] || echo "warning: assets/update/fermata-update.pub is empty: this build won't install updates" >&2
+
 # installer disk image (F-14c): a 720x460 window with the Traço background, Fermata on the left and
 # Applications on the right, and the Fermata icon on the disk. Laying out the window needs the Finder (a graphical
 # session and, the first time, Automation permission); without it a plain .dmg is built and a warning printed.

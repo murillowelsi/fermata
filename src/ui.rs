@@ -298,6 +298,11 @@ impl App {
                 ui.separator();
                 self.mi(ui, Shortcuts);
                 self.mi(ui, About);
+                // F-34: the browser has its own update notice (the service worker)
+                if !cfg!(target_arch = "wasm32") {
+                    ui.separator();
+                    self.mi(ui, CheckUpdates);
+                }
             });
         });
     }
@@ -471,7 +476,18 @@ impl App {
                 status_sep(ui);
             }
             // a tablet starts with how the fingers work instead of the mouse hint
-            let msg = if kit::touch() && self.status.starts_with("Ready.") { "Toque: escreve · 2 dedos: rola e amplia · toque longo: menu" } else { self.status.as_str() };
+            // F-34: a download with its card hidden shows here
+            #[cfg(not(target_arch = "wasm32"))]
+            let upd = self.update_status();
+            #[cfg(target_arch = "wasm32")]
+            let upd: Option<String> = None;
+            let msg = if let Some(u) = upd.as_deref() {
+                u
+            } else if kit::touch() && self.status.starts_with("Ready.") {
+                "Toque: escreve · 2 dedos: rola e amplia · toque longo: menu"
+            } else {
+                self.status.as_str()
+            };
             ui.add(egui::Label::new(egui::RichText::new(msg).font(f).color(k.text_3)).truncate());
         });
     }

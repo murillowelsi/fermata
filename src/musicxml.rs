@@ -252,7 +252,7 @@ fn u32le(b: &[u8], i: usize) -> Option<usize> {
 }
 
 /// The entries of a ZIP file: (name, method, compressed size, local header offset).
-fn zip_entries(b: &[u8]) -> Result<Vec<(String, usize, usize, usize)>, String> {
+pub(crate) fn zip_entries(b: &[u8]) -> Result<Vec<(String, usize, usize, usize)>, String> {
     // the end-of-central-directory record is in the last 64 KiB + 22 bytes
     let from = b.len().saturating_sub(22 + 65535);
     let eocd = (from..b.len().saturating_sub(21)).rev().find(|&i| b[i..i + 4] == [0x50, 0x4b, 0x05, 0x06]).ok_or("Not a .mxl file (no ZIP directory)")?;
@@ -276,7 +276,7 @@ fn zip_entries(b: &[u8]) -> Result<Vec<(String, usize, usize, usize)>, String> {
     Ok(out)
 }
 
-fn zip_read(b: &[u8], e: &(String, usize, usize, usize)) -> Result<Vec<u8>, String> {
+pub(crate) fn zip_read(b: &[u8], e: &(String, usize, usize, usize)) -> Result<Vec<u8>, String> {
     let (_, method, csize, off) = e;
     if b.get(*off..off + 4) != Some(&[0x50, 0x4b, 0x03, 0x04]) {
         return Err("Damaged .mxl (bad entry)".into());

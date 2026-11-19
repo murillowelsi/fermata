@@ -111,6 +111,9 @@ pub enum Then {
     ImportXml,
     /// Revert to Saved: asks with its own text (there is nothing to save, only changes to lose).
     Revert(PathBuf),
+    /// F-34: Restart Now on the update card (after the unsaved-changes question).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    UpdateRestart,
     /// A file that arrived by itself: the installed web app's file handlers and Launch Queue.
     Load(Box<crate::platform::Opened>),
 }
@@ -198,6 +201,9 @@ pub struct App {
     pub print_after_setup: bool,
     /// New Score: a template was double-clicked (= Create).
     pub new_score_create: bool,
+    /// F-34: the updater (check, download, card).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub updater: crate::update_ui::Updater,
     /// The browser saves in the background: what to do once it says the save went through.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub after_save: Option<Then>,
@@ -312,6 +318,8 @@ impl App {
             after_new_wizard: false,
             print_after_setup: false,
             new_score_create: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            updater: Default::default(),
             after_save: None,
             autosave: crate::autosave::State::new(!screenshot_mode),
             device: crate::touch::Device::Desktop,
@@ -1725,6 +1733,12 @@ impl App {
                 }
             }
             Then::Revert(p) => self.open_path(p),
+            Then::UpdateRestart => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.updater.restart_now = true;
+                }
+            }
             Then::Load(o) => self.load_opened(*o),
         }
     }

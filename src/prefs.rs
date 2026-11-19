@@ -50,6 +50,18 @@ pub struct Prefs {
     /// View ▸ Appearance: follow macOS, or always light or dark (F-15). Older files without it follow macOS.
     #[serde(default)]
     pub appearance: Appearance,
+    /// F-34: look for a new version when Fermata opens (at most once a day).
+    #[serde(default = "yes")]
+    pub check_updates: bool,
+    /// F-34: when the last check started (seconds since 1970), and the version "Skip This Version" chose.
+    #[serde(default)]
+    pub last_update_check: u64,
+    #[serde(default)]
+    pub skipped_version: Option<String>,
+    /// F-34: set when an update is installed, to the version that was running; the next start, if it's another
+    /// version, says "Updated to …" once and clears it.
+    #[serde(default)]
+    pub update_installed: Option<String>,
     /// Settings format; older files get the new click defaults.
     #[serde(default)]
     pub version: u32,

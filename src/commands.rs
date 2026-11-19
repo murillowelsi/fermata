@@ -24,7 +24,7 @@ pub enum Cmd {
     // Setup
     ClickOnOff, AutoGuessBeam, AutoSpace, QwertyMode, FollowPlayback,
     // added from the original's menu resource
-    MidiSetup, ClickSetup, ClavinovaGuide, SimplifyAccidentals, RemoveAllMarks, OpenAllPalettes, SpacingDefaults, PercussionStaff, UndoAlt, CutAlt, CopyAlt, PasteAlt, AlignSpacingPrev,
+    MidiSetup, ClickSetup, ClavinovaGuide, CheckUpdates, SimplifyAccidentals, RemoveAllMarks, OpenAllPalettes, SpacingDefaults, PercussionStaff, UndoAlt, CutAlt, CopyAlt, PasteAlt, AlignSpacingPrev,
     // Transport
     Play, Stop, Record, JumpToMeasure,
     // Help
@@ -397,6 +397,7 @@ pub fn label(c: Cmd) -> String {
         MidiSetup => "MIDI Setup...".into(),
         ClickSetup => "Click Setup...".into(),
         ClavinovaGuide => "Como ligar o Clavinova (passo a passo)".into(),
+        CheckUpdates => "Check for Updates...".into(),
         RemoveAllMarks => "Remove All Marks".into(),
         OpenAllPalettes => "Open All Palettes".into(),
         SpacingDefaults => "Spacing Defaults...".into(),

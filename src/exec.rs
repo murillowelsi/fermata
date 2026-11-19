@@ -454,6 +454,10 @@ impl App {
             ClavinovaGuide => crate::web::open_page(if crate::web::on_mac() { "../mac/" } else { "../windows/" }),
             #[cfg(not(target_arch = "wasm32"))]
             ClavinovaGuide => self.dialog = Some(Dialog::ClavinovaGuide),
+            #[cfg(not(target_arch = "wasm32"))]
+            CheckUpdates => self.start_update_check(true),
+            #[cfg(target_arch = "wasm32")]
+            CheckUpdates => {}
             ClickSetup => self.dialog = Some(Dialog::ClickSetup(self.prefs.clone())),
             JumpToMeasure => self.dialog = Some(Dialog::JumpTo { measure: self.score.measure_label(cm) }),
             Shortcuts => self.dialog = Some(Dialog::Shortcuts),

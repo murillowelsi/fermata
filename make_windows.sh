@@ -10,7 +10,7 @@ sh tools/fetch_soundfont.sh
 
 OUT=dist/windows
 ZIP=dist/Fermata-Windows-x64.zip
-rm -rf "$OUT" "$ZIP"
+rm -rf "$OUT" "$ZIP" "$ZIP.sig"
 mkdir -p "$OUT/licenses"
 cp target/x86_64-pc-windows-gnu/release/fermata.exe "$OUT/"
 x86_64-w64-mingw32-strip "$OUT/fermata.exe" 2>/dev/null || echo "warning: mingw strip not found; fermata.exe is not stripped"
@@ -18,5 +18,7 @@ cp assets/soundfont/GeneralUser-GS.sf2 "$OUT/"
 cp licenses/GeneralUser-GS-LICENSE.txt "$OUT/licenses/"
 cp CREDITS.md "$OUT/"
 (cd "$OUT" && zip -q -r -X "../Fermata-Windows-x64.zip" .)
-echo "Built $ZIP ($(wc -c < "$ZIP" | tr -d ' ') bytes)"
+echo "Built $ZIP ($(wc -c < "$ZIP" | tr -d ' ') bytes); it is also the update file (F-34): sign it with"
+echo "  cargo run --release -p sign-update -- sign <key> $ZIP"
+[ -s assets/update/fermata-update.pub ] || echo "warning: assets/update/fermata-update.pub is empty: this build won't install updates" >&2
 unzip -l "$ZIP"
