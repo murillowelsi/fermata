@@ -1,9 +1,9 @@
 // Fermata in the browser: keeps the app's own files so it opens offline. Only this folder: the download site
 // above it isn't touched, and other sites (GitHub's API, release downloads) always go to the network.
 // make_web.sh fills in the version and the file list; a new version gets a new cache and the old one is removed.
-const VERSION = "0.3.12-2c29f4f6";
+const VERSION = "0.3.13-41dd383d";
 const CACHE = "fermata-app-" + VERSION;
-const FILES = ["./","./index.html","./fermata.js?v=0.3.12-2c29f4f6","./fermata_bg.wasm?v=0.3.12-2c29f4f6","./snippets/fermata-92cacb78f9b841ce/inline0.js?v=0.3.12-2c29f4f6","./icons/apple-touch-icon.png","./icons/favicon-64.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./manifest.webmanifest"];
+const FILES = ["./","./index.html","./fermata.js?v=0.3.13-41dd383d","./fermata_bg.wasm?v=0.3.13-41dd383d","./snippets/fermata-00ef27676d0f5187/inline0.js?v=0.3.13-41dd383d","./icons/apple-touch-icon.png","./icons/favicon-64.png","./icons/icon-192.png","./icons/icon-512.png","./icons/icon-maskable-512.png","./manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   // straight from the server, not the browser's HTTP cache, so a new version never keeps an old file

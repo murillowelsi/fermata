@@ -1,9 +1,10 @@
 // Windows resources of fermata.exe: the app icon "Traço" (F-14) and the file's version details.
+// Template: build.rs fills @VERSION@ and @VERSION_COMMAS@ from the version in Cargo.toml.
 1 ICON "fermata.ico"
 
 1 VERSIONINFO
-FILEVERSION     0,3,12,0
-PRODUCTVERSION  0,3,12,0
+FILEVERSION     @VERSION_COMMAS@,0
+PRODUCTVERSION  @VERSION_COMMAS@,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -11,8 +12,8 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "Fermata - music notation editor"
       VALUE "ProductName", "Fermata"
-      VALUE "FileVersion", "0.3.12"
-      VALUE "ProductVersion", "0.3.12"
+      VALUE "FileVersion", "@VERSION@"
+      VALUE "ProductVersion", "@VERSION@"
       VALUE "OriginalFilename", "fermata.exe"
     END
   END
