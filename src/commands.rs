@@ -24,7 +24,7 @@ pub enum Cmd {
     // Setup
     ClickOnOff, AutoGuessBeam, AutoSpace, QwertyMode, FollowPlayback,
     // added from the original's menu resource
-    MidiSetup, ClickSetup, ClavinovaGuide, CheckUpdates, PenGestures, PenMode, SimplifyAccidentals, RemoveAllMarks, OpenAllPalettes, SpacingDefaults, PercussionStaff, UndoAlt, CutAlt, CopyAlt, PasteAlt, AlignSpacingPrev,
+    MidiSetup, ClickSetup, ClavinovaGuide, CheckUpdates, PenGestures, PenMode, TranscribeInk, ClearInk, PenImmediate, SimplifyAccidentals, RemoveAllMarks, OpenAllPalettes, SpacingDefaults, PercussionStaff, UndoAlt, CutAlt, CopyAlt, PasteAlt, AlignSpacingPrev,
     // Transport
     Play, Stop, Record, JumpToMeasure,
     // Help
@@ -400,6 +400,9 @@ pub fn label(c: Cmd) -> String {
         CheckUpdates => "Check for Updates...".into(),
         PenGestures => "Pencil Gestures".into(),
         PenMode => "Pen Mode".into(),
+        TranscribeInk => "Transcribe Ink".into(),
+        ClearInk => "Clear Ink".into(),
+        PenImmediate => "Recognize each symbol right away".into(),
         RemoveAllMarks => "Remove All Marks".into(),
         OpenAllPalettes => "Open All Palettes".into(),
         SpacingDefaults => "Spacing Defaults...".into(),

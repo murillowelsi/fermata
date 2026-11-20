@@ -22,6 +22,8 @@ mod musicxml;
 mod palettes;
 mod pdf;
 mod pen;
+mod pen_batch;
+mod pen_model;
 mod pen_ui;
 mod platform;
 mod rec;
@@ -574,6 +576,18 @@ fn main() -> eframe::Result<()> {
         }
         if args[i] == "--click-selftest" {
             click_selftest();
+            return Ok(());
+        }
+        // F-40: the pen model (assets/pen_model.bin): train it, or measure it on the held-out test sets
+        if args[i] == "--train-pen-model" {
+            let path = args.get(i + 1).cloned().unwrap_or_else(|| "assets/pen_model.bin".into());
+            let m = pen_model::train::train_default();
+            std::fs::write(&path, m.to_bytes()).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
+            println!("wrote {path}");
+            return Ok(());
+        }
+        if args[i] == "--eval-pen-model" {
+            print!("{}", pen_model::train::eval_report());
             return Ok(());
         }
         if args[i] == "--keys-selftest" {

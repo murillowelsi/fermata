@@ -460,6 +460,14 @@ impl App {
             CheckUpdates => {}
             // F-38: the pen on tablets in the browser
             PenGestures => self.pen.sheet = !self.pen.sheet,
+            // F-40: write everything, transcribe at the end
+            TranscribeInk => self.pen_transcribe(),
+            ClearInk => self.pen_clear_ink(),
+            PenImmediate => {
+                self.prefs.pen_immediate = !self.prefs.pen_immediate;
+                crate::prefs::save(&self.prefs);
+                self.status = if self.prefs.pen_immediate { "Each symbol is recognized as soon as it is written.".into() } else { "The ink stays on the page until Transcribe.".into() };
+            }
             PenMode => {
                 self.prefs.pen_mode = !self.prefs.pen_mode;
                 crate::prefs::save(&self.prefs);

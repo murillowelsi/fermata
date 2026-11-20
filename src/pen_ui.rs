@@ -138,6 +138,9 @@ pub struct PenState {
     pub injected: Vec<(u8, f32, f32)>,
     /// This frame's pen samples that didn't go to the score's ink (the practice staff reads them).
     pub loose: Vec<(u8, Pos2)>,
+    /// F-40: the ink waiting for "Transcribe", and the preview of what it reads as.
+    pub ink: Vec<crate::pen_batch::InkStroke>,
+    pub preview: Option<crate::pen_batch::Preview>,
 }
 
 /// Value → the grid the Pencil uses for it (as `App::grid` does for the palette's value).
@@ -208,8 +211,13 @@ impl App {
                 if let Some(mut s) = self.pen.cur.take() {
                     s.pts.push(p);
                     s.t1 = t;
-                    self.pen.pending.push(s);
-                    self.pen.last_up = t;
+                    if self.prefs.pen_immediate {
+                        self.pen.pending.push(s);
+                        self.pen.last_up = t;
+                    } else {
+                        // F-40: the ink stays until "Transcribe"
+                        self.pen_batch_stroke(s.pts, t);
+                    }
                 }
             }
         }
@@ -228,6 +236,18 @@ impl App {
         self.pen.loaded = true;
         self.pen.personal = serde_json::from_str(&store_get(KEY_PERSONAL)).unwrap_or_default();
         self.pen.samples = serde_json::from_str(&store_get(KEY_SAMPLES)).unwrap_or_default();
+    }
+
+    pub fn pen_save_personal_pub(&self) {
+        self.pen_save_personal();
+    }
+
+    pub fn pen_covered_pub(&self, r: Rect, ink: &[Vec<Pos2>]) -> (Vec<sv::NoteHit>, Vec<usize>) {
+        self.pen_covered(r, ink)
+    }
+
+    pub fn pen_delete_pub(&mut self, hits: &[sv::NoteHit], graphics: &[usize]) {
+        self.pen_delete(hits, graphics);
     }
 
     fn pen_save_personal(&self) {
@@ -562,15 +582,30 @@ impl App {
 
     /// One column: its first head sets the beat; the others join it as a chord. Some((staff, measure, start)).
     fn pen_write_col(&mut self, c: &Col) -> Option<(usize, usize, u32)> {
+        self.pen_write_col_in(c, None)
+    }
+
+    /// F-40: one column at a given staff, bar and tick (the transcription places the notes of a bar in order).
+    pub fn pen_write_col_at(&mut self, c: &Col, staff: usize, measure: usize, tick: u32) -> Option<(usize, usize, u32)> {
+        self.pen_write_col_in(c, Some((staff, measure, tick)))
+    }
+
+    fn pen_write_col_in(&mut self, c: &Col, at: Option<(usize, usize, u32)>) -> Option<(usize, usize, u32)> {
         let sp = self.geo.sp;
         let head = *c.heads.first()?;
-        let l = sv::locate(&self.score, &self.geo, head, grid_for(c.value))?;
+        let mut l = sv::locate(&self.score, &self.geo, head, grid_for(c.value))?;
         let voice = self.voice;
-        // the chord: a note of this voice drawn at about the same x
         let mut tick = l.tick;
-        let near = self.geo.notes.iter().filter(|h| h.r.staff == l.staff && h.r.measure == l.measure && h.pitch.is_some() && (h.rect.center().x - head.x).abs() <= pen::CHORD_DX * sp).filter_map(|h| self.score.events[l.staff][l.measure].get(h.r.idx)).find(|e| e.voice == voice && !e.grace && !e.is_rest()).map(|e| e.start);
-        if let Some(t) = near {
+        if let Some((s, m, t)) = at {
+            l.staff = s;
+            l.measure = m;
             tick = t;
+        } else {
+            // the chord: a note of this voice drawn at about the same x
+            let near = self.geo.notes.iter().filter(|h| h.r.staff == l.staff && h.r.measure == l.measure && h.pitch.is_some() && (h.rect.center().x - head.x).abs() <= pen::CHORD_DX * sp).filter_map(|h| self.score.events[l.staff][l.measure].get(h.r.idx)).find(|e| e.voice == voice && !e.grace && !e.is_rest()).map(|e| e.start);
+            if let Some(t) = near {
+                tick = t;
+            }
         }
         let key = self.score.measures[l.measure].key;
         let mut first: Option<NoteRef> = None;
@@ -1204,6 +1239,10 @@ fn rest_glyph(value: u8) -> char {
 }
 
 /// A reading as a small figure in a 44-point cell.
+pub fn reading_figure_pub(p: &egui::Painter, r: Rect, reading: &Reading, col: Color32) {
+    reading_figure(p, r, reading, col);
+}
+
 fn reading_figure(p: &egui::Painter, r: Rect, reading: &Reading, col: Color32) {
     let c = r.center();
     let dots = |n: u8, x: f32, y: f32| {
@@ -1314,6 +1353,7 @@ mod tests {
     pub(crate) fn app() -> App {
         let mut a = App::new(true);
         a.voice = 1;
+        a.prefs.pen_immediate = true;
         drawn(&mut a);
         a
     }
@@ -1692,7 +1732,7 @@ mod toolbar_tests {
         frame(&ctx, &mut a, &stroke, t + 1.0);
         assert!(a.pen.cur.is_some(), "ink starts on the page");
         frame(&ctx, &mut a, &[(2, on_staff + vec2(16.0, 8.0))], t + 1.1);
-        assert_eq!(a.pen.pending.len(), 1, "one stroke waits to be read");
+        assert_eq!(a.pen.ink.len(), 1, "one stroke of ink waits for Transcribe");
         assert_eq!(a.tool, Tool::Pencil);
         crate::kit::set_touch(false);
     }

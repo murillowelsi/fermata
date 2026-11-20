@@ -348,7 +348,7 @@ fn assign_roles(pieces: &[Vec<Pos2>], value: u8, heads: usize) -> Vec<(Vec<Pos2>
 
 // ---------------- geometry helpers (staff-space units) ----------------
 
-fn bbox(p: &[Pos2]) -> Rect {
+pub(crate) fn bbox(p: &[Pos2]) -> Rect {
     let mut r = Rect::NOTHING;
     for q in p {
         r.extend_with(*q);
@@ -356,11 +356,11 @@ fn bbox(p: &[Pos2]) -> Rect {
     r
 }
 
-fn path_len(p: &[Pos2]) -> f32 {
+pub(crate) fn path_len(p: &[Pos2]) -> f32 {
     p.windows(2).map(|w| w[0].distance(w[1])).sum()
 }
 
-fn to_sp(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<Pos2>> {
+pub(crate) fn to_sp(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<Pos2>> {
     if sp <= 0.0 {
         return vec![];
     }
@@ -368,7 +368,7 @@ fn to_sp(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<Pos2>> {
 }
 
 /// `n` points evenly spaced along the path.
-fn resample(p: &[Pos2], n: usize) -> Vec<Pos2> {
+pub(crate) fn resample(p: &[Pos2], n: usize) -> Vec<Pos2> {
     if p.len() < 2 || n < 2 {
         return vec![p.first().copied().unwrap_or(Pos2::ZERO); n.max(1)];
     }

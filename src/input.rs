@@ -438,9 +438,22 @@ impl App {
             }
             let pen_owns = !reader && self.pen_frame(ui, &resp, now);
             self.pen_tick(now);
+            self.pen_batch_draw(ui, &painter);
             self.pen_draw(ui, &painter, now);
             if pen_owns {
                 // the pen's own taps and drags don't also work the tool
+            } else if self.pen.preview.is_some() && !reader {
+                // F-40: the preview of the transcription: a tap on a symbol offers its other readings; a drag scrolls
+                if resp.clicked() {
+                    if let Some(p) = resp.interact_pointer_pos() {
+                        self.pen_preview_tap(p);
+                    }
+                } else if self.device == crate::touch::Device::Touch {
+                    let d = resp.drag_delta();
+                    if d != vec2(0.0, 0.0) {
+                        ui.scroll_with_delta(d);
+                    }
+                }
             } else if reader {
                 // a tap chooses the measure playback starts from (nothing is edited)
                 if resp.clicked() {
@@ -596,9 +609,14 @@ impl App {
         if ended {
             if let Some((t0, starts, moved)) = self.pen.two_tap.take() {
                 if starts.len() == 2 && now - t0 <= crate::pen::TWO_FINGER_TAP + 0.05 && moved <= crate::pen::TWO_FINGER_SLOP {
-                    self.do_undo();
-                    self.pen.alts = None;
-                    self.status = "Undone (two-finger tap).".into();
+                    if self.pen.preview.is_none() && self.pen.ink.pop().is_some() {
+                        // F-40: while there is ink, the last stroke goes
+                        self.status = "Removed the last ink stroke (two-finger tap).".into();
+                    } else {
+                        self.do_undo();
+                        self.pen.alts = None;
+                        self.status = "Undone (two-finger tap).".into();
+                    }
                 }
             }
         }
@@ -674,7 +692,8 @@ impl App {
         let top = ui.ctx().layer_id_at(p);
         let uncovered = top.is_none_or(|l| l == ui.layer_id());
         let on_alts = self.pen.alts.is_some() && self.pen.alts_rect.is_some_and(|r| r.contains(p));
-        on_page && ui.clip_rect().contains(p) && uncovered && !on_alts
+        // (F-40: not while the transcription's preview is up: a tap there picks a reading)
+        on_page && ui.clip_rect().contains(p) && uncovered && !on_alts && self.pen.preview.is_none()
     }
 
     fn mouse(&mut self, ui: &mut Ui, resp: &egui::Response) {

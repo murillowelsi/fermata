@@ -164,6 +164,19 @@ impl App {
                 for c in [RaisePitch, LowerPitch, RaiseOctave, LowerOctave] {
                     self.mi(ui, c);
                 }
+                // F-40: the pen's ink, transcribed at the end (the browser on tablets)
+                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                    ui.separator();
+                    let has = !self.pen.ink.is_empty();
+                    if kit::menu_item(ui, &commands::label(TranscribeInk), "", false, has).clicked() {
+                        self.pending_cmd = Some(TranscribeInk);
+                        ui.close();
+                    }
+                    if kit::menu_item(ui, &commands::label(ClearInk), "", false, has).clicked() {
+                        self.pending_cmd = Some(ClearInk);
+                        ui.close();
+                    }
+                }
             });
             ui.menu_button("Measures", |ui| {
                 for c in [AddMeasure, DeleteMeasure] {
@@ -296,6 +309,14 @@ impl App {
                 // a toggle that keeps the menu open, as before
                 if kit::menu_item(ui, "Audition notes while editing", "", self.audition, true).clicked() {
                     self.audition = !self.audition;
+                }
+                // F-40: the pen (the browser on tablets)
+                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                    ui.separator();
+                    ui.menu_button("Pen", |ui| {
+                        let on = self.prefs.pen_immediate;
+                        self.mi_check(ui, PenImmediate, on);
+                    });
                 }
             });
             ui.menu_button("Help", |ui| {

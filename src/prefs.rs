@@ -65,6 +65,9 @@ pub struct Prefs {
     /// F-38: Pen Mode (passive pens on tablets): touching the staff writes; scrolling takes two fingers.
     #[serde(default)]
     pub pen_mode: bool,
+    /// F-40: Setup ▸ Pen ▸ "Recognize each symbol right away" (the 0.3.18 way); off: the ink stays until Transcribe.
+    #[serde(default)]
+    pub pen_immediate: bool,
     /// Settings format; older files get the new click defaults.
     #[serde(default)]
     pub version: u32,
