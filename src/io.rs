@@ -433,6 +433,15 @@ pub fn musicxml_string(score: &Score) -> String {
                 let dot = if mi.tempo_dotted { "<beat-unit-dot/>" } else { "" };
                 x.push_str(&format!("<direction placement=\"above\"><direction-type><metronome><beat-unit>quarter</beat-unit>{dot}<per-minute>{shown}</per-minute></metronome></direction-type><sound tempo=\"{t}\"/></direction>\n"));
             }
+            // F-09: the segno and coda signs, once (in the first part), at the start of the measure
+            if si == 0 {
+                if score.has_segno(m) {
+                    x.push_str("<direction placement=\"above\"><direction-type><segno/></direction-type><sound segno=\"segno\"/></direction>\n");
+                }
+                if score.has_coda(m) {
+                    x.push_str("<direction placement=\"above\"><direction-type><coda/></direction-type><sound coda=\"coda\"/></direction>\n");
+                }
+            }
             let evs = &score.events[si][m];
             let mut voices: Vec<u8> = evs.iter().map(|e| e.voice).collect();
             voices.sort();
@@ -537,6 +546,17 @@ pub fn musicxml_string(score: &Score) -> String {
                         t = e.end();
                     }
                 }
+            }
+            // F-09: the phrase at the end of the measure, with what playback does with it
+            if let (0, Some(c)) = (si, &mi.coda_phrase) {
+                let sound = match Jump::of(c) {
+                    Some(Jump::Back { segno: false, .. }) => "<sound dacapo=\"yes\"/>",
+                    Some(Jump::Back { segno: true, .. }) => "<sound dalsegno=\"segno\"/>",
+                    Some(Jump::Fine) => "<sound fine=\"yes\"/>",
+                    Some(Jump::ToCoda) => "<sound tocoda=\"coda\"/>",
+                    None => "",
+                };
+                x.push_str(&format!("<direction placement=\"above\"><direction-type><words>{}</words></direction-type>{sound}</direction>\n", xml_escape(c)));
             }
             let bar = match mi.barline {
                 Barline::Double => Some(("light-light", None)),

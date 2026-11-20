@@ -467,45 +467,98 @@ fn render(s: &mut SynthState, data: &mut [f32], channels: usize, sr: f64) {
     }
 }
 
-/// Expand repeats and endings into a play order of measures.
+/// Expand repeats and endings into a play order of measures; F-09: and the jumps: D.C. goes back to the start, D.S.
+/// to the segno; "al Fine" stops at Fine, "al Coda" goes from To Coda to the coda. After a jump repeats aren't taken
+/// again and only the last ending plays (the usual convention); each kind of jump is taken once, so the order ends.
 pub fn play_order(score: &Score) -> Vec<usize> {
-    let n = score.measures.len();
+    let ms = &score.measures;
+    let n = ms.len();
+    let ends_repeat = |j: usize| matches!(ms[j].barline, Barline::RepeatEnd | Barline::RepeatBoth);
+    // the last measure of the ending that starts at i: up to its repeat barline, or to just before the next ending
+    let ending_block_end = |i: usize| {
+        let mut j = i;
+        while j + 1 < n && !ends_repeat(j) && ms[j + 1].ending.is_none() {
+            j += 1;
+        }
+        j
+    };
     let mut order = vec![];
     let mut i = 0;
     let mut repeat_start = 0;
     let mut pass = 1u8;
     let mut guard = 0;
+    let (mut dc_done, mut ds_done, mut coda_done) = (false, false, false);
+    // after a D.C. or D.S.: where the piece stops
+    let mut after: Option<Until> = None;
     while i < n && guard < 10000 {
         guard += 1;
-        let mi = &score.measures[i];
-        if i > 0 && matches!(score.measures[i - 1].barline, Barline::RepeatStart | Barline::RepeatBoth) && pass == 1 {
+        let mi = &ms[i];
+        if i > 0 && matches!(ms[i - 1].barline, Barline::RepeatStart | Barline::RepeatBoth) && pass == 1 {
             repeat_start = i;
         }
         if i == 0 && matches!(mi.barline, Barline::RepeatStart) {
             repeat_start = 1;
         }
-        // skip an ending not meant for this pass
         if let Some(e) = &mi.ending {
-            let nums: Vec<u8> = e.split(|c: char| !c.is_ascii_digit()).filter_map(|x| x.parse().ok()).collect();
-            if !nums.is_empty() && !nums.contains(&pass) {
-                // skip to the measure after the end of this ending (next ending or repeat end)
-                let mut j = i + 1;
-                while j < n && score.measures[j].ending.is_none() && !matches!(score.measures[j - 1].barline, Barline::RepeatEnd | Barline::RepeatBoth) {
-                    j += 1;
+            if after.is_some() {
+                // after a jump: straight to the last ending
+                let b = ending_block_end(i);
+                if b + 1 < n && ms[b + 1].ending.is_some() {
+                    i = b + 1;
+                    continue;
                 }
-                i = j;
-                continue;
+            } else {
+                // skip an ending not meant for this pass
+                let nums: Vec<u8> = e.split(|c: char| !c.is_ascii_digit()).filter_map(|x| x.parse().ok()).collect();
+                if !nums.is_empty() && !nums.contains(&pass) {
+                    // skip to the measure after the end of this ending (next ending or repeat end)
+                    let mut j = i + 1;
+                    while j < n && ms[j].ending.is_none() && !ends_repeat(j - 1) {
+                        j += 1;
+                    }
+                    i = j;
+                    continue;
+                }
             }
         }
         order.push(i);
-        if matches!(mi.barline, Barline::RepeatEnd | Barline::RepeatBoth) && pass < mi.repeat_times.max(2) {
+        if ends_repeat(i) && after.is_none() && pass < mi.repeat_times.max(2) {
             pass += 1;
             i = repeat_start;
             continue;
         }
-        if matches!(mi.barline, Barline::RepeatEnd | Barline::RepeatBoth) {
+        if ends_repeat(i) {
             pass = 1;
             repeat_start = i + 1;
+        }
+        match score.jump_at(i) {
+            Some(Jump::Fine) if after == Some(Until::Fine) => break,
+            Some(Jump::ToCoda) if after == Some(Until::Coda) && !coda_done => {
+                let coda = (i + 1..n).find(|&c| score.has_coda(c)).or_else(|| (0..n).find(|&c| score.has_coda(c)));
+                if let Some(c) = coda {
+                    coda_done = true;
+                    after = Some(Until::End);
+                    i = c;
+                    continue;
+                }
+            }
+            Some(Jump::Back { segno, until }) if !(if segno { ds_done } else { dc_done }) => {
+                // D.S.: the segno before this measure (or any, when it was written after)
+                let target = if segno { (0..=i).rev().find(|&c| score.has_segno(c)).or_else(|| (0..n).find(|&c| score.has_segno(c))) } else { Some(0) };
+                if let Some(t) = target {
+                    if segno {
+                        ds_done = true;
+                    } else {
+                        dc_done = true;
+                    }
+                    after = Some(until);
+                    pass = 1;
+                    repeat_start = t;
+                    i = t;
+                    continue;
+                }
+            }
+            _ => {}
         }
         i += 1;
     }
@@ -703,3 +756,7 @@ pub fn render_offline(notes: Vec<PlayNote>, sr: f64, master: f32, gm: Option<cra
     }
     out
 }
+
+#[cfg(test)]
+#[path = "jump_tests.rs"]
+mod jump_tests;

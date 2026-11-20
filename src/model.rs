@@ -407,6 +407,58 @@ pub struct MeasureInfo {
     /// The tempo mark counts dotted quarters (compound meter); `tempo` itself stays in quarter notes per minute.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tempo_dotted: bool,
+    /// F-09: a segno at the start of this measure (where D.S. goes back to).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub segno: bool,
+    /// F-09: the coda starts here (the coda sign at the start of the measure; To Coda jumps here).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coda: bool,
+}
+
+/// F-09: what a phrase at the end of a measure (`coda_phrase`) tells playback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Jump {
+    /// "To Coda": after a D.C./D.S. al Coda, go on at the coda.
+    ToCoda,
+    /// "Fine": after a D.C./D.S. al Fine, the piece ends here.
+    Fine,
+    /// D.C. (back to the start) or D.S. (back to the segno), and where to stop afterwards.
+    Back { segno: bool, until: Until },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Until {
+    End,
+    Fine,
+    Coda,
+}
+
+impl Jump {
+    /// The phrases of Measures ▸ Coda Phrases, in the order the dialog shows them.
+    pub const PHRASES: [&'static str; 8] = ["D.C.", "D.C. al Fine", "D.C. al Coda", "D.S.", "D.S. al Fine", "D.S. al Coda", "Fine", "To Coda"];
+
+    /// The jump a phrase means ("D.S. al Coda", "Da Capo al Fine", "To Coda", "Fine"…; any case), or None for other
+    /// words.
+    pub fn of(text: &str) -> Option<Jump> {
+        let l: String = text.to_lowercase().chars().filter(|c| !c.is_whitespace() && *c != '.').collect();
+        if l == "fine" {
+            return Some(Jump::Fine);
+        }
+        if l == "tocoda" || l == "\u{e048}" || l == "tocoda\u{e048}" {
+            return Some(Jump::ToCoda);
+        }
+        let (segno, rest) = match l.strip_prefix("dc").or_else(|| l.strip_prefix("dacapo")) {
+            Some(r) => (false, r),
+            None => (true, l.strip_prefix("ds").or_else(|| l.strip_prefix("dalsegno"))?),
+        };
+        let until = match rest {
+            "" => Until::End,
+            "alfine" => Until::Fine,
+            "alcoda" => Until::Coda,
+            _ => return None,
+        };
+        Some(Jump::Back { segno, until })
+    }
 }
 
 impl MeasureInfo {
@@ -737,6 +789,8 @@ impl Score {
             m.barline = Barline::Single;
             m.ending = None;
             m.coda_phrase = None;
+            m.segno = false;
+            m.coda = false;
             m.system_break = false;
             m.rehearsal = None;
             m.pickup = None;
@@ -757,6 +811,8 @@ impl Score {
             rehearsal: None,
             pickup: None,
             tempo_dotted: false,
+            segno: false,
+            coda: false,
         }));
         for st in self.events.iter_mut() {
             st.push(vec![]);
@@ -777,6 +833,8 @@ impl Score {
             rehearsal: None,
             pickup: None,
             tempo_dotted: false,
+            segno: false,
+            coda: false,
         });
         m.tempo = if at == 0 { m.tempo } else { None };
         m.tempo_dotted = at == 0 && m.tempo_dotted;
@@ -784,6 +842,8 @@ impl Score {
         m.barline = Barline::Single;
         m.ending = None;
         m.coda_phrase = None;
+        m.segno = false;
+        m.coda = false;
         let at = at.min(self.measures.len());
         self.measures.insert(at, m);
         for st in self.events.iter_mut() {
@@ -854,6 +914,21 @@ impl Score {
             }
         }
     }
+    /// F-09: measure `m` has a segno: its own, or (older files) a segno mark on a note of it.
+    pub fn has_segno(&self, m: usize) -> bool {
+        self.measures.get(m).is_some_and(|mi| mi.segno) || self.note_mark_in(m, Mark::Segno)
+    }
+    /// F-09: the coda starts at measure `m`: its own coda sign, or (older files) a coda mark on a note of it.
+    pub fn has_coda(&self, m: usize) -> bool {
+        self.measures.get(m).is_some_and(|mi| mi.coda) || self.note_mark_in(m, Mark::Coda)
+    }
+    fn note_mark_in(&self, m: usize, mark: Mark) -> bool {
+        self.events.iter().any(|st| st.get(m).is_some_and(|evs| evs.iter().any(|e| e.marks.contains(&mark))))
+    }
+    /// F-09: the jump the phrase at the end of measure `m` asks for.
+    pub fn jump_at(&self, m: usize) -> Option<Jump> {
+        self.measures.get(m)?.coda_phrase.as_deref().and_then(Jump::of)
+    }
     /// The number a measure has on the page and in messages: a pickup at the start is measure 0 (F-05).
     pub fn measure_label(&self, m: usize) -> usize {
         if self.measures.first().map(|x| x.pickup.is_some()).unwrap_or(false) { m } else { m + 1 }
@@ -902,6 +977,8 @@ impl Score {
                 && b.rehearsal.is_none()
                 && b.coda_phrase.is_none()
                 && a.coda_phrase.is_none()
+                && !b.segno
+                && !b.coda
         };
         let n = self.measures.len();
         let mut out = vec![];

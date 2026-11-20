@@ -480,7 +480,9 @@ fn emit_text(c: &mut Content, t: &TextShape, fonts: &mut Fonts) {
                     let p = at(Pos2::new(x, y));
                     c.begin_text();
                     c.set_font(Name(fonts.res_name(fi).as_bytes()), sz);
-                    c.set_text_matrix([cos, sin, sin, -cos, p.x, p.y]);
+                    // (F-09: italic text, slanted as egui slants it: a quarter of the height)
+                    let k = if fmt.italics { 0.25 } else { 0.0 };
+                    c.set_text_matrix([cos, sin, sin + k * cos, -cos + k * sin, p.x, p.y]);
                     let mut sp = c.show_positioned();
                     let mut it = sp.items();
                     for (g, adj) in items.iter() {

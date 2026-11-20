@@ -1294,14 +1294,21 @@ impl App {
                 kit::text(ui, "Ending text (e.g. 1.  2.  1, 2.) - leave empty to remove:");
                 ui.add(egui::TextEdit::singleline(text).desired_width(320.0));
             }
-            Dialog::Coda { text, rehearsal, .. } => {
+            Dialog::Coda { text, rehearsal, segno, coda, .. } => {
                 kit::form(ui, "coda", |ui| {
-                    kit::label(ui, "Phrase");
+                    // F-09: the signs at the start of the measure (where D.S. goes back to, where the coda starts)
+                    kit::label(ui, "At the start");
+                    ui.horizontal(|ui| {
+                        kit::checkbox(ui, segno, "Segno");
+                        kit::checkbox(ui, coda, "Coda (the coda starts here)");
+                    });
+                    ui.end_row();
+                    kit::label(ui, "At the end");
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                        for line in [["D.C.", "D.C. al Fine", "D.C. al Coda", "D.S."], ["D.S. al Fine", "D.S. al Coda", "Fine", "To Coda"]] {
+                        for line in [&Jump::PHRASES[..4], &Jump::PHRASES[4..]] {
                             ui.horizontal(|ui| {
-                                for t in line {
+                                for &t in line {
                                     if kit::chip(ui, text.as_str() == t, t).clicked() {
                                         *text = t.into();
                                     }
@@ -2050,8 +2057,10 @@ impl App {
                 self.checkpoint();
                 self.score.measures[measure].ending = if text.trim().is_empty() { None } else { Some(text) };
             }
-            Dialog::Coda { text, measure, rehearsal } => {
+            Dialog::Coda { text, measure, rehearsal, segno, coda } => {
                 self.checkpoint();
+                self.score.measures[measure].segno = segno;
+                self.score.measures[measure].coda = coda;
                 self.score.measures[measure].coda_phrase = if text.trim().is_empty() { None } else { Some(text) };
                 self.score.measures[measure].rehearsal = if rehearsal.trim().is_empty() { None } else { Some(rehearsal) };
             }

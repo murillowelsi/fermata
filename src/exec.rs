@@ -293,6 +293,8 @@ impl App {
                 text: self.score.measures[cm].coda_phrase.clone().unwrap_or_default(),
                 measure: cm,
                 rehearsal: self.score.measures[cm].rehearsal.clone().unwrap_or_default(),
+                segno: self.score.measures[cm].segno,
+                coda: self.score.measures[cm].coda,
             }),
             MeasureNumbers => self.dialog = Some(Dialog::MeasureNumbers { mode: self.score.layout.show_measure_numbers }),
             CompressRests => {

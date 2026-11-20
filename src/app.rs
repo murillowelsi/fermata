@@ -55,7 +55,9 @@ pub enum Dialog {
     Tempo { bpm: u32, measure: usize, to_measure: usize, mode: usize, to_bpm: u32 },
     Barline { kind: Barline, measure: usize, times: u8 },
     Endings { text: String, measure: usize },
-    Coda { text: String, measure: usize, rehearsal: String },
+    /// Measures ▸ Coda Phrases: the phrase at the end of the measure, the segno and coda signs at its start (F-09),
+    /// and the rehearsal letter.
+    Coda { text: String, measure: usize, rehearsal: String, segno: bool, coda: bool },
     MeasureNumbers { mode: MeasureNumbers },
     AddMeasures { count: usize, before: bool },
     MeasuresPerSystem { n: usize },

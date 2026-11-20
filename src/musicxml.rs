@@ -439,6 +439,9 @@ struct Reader {
     endings: Vec<Option<String>>,
     repeat_times: Vec<u8>,
     coda: Vec<Option<String>>,
+    /// F-09: segno and coda signs, per measure
+    segno_sign: Vec<bool>,
+    coda_sign: Vec<bool>,
     rehearsal: Vec<Option<String>>,
     breaks: Vec<bool>,
     /// slurs: open spans keyed by (staff, number); the notes they join are known at the stop
@@ -569,7 +572,7 @@ fn dynamic_of(d: &Node) -> Vec<String> {
 
 fn is_coda_phrase(w: &str) -> bool {
     let l = w.trim().to_lowercase().replace(' ', "");
-    l.starts_with("d.c.") || l.starts_with("d.s.") || l.starts_with("dacapo") || l.starts_with("dalsegno") || l == "fine" || l.starts_with("tocoda")
+    Jump::of(w).is_some() || l.starts_with("d.c.") || l.starts_with("d.s.") || l.starts_with("dacapo") || l.starts_with("dalsegno") || l == "fine" || l.starts_with("tocoda")
 }
 
 impl Reader {
@@ -626,6 +629,8 @@ impl Reader {
         self.endings = vec![None; nmeas];
         self.repeat_times = vec![2; nmeas];
         self.coda = vec![None; nmeas];
+        self.segno_sign = vec![false; nmeas];
+        self.coda_sign = vec![false; nmeas];
         self.rehearsal = vec![None; nmeas];
         self.breaks = vec![false; nmeas];
         // the first staff of each part, for groups
@@ -681,6 +686,8 @@ impl Reader {
             mi.ending = self.endings[m].take();
             mi.repeat_times = self.repeat_times[m];
             mi.coda_phrase = self.coda[m].take();
+            mi.segno = self.segno_sign[m];
+            mi.coda = self.coda_sign[m];
             mi.rehearsal = self.rehearsal[m].take();
             mi.system_break = self.breaks[m];
         }
@@ -1013,11 +1020,18 @@ impl Reader {
                         let off = c.num::<i64>("offset").unwrap_or(0);
                         let at = tick((pos + off).max(0), divisions);
                         let below = c.attr("placement") == Some("below");
+                        // (F-09: a "To Coda" often carries the coda sign too: that isn't where the coda starts)
+                        let to_coda = c.child("sound").and_then(|x| x.attr("tocoda")).is_some()
+                            || c.all("direction-type").any(|dt| dt.all("words").any(|w| Jump::of(w.text.trim()) == Some(Jump::ToCoda)));
+                        let coda_before = self.coda_sign[m];
                         for dt in c.all("direction-type") {
                             self.direction_type(dt, s, m, at, below);
                         }
                         if let Some(snd) = c.child("sound") {
                             self.sound(snd, m);
+                        }
+                        if to_coda {
+                            self.coda_sign[m] = coda_before;
                         }
                     }
                     "sound" => self.sound(c, m),
@@ -1229,8 +1243,9 @@ impl Reader {
                         self.rehearsal[m] = Some(r.to_string());
                     }
                 }
-                "segno" => self.pending.push(Pending { staff: s, measure: m, tick: at, what: Attach::Mark(Mark::Segno) }),
-                "coda" => self.pending.push(Pending { staff: s, measure: m, tick: at, what: Attach::Mark(Mark::Coda) }),
+                // F-09: the signs of the jumps belong to the measure
+                "segno" => self.segno_sign[m] = true,
+                "coda" => self.coda_sign[m] = true,
                 "pedal" => match x.attr("type") {
                     Some("start") | Some("sostenuto") => self.pending.push(Pending { staff: s, measure: m, tick: at, what: Attach::Mark(Mark::PedalDown) }),
                     Some("stop") => self.pending.push(Pending { staff: s, measure: m, tick: at, what: Attach::Mark(Mark::PedalUp) }),
@@ -1295,6 +1310,29 @@ impl Reader {
     fn sound(&mut self, snd: &Node, m: usize) {
         if let Some(t) = snd.attr("tempo").and_then(|t| t.parse::<f64>().ok()).filter(|t| t.is_finite() && *t >= 1.0) {
             self.tempo[m] = Some(t.round().clamp(10.0, 400.0) as u32);
+        }
+        // F-09: the jumps playback takes (the words, when there are any, say it already)
+        let phrase = if snd.attr("dacapo") == Some("yes") {
+            Some("D.C.")
+        } else if snd.attr("dalsegno").is_some() {
+            Some("D.S.")
+        } else if snd.attr("tocoda").is_some() {
+            Some("To Coda")
+        } else if snd.attr("fine").is_some() {
+            Some("Fine")
+        } else {
+            None
+        };
+        if let Some(p) = phrase {
+            if self.coda[m].is_none() {
+                self.coda[m] = Some(p.into());
+            }
+        }
+        if snd.attr("segno").is_some() {
+            self.segno_sign[m] = true;
+        }
+        if snd.attr("coda").is_some() {
+            self.coda_sign[m] = true;
         }
     }
 

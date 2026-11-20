@@ -316,15 +316,13 @@ fn sys_vert(score: &Score, staves: &[usize], m0: usize, m1: usize, sp: f32) -> S
         level = tempo + 2.4;
     }
     let rehearsal = 5.5f32.max(level + 1.6);
-    if ms.iter().any(|m| m.rehearsal.is_some()) {
-        level = rehearsal + 1.3;
+    // (F-09: the segno and coda signs and the phrases of the jumps share the rehearsal row)
+    if ms.iter().any(|m| m.rehearsal.is_some() || m.segno || m.coda || m.coda_phrase.is_some()) {
+        level = rehearsal + 1.4;
     }
     let marks = SysMarks { ending, tempo, rehearsal };
     ext[0].above = level;
     let n = ext.len();
-    if ms.iter().any(|m| m.coda_phrase.is_some()) {
-        ext[n - 1].below = ext[n - 1].below.max(5.4);
-    }
     // between staves: the gap from Page Setup, wider when the content of the two staves needs more; on a full page
     // it may close down to what the content needs (at least 5 spaces)
     let gap = score.layout.staff_gap;
@@ -685,6 +683,23 @@ pub fn page_font(size: f32) -> FontId {
     FontId::new(size, PAGE_TEXT)
 }
 
+/// F-09: words in italic (egui slants the glyphs; the PDF slants them the same way), placed like `Painter::text`.
+pub fn italic_text(p: &Painter, pos: Pos2, align: Align2, text: &str, size: f32, col: Color32) -> Rect {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(text, 0.0, egui::TextFormat { font_id: page_font(size), color: col, italics: true, ..Default::default() });
+    let g = p.layout_job(job);
+    let rect = align.anchor_size(pos, g.size());
+    p.galley(rect.min, g, col);
+    rect
+}
+
+/// F-09: a segno or coda sign `h` tall, centred on `c`.
+fn draw_sign(p: &Painter, name: &str, c: Pos2, h: f32, col: Color32) {
+    let (sw, ne) = crate::smufl::bbox(name);
+    let k = h / (ne.y - sw.y).max(0.1);
+    crate::smufl::draw_hcentered(p, name, c.x, c.y + (ne.y + sw.y) / 2.0 * k, k, col);
+}
+
 pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits: &mut Vec<NoteHit>, out_graphics: &mut Vec<(usize, Rect)>) {
     let sp = geo.sp;
     let black = Color32::BLACK;
@@ -868,9 +883,20 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 let tw = draw_tempo(p, pos2(x, y), sp, mi.tempo_dotted, black);
                 p.text(pos2(x + tw + sp * 0.5, y), Align2::LEFT_CENTER, format!("= {t}"), font(sp * 1.5), black);
             }
+            let row = sys.top(sp) - sp * sys.marks.rehearsal;
+            let mut sign_x = mg.x0 + sp * 1.2;
             if let Some(r) = &mi.rehearsal {
-                let rr = p.text(pos2(mg.x0, sys.top(sp) - sp * sys.marks.rehearsal), Align2::LEFT_CENTER, r, font(sp * 1.8), black);
+                let rr = p.text(pos2(mg.x0, row), Align2::LEFT_CENTER, r, font(sp * 1.8), black);
                 p.rect_stroke(rr.expand(sp * 0.3), 0.0, Stroke::new(sp * 0.1, black), egui::StrokeKind::Outside);
+                sign_x = rr.right() + sp * 1.8;
+            }
+            // F-09: the segno and the coda sign at the start of the measure, over the top staff (the row of the
+            // rehearsal marks: once per system, like tempo and rehearsal)
+            for (on, name) in [(mi.segno, "segno"), (mi.coda, "coda")] {
+                if on {
+                    draw_sign(p, name, pos2(sign_x, row), sp * 2.4, black);
+                    sign_x += sp * 2.8;
+                }
             }
             if let Some(e) = &mi.ending {
                 let y = sys.top(sp) - sp * sys.marks.ending;
@@ -880,8 +906,17 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                 p.line_segment([pos2(mg.x0 + sp * 0.3, y), pos2(x1, y)], st2);
                 p.text(pos2(mg.x0 + sp * 0.8, y + sp * 0.8), Align2::LEFT_CENTER, e, font(sp * 1.3), black);
             }
+            // F-09: To Coda, Fine, D.C. and D.S. at the end of the measure, right-aligned, in italic (To Coda with its
+            // sign)
             if let Some(c) = &mi.coda_phrase {
-                p.text(pos2(mg.x1 - sp * 0.4, sys.bottom(sp) + sp * 4.5), Align2::RIGHT_CENTER, c, font(sp * 1.5), black);
+                let mut right = mg.x1 - sp * 0.4;
+                if Jump::of(c) == Some(Jump::ToCoda) {
+                    draw_sign(p, "coda", pos2(right - sp * 1.0, row), sp * 2.0, black);
+                    right -= sp * 2.7;
+                }
+                if Jump::of(c) != Some(Jump::ToCoda) || c.to_lowercase().contains("coda") {
+                    italic_text(p, pos2(right, row), Align2::RIGHT_CENTER, c, sp * 1.6, black);
+                }
             }
 
             for &(s, mid) in &sys.staves {
