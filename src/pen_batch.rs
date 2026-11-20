@@ -12,8 +12,9 @@ use crate::app::App;
 use crate::model::*;
 use crate::pen::{self, Col, Ctx, Reading};
 use crate::pen_model;
+use crate::pen_symbols as ps;
 use crate::pen_ui::{Feedback, FeedbackKind, INK, INK_WIDTH};
-use crate::score_view as sv;
+use crate::score_view::{self as sv, NoteRef};
 use crate::theme;
 use egui::{pos2, vec2, Align2, Color32, Pos2, Rect, Sense, Stroke as EStroke, Ui};
 
@@ -60,6 +61,34 @@ pub struct Preview {
     pub open: Option<usize>,
 }
 
+/// A head on the page for attaching symbols: (screen point, staff, measure, start, voice).
+type HeadAt = (Pos2, usize, usize, u32, u8);
+
+/// F-41: a dot just right of a note that was already there (Accept dots that note).
+pub const AUG_DOT: usize = 102;
+
+/// The ends of the longest stroke (left, right) and whether it bows upward (an arc above the notes).
+fn ends(strokes: &[Vec<Pos2>]) -> (Pos2, Pos2, bool) {
+    let Some(s) = strokes.iter().max_by(|a, b| pen::path_len(a).partial_cmp(&pen::path_len(b)).unwrap()) else { return (Pos2::ZERO, Pos2::ZERO, false) };
+    let a = *s.iter().min_by(|p, q| p.x.partial_cmp(&q.x).unwrap()).unwrap();
+    let b = *s.iter().max_by(|p, q| p.x.partial_cmp(&q.x).unwrap()).unwrap();
+    let mid_x = (a.x + b.x) / 2.0;
+    let mid = s.iter().min_by(|p, q| (p.x - mid_x).abs().partial_cmp(&(q.x - mid_x).abs()).unwrap()).copied().unwrap_or(a);
+    (a, b, mid.y < (a.y + b.y) / 2.0)
+}
+
+/// Does the ink spread wider at its right end than at its left (a crescendo "<")?
+fn opens_right(strokes: &[Vec<Pos2>]) -> bool {
+    let all: Vec<Pos2> = strokes.iter().flat_map(|s| pen::resample(s, 40)).collect();
+    let r = ink_rect(&all);
+    let spread = |lo: f32, hi: f32| {
+        let ys: Vec<f32> = all.iter().filter(|p| (lo..=hi).contains(&p.x)).map(|p| p.y).collect();
+        ys.iter().copied().fold(f32::MIN, f32::max) - ys.iter().copied().fold(f32::MAX, f32::min)
+    };
+    let w = r.width();
+    spread(r.right() - 0.2 * w, r.right()) > spread(r.left(), r.left() + 0.2 * w)
+}
+
 /// Ticks of a reading (a beamed group: all its notes).
 fn ticks_of(r: &Reading) -> u32 {
     match r {
@@ -69,9 +98,13 @@ fn ticks_of(r: &Reading) -> u32 {
     }
 }
 
-fn with_dots(r: &Reading, add: u8) -> Reading {
+/// The reading with `add` more dots: on the column nearest `x` (a beamed group: only that note).
+fn with_dots(r: &Reading, add: u8, x: f32) -> Reading {
     match r {
-        Reading::Notes { cols, beamed } => Reading::Notes { cols: cols.iter().map(|c| Col { dots: (c.dots + add).min(2), ..c.clone() }).collect(), beamed: *beamed },
+        Reading::Notes { cols, beamed } => {
+            let k = (0..cols.len()).min_by(|&a, &b| (cols[a].heads[0].x - x).abs().partial_cmp(&(cols[b].heads[0].x - x).abs()).unwrap()).unwrap_or(0);
+            Reading::Notes { cols: cols.iter().enumerate().map(|(i, c)| Col { dots: if i == k && c.heads[0].x < x { (c.dots + add).min(2) } else { c.dots }, ..c.clone() }).collect(), beamed: *beamed }
+        }
         Reading::Rest { value, dots, at } => Reading::Rest { value: *value, dots: (dots + add).min(2), at: *at },
         r => r.clone(),
     }
@@ -133,6 +166,27 @@ pub fn group(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<usize>> {
         let l = pen::path_len(s);
         r.height() >= 1.5 * sp && r.width() <= 0.45 * r.height() && l > 0.0 && s[0].distance(*s.last().unwrap()) / l >= 0.85
     };
+    // F-41: a tie or slur touches the heads it joins, and an accent or tenuto sits close to its head: an arc never
+    // joins other ink, a short open mark only when it really overlaps
+    let arc_like = |i: usize| {
+        let s = &strokes[i];
+        let l = pen::path_len(s);
+        let (a, b) = (s[0], *s.last().unwrap());
+        let chord = a.distance(b);
+        let straight = if l > 0.0 { chord / l } else { 1.0 };
+        let rs = pen::resample(s, 32);
+        let monotonic = rs.windows(2).filter(|w| (w[1].x - w[0].x) * (rs.last().unwrap().x - rs[0].x) < -0.5).count() == 0;
+        // how far it bows from the line between its ends, and how flat that line lies
+        let d = b - a;
+        let bow = rs.iter().map(|p| ((*p - a).x * d.y - (*p - a).y * d.x).abs() / chord.max(1e-3)).fold(0.0f32, f32::max);
+        let flat = d.x.abs() >= 1.2 * d.y.abs();
+        chord >= 1.4 * sp && flat && (0.12 * sp..=0.5 * chord).contains(&bow) && straight < 0.99 && straight > 0.7 && monotonic
+    };
+    let mark_like = |i: usize| {
+        let r = rects[i];
+        let l = pen::path_len(&strokes[i]);
+        r.width().max(r.height()) <= 1.6 * sp && l <= 2.6 * sp && r.width() >= 0.9 * r.height() && strokes[i][0].distance(*strokes[i].last().unwrap()) >= 0.4 * sp
+    };
     let min_dist = |a: usize, b: usize| {
         let (ra, rb) = (rects[a].expand(0.6 * sp), rects[b]);
         if !ra.intersects(rb) {
@@ -144,11 +198,15 @@ pub fn group(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<usize>> {
     };
     for a in 0..n {
         for b in (a + 1)..n {
-            if tiny(a) || tiny(b) {
+            if tiny(a) || tiny(b) || arc_like(a) || arc_like(b) {
                 continue;
             }
-            let shrunk = |r: Rect| r.shrink(0.05 * sp);
-            let overlap = shrunk(rects[a]).intersects(shrunk(rects[b])) && min_dist(a, b) <= 0.8 * sp;
+            // (a hairpin, long and flat, next to a dynamic: also only when they overlap)
+            let long_flat = |i: usize| rects[i].width() >= 2.2 * sp && rects[i].height() <= 0.6 * rects[i].width() && !stem_like(i);
+            let marks = mark_like(a) || mark_like(b) || long_flat(a) || long_flat(b);
+            // (touching: their boxes meet and their ink comes within a third of a space; a flat beam has almost no
+            // height, so the boxes aren't shrunk)
+            let overlap = rects[a].expand(0.15 * sp).intersects(rects[b]) && min_dist(a, b) <= 0.35 * sp;
             let close = min_dist(a, b) <= 0.5 * sp;
             let next = b == a + 1 && min_dist(a, b) <= 1.0 * sp;
             let stem_end = |s: usize, o: usize| {
@@ -160,7 +218,7 @@ pub fn group(strokes: &[Vec<Pos2>], sp: f32) -> Vec<Vec<usize>> {
                 let c = rects[o].center();
                 ends.iter().any(|e| (c.y - e.y).abs() <= 1.2 * sp && (c.x - e.x).abs() <= 1.6 * sp) && min_dist(s, o) <= 1.2 * sp
             };
-            if overlap || close || next || stem_end(a, b) || stem_end(b, a) {
+            if overlap || (!marks && (close || next)) || stem_end(a, b) || stem_end(b, a) {
                 let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
                 parent[ra] = rb;
             }
@@ -237,10 +295,16 @@ impl App {
                 self.status = "Scribbled out. Two-finger tap undoes it.".into();
                 return;
             }
-            // over ink: that ink goes
+            // over ink: that ink goes (a real scribble over it: one more turn back than the minimum, the stroke's
+            // middle under it and most of the stroke too; a letter of a dynamic beside another one is not that)
             let ink = self.ink_screen();
             let er = r.expand(0.2 * sp);
-            let gone: Vec<usize> = (0..ink.len()).filter(|&i| ink[i].iter().any(|p| er.contains(*p)) && ink[i].iter().filter(|p| er.contains(**p)).count() * 2 >= ink[i].len()).collect();
+            let strong = pen::scribble_turns(std::slice::from_ref(&pts), sp) > pen::SCRIBBLE_TURNS;
+            let gone: Vec<usize> = if strong {
+                (0..ink.len()).filter(|&i| er.contains(ink_rect(&ink[i]).center()) && ink[i].iter().filter(|p| er.contains(**p)).count() * 10 >= ink[i].len() * 6).collect()
+            } else {
+                vec![]
+            };
             if !gone.is_empty() {
                 for &i in gone.iter().rev() {
                     self.pen.ink.remove(i);
@@ -252,7 +316,9 @@ impl App {
             }
             // a big scribble over nothing: it goes (a quarter rest zigzags too: that one stays)
             let rest = pen::recognize(std::slice::from_ref(&pts), sp, &Ctx::default()).first().is_some_and(|c| c.score >= 0.5 && matches!(c.reading, Reading::Rest { value: 3..=7, .. }));
-            if r.width().max(r.height()) > 2.2 * sp && !rest {
+            // (F-41: and a stroke the model knows, like the "f" of a dynamic drawn with its bar, stays too)
+            let known = pen_model::classify(&pen::to_sp(std::slice::from_ref(&pts), sp)).is_some_and(|p| (0..pen_model::N_OUT).filter(|&k| k != pen_model::OTHER).any(|k| p[k] >= 0.4));
+            if r.width().max(r.height()) > 2.2 * sp && !rest && !known {
                 self.pen.feedback.push(Feedback { strokes: vec![pts], kind: FeedbackKind::Vanish, start: now });
                 self.status = "A scribble over nothing: nothing changed.".into();
                 return;
@@ -286,13 +352,27 @@ impl App {
         let rules = pen::recognize(strokes, sp, &Ctx { staff_mid: mid, remaining: None, neighbor: None, personal: Some(personal) });
         // groups, chords and accidentals drawn with their note: the rules' structure
         let structured = rules.first().is_some_and(|c| matches!(&c.reading, Reading::Notes { cols, .. } if cols.len() > 1 || cols[0].heads.len() > 1 || cols[0].acc.is_some()));
-        if structured {
+        let s_sp0 = pen::to_sp(strokes, sp);
+        let model_says_symbol = pen_model::classify(&s_sp0).is_some_and(|p| (20..pen_model::N_OUT).any(|k| p[k] > 0.6));
+        // F-41: a row of sharps (or flats) drawn close together: a key signature
+        if let Some(n) = self.key_signature_in(strokes) {
+            return vec![(Reading::Symbol { class: ps::KEY_SIG, rect: r, a: r.left_center(), b: r.right_center(), up: false, n }, 0.8)];
+        }
+        if structured && !model_says_symbol {
             let s: f32 = rules.iter().map(|c| c.score).sum::<f32>().max(1e-4);
             return rules.into_iter().take(pen::ALTERNATIVES_MAX).map(|c| (c.reading, c.score / s)).collect();
         }
         // one symbol: the model and the rules together
         let s_sp = pen::to_sp(strokes, sp);
-        let p = pen_model::ensemble(&s_sp, &Ctx { staff_mid: mid.map(|m| m / sp), remaining: None, neighbor: None, personal: Some(personal) });
+        let mut p = pen_model::ensemble(&s_sp, &Ctx { staff_mid: mid.map(|m| m / sp), remaining: None, neighbor: None, personal: Some(personal) });
+        // F-41: a hairpin opens where its lines spread apart: that decides crescendo or decrescendo (a long thin
+        // one is hard to tell by its picture alone)
+        let hp = p[pen_model::CRESC] + p[pen_model::DIM];
+        if hp > 0.0 {
+            let cresc = opens_right(strokes);
+            p[pen_model::CRESC] = if cresc { hp } else { 0.0 };
+            p[pen_model::DIM] = if cresc { 0.0 } else { hp };
+        }
         let mut order: Vec<usize> = (0..p.len()).collect();
         order.sort_by(|&a, &b| p[b].partial_cmp(&p[a]).unwrap());
         if order.first() == Some(&pen_model::OTHER) && p[pen_model::OTHER] > 0.6 {
@@ -327,6 +407,10 @@ impl App {
                 8..=12 => Reading::Rest { value: (k - 5) as u8, dots: 0, at: r.center() },
                 13..=17 => Reading::Accidental { alter: [1, -1, 0, 2, -2][k - 13], at: r.center(), right: r.right() },
                 pen_model::DOT => Reading::Dot { at: r.center() },
+                c if (20..pen_model::N_OUT).contains(&c) && c != pen_model::BARLINE => {
+                    let (a, b, up) = ends(strokes);
+                    Reading::Symbol { class: c, rect: r, a, b, up, n: 0 }
+                }
                 _ => continue,
             };
             let w = if k == 7 { pk * 0.2 } else { pk };
@@ -334,6 +418,150 @@ impl App {
         }
         out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         out
+    }
+
+    /// F-41: sharps (or flats) drawn close together in a row, read as one ink group: the strokes split into equal
+    /// accidentals, two or more. Some(count, + sharps, − flats).
+    fn key_signature_in(&self, strokes: &[Vec<Pos2>]) -> Option<i8> {
+        let sp = self.geo.sp;
+        let r = ink_rect(&strokes.concat());
+        if strokes.len() < 2 || r.width() < 1.6 * sp || !(1.4 * sp..=4.8 * sp).contains(&r.height()) {
+            return None;
+        }
+        let mut order: Vec<usize> = (0..strokes.len()).collect();
+        order.sort_by(|&a, &b| ink_rect(&strokes[a]).center().x.partial_cmp(&ink_rect(&strokes[b]).center().x).unwrap());
+        let n = order.len();
+        // the best split into runs of 1–5 strokes that each read as the same accidental (min probability)
+        let read = |from: usize, to: usize| -> Option<(i8, f32)> {
+            let part: Vec<Vec<Pos2>> = order[from..to].iter().map(|&i| strokes[i].clone()).collect();
+            let p = pen_model::classify(&pen::to_sp(&part, sp))?;
+            let (k, alter) = if p[13] >= p[14] { (13, 1) } else { (14, -1) };
+            (p[k] >= 0.5).then_some((alter, p[k]))
+        };
+        let mut best: Vec<Option<(f32, usize, i8, usize)>> = vec![None; n + 1]; // (min p, count, alter, previous cut)
+        best[0] = Some((1.0, 0, 0, 0));
+        for to in 1..=n {
+            for from in to.saturating_sub(5)..to {
+                let Some((pm, cnt, al, _)) = best[from] else { continue };
+                if let Some((alter, p)) = read(from, to) {
+                    if al != 0 && alter != al {
+                        continue;
+                    }
+                    let cand = (pm.min(p), cnt + 1, alter, from);
+                    if best[to].is_none_or(|b| cand.0 > b.0) {
+                        best[to] = Some(cand);
+                    }
+                }
+            }
+        }
+        let (_, count, alter, _) = best[n]?;
+        (count >= 2).then_some(count as i8 * alter)
+    }
+
+    /// F-41: the marks, dynamics, ties, slurs and hairpins of the preview, on the notes they belong to (written now,
+    /// `placed`, or already there). How many were added.
+    fn pen_attach_symbols(&mut self, items: &[Item], placed: &[(Pos2, usize, usize, u32)]) -> usize {
+        let sp = self.geo.sp;
+        let voice = self.voice;
+        let mut heads: Vec<HeadAt> = placed.iter().map(|(h, s, m, t)| (*h, *s, *m, *t, voice)).collect();
+        for h in &self.geo.notes {
+            if h.pitch.is_some() {
+                if let Some(e) = self.ev(h.r) {
+                    heads.push((h.rect.center(), h.r.staff, h.r.measure, e.start, e.voice));
+                }
+            }
+        }
+        let find = |app: &App, s: usize, m: usize, t: u32, v: u8| -> Option<NoteRef> {
+            app.score.events.get(s)?.get(m)?.iter().position(|e| e.start == t && e.voice == v && !e.grace && !e.is_rest()).map(|idx| NoteRef { staff: s, measure: m, idx })
+        };
+        let nearest = |c: Pos2, ok: &dyn Fn(&HeadAt) -> bool| heads.iter().filter(|h| ok(h)).min_by(|a, b| a.0.distance(c).partial_cmp(&b.0.distance(c)).unwrap()).copied();
+        let mut added = 0;
+        for it in items {
+            let Some(Reading::Symbol { class, rect, a, b, up, .. }) = it.reading().cloned() else { continue };
+            match class {
+                ps::STACCATO | pen_model::ACCENT | pen_model::TENUTO | pen_model::FERMATA => {
+                    let c = if class == ps::STACCATO { a } else { rect.center() };
+                    if let Some(h) = nearest(c, &|h| (h.0.x - c.x).abs() <= 1.5 * sp && (h.0.y - c.y).abs() <= 5.0 * sp) {
+                        if let (Some(r), Some(mk)) = (find(self, h.1, h.2, h.3, h.4), ps::mark_of(class, c.y < h.0.y)) {
+                            if let Some(e) = self.ev_mut(r) {
+                                if !e.marks.contains(&mk) {
+                                    e.marks.push(mk);
+                                    added += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                pen_model::DYN_FIRST..=pen_model::DYN_LAST => {
+                    let c = rect.center();
+                    let staff = self.staff_above(c).map(|x| x.0).unwrap_or(it.staff);
+                    let t = heads.iter().filter(|h| h.1 == staff && h.0.x >= rect.left() - 1.5 * sp && h.0.x - c.x <= 5.0 * sp).min_by(|p, q| (p.0.x - c.x).abs().partial_cmp(&(q.0.x - c.x).abs()).unwrap()).copied();
+                    if let (Some(h), Some(text)) = (t, pen_model::dynamic_of(class)) {
+                        if let Some(r) = find(self, h.1, h.2, h.3, h.4) {
+                            if let Some(e) = self.ev_mut(r) {
+                                e.dynamic = Some(text.into());
+                                added += 1;
+                            }
+                        }
+                    }
+                }
+                pen_model::CRESC | pen_model::DIM => {
+                    let Some((_, mid)) = self.staff_above(rect.center()) else { continue };
+                    let (l0, l1) = (sv::locate(&self.score, &self.geo, pos2(rect.left(), mid), 1), sv::locate(&self.score, &self.geo, pos2(rect.right(), mid), 1));
+                    if let (Some(l0), Some(l1)) = (l0, l1) {
+                        let dy = (rect.center().y - (mid - 2.0 * sp)) / sp;
+                        let kind = if class == pen_model::CRESC { GraphicKind::Crescendo } else { GraphicKind::Decrescendo };
+                        self.add_graphic(kind, l0.staff, l0.measure, l0.tick, dy, l1.measure, l1.tick, dy, String::new());
+                        added += 1;
+                    }
+                }
+                pen_model::ARC => {
+                    // (a slur is often written past the stems, up to a stem's length from the heads: close in x,
+                    // farther in y)
+                    let near = |h: &HeadAt, e: Pos2| h.0.distance(e) <= 2.2 * sp || ((h.0.x - e.x).abs() <= 1.6 * sp && (h.0.y - e.y).abs() <= 4.6 * sp);
+                    let key = |h: &HeadAt, e: Pos2| (h.0.x - e.x).abs() + 0.35 * (h.0.y - e.y).abs();
+                    let pick = |e: Pos2, ok: &dyn Fn(&HeadAt) -> bool| heads.iter().filter(|h| near(h, e) && ok(h)).min_by(|p, q| key(p, e).partial_cmp(&key(q, e)).unwrap()).copied();
+                    let ha = pick(a, &|_| true);
+                    let hb = pick(b, &|h| ha.is_none_or(|x| x.0 != h.0));
+                    let (Some(ha), Some(hb)) = (ha, hb) else { continue };
+                    let (Some(ra), Some(rb)) = (find(self, ha.1, ha.2, ha.3, ha.4), find(self, hb.1, hb.2, hb.3, hb.4)) else { continue };
+                    let ea = self.ev(ra).cloned();
+                    let next = ea.as_ref().is_some_and(|e| (hb.2 == ha.2 && hb.3 == e.end()) || (hb.2 == ha.2 + 1 && hb.3 == 0 && e.end() >= self.score.measures[ha.2].ticks()));
+                    let same = (ha.0.y - hb.0.y).abs() <= 0.3 * sp;
+                    if same && next {
+                        // a tie: on the pitch of that head
+                        let step = sv::locate(&self.score, &self.geo, ha.0, 1).map(|l| l.step);
+                        if let (Some(e), Some(st)) = (self.ev_mut(ra), step) {
+                            if let Some(k) = e.pitches.iter().position(|p| p.step == st) {
+                                if e.ties.len() < e.pitches.len() {
+                                    e.ties.resize(e.pitches.len(), false);
+                                }
+                                e.ties[k] = true;
+                                added += 1;
+                            }
+                        }
+                    } else {
+                        let keep = std::mem::take(&mut self.selected);
+                        self.selected.insert(ra);
+                        self.selected.insert(rb);
+                        self.slur_selection(!up);
+                        self.selected = keep;
+                        added += 1;
+                    }
+                }
+                AUG_DOT if self.pen_dot_existing_pub(a) => added += 1,
+                _ => {}
+            }
+        }
+        added
+    }
+
+    /// The staff a dynamic or a hairpin belongs to: the one just above it (they're written under their staff), or
+    /// the nearest. (staff, its middle line).
+    fn staff_above(&self, p: Pos2) -> Option<(usize, f32)> {
+        let sp = self.geo.sp;
+        let sys = self.geo.systems.iter().find(|s| p.x >= s.left - sp * 2.0 && p.x <= s.right + sp && p.y >= s.top(sp) - sp * 8.0 && p.y <= s.bottom(sp) + sp * 8.0)?;
+        sys.staves.iter().filter(|s| s.1 - 2.0 * sp <= p.y).max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).or_else(|| sys.staves.first()).copied()
     }
 
     fn pen_staff_mid(&self, p: Pos2) -> Option<f32> {
@@ -367,20 +595,78 @@ impl App {
         let is = |it: &Item, f: &dyn Fn(&Reading) -> bool| it.reading().is_some_and(f);
         let n = items.len();
         let mut drop = vec![false; n];
-        for i in 0..n {
-            if is(&items[i], &|r| matches!(r, Reading::Dot { .. })) {
-                let at = items[i].x;
-                let target = (0..n).filter(|&j| j != i && !drop[j] && items[j].staff == items[i].staff && items[j].measure == items[i].measure && items[j].x < at && at - items[j].x <= 3.0 * sp && is(&items[j], &|r| matches!(r, Reading::Notes { .. } | Reading::Rest { .. }))).max_by(|&a, &b| items[a].x.partial_cmp(&items[b].x).unwrap());
-                if let Some(j) = target {
-                    let strokes = items[i].strokes.clone();
-                    let rect = items[i].rect;
-                    let it = &mut items[j];
-                    it.cands = it.cands.iter().map(|(r, p)| (with_dots(r, 1), *p)).collect();
-                    it.strokes.extend(strokes);
-                    it.rect = it.rect.union(rect);
-                    drop[i] = true;
+        // F-41: the heads on the page (written now and already there), for dots and marks
+        let mut heads: Vec<(Pos2, Option<usize>)> = vec![];
+        for (j, it) in items.iter().enumerate() {
+            if let Some(Reading::Notes { cols, .. }) = it.reading() {
+                for c in cols {
+                    heads.extend(c.heads.iter().map(|h| (*h, Some(j))));
                 }
             }
+        }
+        heads.extend(self.geo.notes.iter().filter(|h| h.pitch.is_some()).map(|h| (h.rect.center(), None)));
+        for i in 0..n {
+            if is(&items[i], &|r| matches!(r, Reading::Dot { .. })) {
+                let d = self.ink_to_screen(items[i].rect.center());
+                // above or below a head: staccato; just right of it: a dot that lengthens it
+                let stacc = heads.iter().filter(|(h, _)| (d.x - h.x).abs() <= 0.8 * sp && (0.5 * sp..=2.6 * sp).contains(&(d.y - h.y).abs())).min_by(|a, b| a.0.distance(d).partial_cmp(&b.0.distance(d)).unwrap()).copied();
+                let aug = heads.iter().filter(|(h, _)| (0.4 * sp..=2.8 * sp).contains(&(d.x - h.x)) && (d.y - h.y).abs() <= 0.9 * sp).min_by(|a, b| a.0.distance(d).partial_cmp(&b.0.distance(d)).unwrap()).copied();
+                let r = ink_rect(&[self.ink_to_screen(items[i].rect.min), self.ink_to_screen(items[i].rect.max)]);
+                match (stacc, aug) {
+                    (Some((h, _)), _) => {
+                        items[i].cands = vec![(Reading::Symbol { class: ps::STACCATO, rect: r, a: d, b: h, up: d.y < h.y, n: 0 }, 0.9)];
+                    }
+                    (None, Some((_, Some(j)))) => {
+                        let strokes = items[i].strokes.clone();
+                        let rect = items[i].rect;
+                        let it = &mut items[j];
+                        it.cands = it.cands.iter().map(|(r, p)| (with_dots(r, 1, d.x), *p)).collect();
+                        it.strokes.extend(strokes);
+                        it.rect = it.rect.union(rect);
+                        drop[i] = true;
+                    }
+                    (None, Some((_, None))) => {
+                        items[i].cands = vec![(Reading::Symbol { class: AUG_DOT, rect: r, a: d, b: d, up: false, n: 0 }, 0.9)];
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // F-41: separate sharps (or flats) in a row after a clef, or two and more in a row: a key signature
+        let mut order: Vec<usize> = (0..n).filter(|&i| !drop[i] && matches!(items[i].reading(), Some(Reading::Accidental { alter: 1 | -1, .. }))).collect();
+        order.sort_by(|&a, &b| (items[a].staff, items[a].x as i64).cmp(&(items[b].staff, items[b].x as i64)));
+        let mut k = 0;
+        while k < order.len() {
+            let alters: Vec<i8> = items.iter().map(|it| match it.reading() {
+                Some(Reading::Accidental { alter, .. }) => *alter,
+                _ => 0,
+            }).collect();
+            let alter = |i: usize| alters[i];
+            let mut run = vec![order[k]];
+            while k + run.len() < order.len() {
+                let (prev, next) = (*run.last().unwrap(), order[k + run.len()]);
+                if items[next].staff == items[prev].staff && alter(next) == alter(prev) && items[next].x - items[prev].x <= 1.8 * sp {
+                    run.push(next);
+                } else {
+                    break;
+                }
+            }
+            let first = run[0];
+            let after_clef = (0..n).any(|j| !drop[j] && items[j].staff == items[first].staff && matches!(items[j].reading(), Some(Reading::Symbol { class: 20..=22, .. })) && items[first].x > items[j].x && items[first].x - items[j].x <= 4.5 * sp);
+            if run.len() >= 2 || after_clef {
+                let mut rect = items[first].rect;
+                for &i in &run[1..] {
+                    rect = rect.union(items[i].rect);
+                    let st = items[i].strokes.clone();
+                    items[first].strokes.extend(st);
+                    drop[i] = true;
+                }
+                items[first].rect = rect;
+                let sr = Rect::from_min_max(self.ink_to_screen(rect.min), self.ink_to_screen(rect.max));
+                let count = run.len() as i8 * alter(first) as i8;
+                items[first].cands = vec![(Reading::Symbol { class: ps::KEY_SIG, rect: sr, a: sr.left_center(), b: sr.right_center(), up: false, n: count }, 0.85)];
+            }
+            k += run.len();
         }
         for i in 0..n {
             if drop[i] {
@@ -496,13 +782,53 @@ impl App {
     pub fn pen_accept(&mut self) {
         let Some(p) = self.pen.preview.take() else { return };
         let mark = self.undo.len();
+        self.checkpoint();
+        let (mut written, mut skipped) = (0, 0);
+        // F-41: clefs, key and time signatures first: the notes after them read in them
+        for it in &p.items {
+            if let Some(Reading::Symbol { class, n, .. }) = it.reading() {
+                if it.staff == usize::MAX {
+                    continue;
+                }
+                match *class {
+                    20..=22 => {
+                        if let Some(c) = ps::clef_of(*class) {
+                            self.score.staves[it.staff].set_clef(it.measure, c);
+                            written += 1;
+                        }
+                    }
+                    pen_model::TIME_FIRST..=pen_model::TIME_LAST => {
+                        if let Some((num, den)) = pen_model::time_of(*class) {
+                            let len = self.score.measures.len();
+                            if self.set_time_signature(num, den, it.measure + 1, len).is_ok() {
+                                written += 1;
+                            } else {
+                                skipped += 1;
+                            }
+                        }
+                    }
+                    ps::KEY_SIG => {
+                        let old = self.score.measures[it.measure].key;
+                        for m in it.measure..self.score.measures.len() {
+                            if self.score.measures[m].key != old && m > it.measure {
+                                break;
+                            }
+                            self.score.measures[m].key = *n;
+                        }
+                        written += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
         let mut bars: std::collections::BTreeMap<(usize, usize), Vec<&Item>> = Default::default();
         for it in &p.items {
             if it.staff != usize::MAX && it.reading().is_some_and(|r| ticks_of(r) > 0) {
                 bars.entry((it.staff, it.measure)).or_default().push(it);
             }
         }
-        let (mut written, mut skipped) = (0, 0);
+        // where each written note is: (screen head, staff, measure, start, pitch)
+        let mut placed: Vec<(Pos2, usize, usize, u32)> = vec![];
         for ((s, m), mut its) in bars {
             its.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
             let (mut tick, mt) = self.bar_room(s, m);
@@ -520,6 +846,9 @@ impl App {
                         for c in cols {
                             if self.pen_write_col_at(c, s, m, t).is_some() {
                                 starts.push(t);
+                                for h in &c.heads {
+                                    placed.push((*h, s, m, t));
+                                }
                             }
                             t += dur_ticks(c.value, c.dots, None);
                         }
@@ -553,6 +882,8 @@ impl App {
                 }
             }
         }
+        // F-41: marks, dynamics, ties, slurs and hairpins on the notes (written now, or already there)
+        written += self.pen_attach_symbols(&p.items, &placed);
         // one undo step: back to before the transcription
         if self.undo.len() > mark + 1 {
             self.undo.truncate(mark + 1);
@@ -629,7 +960,8 @@ impl App {
                             painter.rect_filled(r, 6.0, Color32::from_rgba_unmultiplied(doubt.r(), doubt.g(), doubt.b(), 26));
                             painter.text(r.right_top() + vec2(2.0, 0.0), Align2::LEFT_BOTTOM, "?", theme::font_semibold(13.0), doubt);
                         }
-                        draw_reading(painter, reading, sp, read);
+                        let mid = self.pen_staff_mid(r.center());
+                        draw_reading(painter, reading, sp, read, mid);
                     }
                 }
             }
@@ -680,7 +1012,7 @@ impl App {
                     ui.horizontal(|ui| {
                         let big = |t: String, fill: Color32, fg: Color32| egui::Button::new(egui::RichText::new(t).font(theme::font_semibold(14.0)).color(fg)).fill(fill).corner_radius(9.0).min_size(vec2(0.0, 40.0));
                         if let Some(pr) = &self.pen.preview {
-                            let n = pr.items.iter().filter(|i| i.reading().is_some_and(|r| ticks_of(r) > 0)).count();
+                            let n = pr.items.iter().filter(|i| i.reading().is_some_and(|r| ticks_of(r) > 0 || matches!(r, Reading::Symbol { .. }))).count();
                             let unsure = pr.items.iter().filter(|i| i.uncertain()).count();
                             if unsure > 0 {
                                 ui.label(egui::RichText::new(format!("{unsure} to check · tap to change")).font(theme::font(12.5)).color(k.text_2));
@@ -714,7 +1046,7 @@ impl App {
 }
 
 /// A reading drawn where it was written, in engraving size.
-fn draw_reading(p: &egui::Painter, r: &Reading, sp: f32, col: Color32) {
+fn draw_reading(p: &egui::Painter, r: &Reading, sp: f32, col: Color32, mid: Option<f32>) {
     use crate::glyphs as g;
     match r {
         Reading::Notes { cols, beamed } => {
@@ -765,6 +1097,13 @@ fn draw_reading(p: &egui::Painter, r: &Reading, sp: f32, col: Color32) {
         Reading::Dot { at } => {
             p.circle_filled(*at, sp * 0.16, col);
         }
+        Reading::Symbol { class, rect, a, b, up, n } => {
+            if *class == AUG_DOT {
+                p.circle_filled(*a, sp * 0.16, col);
+            } else {
+                ps::draw(p, *class, *rect, *a, *b, *up, *n, mid, sp, col);
+            }
+        }
     }
 }
 
@@ -772,6 +1111,7 @@ fn draw_reading(p: &egui::Painter, r: &Reading, sp: f32, col: Color32) {
 mod tests {
     use super::*;
     use crate::pen::samples::*;
+    use crate::model::{GraphicKind, Mark};
     use std::collections::HashSet;
 
     fn drawn(a: &mut App) {
@@ -873,7 +1213,7 @@ mod tests {
         assert_eq!(g[0], (0..n).collect::<Vec<_>>());
         // a beamed group is one symbol
         let b = beamed_t(h, sp, 3, 2, false, hands()[0]);
-        assert_eq!(group(&b, sp).len(), 1);
+        assert_eq!(group(&b, sp).len(), 1, "{:?} rects {:?}", group(&b, sp), b.iter().map(|s| { let r = ink_rect(s); (((r.left() - h.x) / sp * 10.0).round() / 10.0, ((r.top() - h.y) / sp * 10.0).round() / 10.0, (r.width() / sp * 10.0).round() / 10.0, (r.height() / sp * 10.0).round() / 10.0) }).collect::<Vec<_>>());
     }
 
     #[test]
@@ -933,15 +1273,143 @@ mod tests {
         assert_eq!(notes(&a, 0), vec![(0, 4, 0, vec![67])]);
     }
 
+    /// The "all" lines of an evaluation: [synthetic-only model, HOMUS+synthetic model, rules, the app].
+    fn alls(report: &str) -> Vec<Vec<f32>> {
+        report.lines().filter(|l| l.starts_with("all")).map(|l| l.split_whitespace().skip(2).map(|v| v.trim_end_matches('%').parse::<f32>().unwrap()).collect()).collect()
+    }
+
     #[test]
     fn the_model_is_built_in_and_holds_up_on_ink_it_never_saw() {
         assert!(pen_model::model_loaded(), "assets/pen_model.bin is read");
-        let report = pen_model::train::eval_report();
-        // the "all" lines: model, rules, both
-        let alls: Vec<Vec<f32>> = report.lines().filter(|l| l.starts_with("all")).map(|l| l.split_whitespace().skip(2).map(|v| v.trim_end_matches('%').parse::<f32>().unwrap()).collect()).collect();
-        assert_eq!(alls.len(), 2, "{report}");
-        assert!(alls[0][2] >= 92.0, "held-out generator, model+rules: {report}");
-        assert!(alls[1][2] >= 95.0, "another family, model+rules: {report}");
-        assert!(alls[0][2] > alls[0][1], "together better than the rules alone on varied hands: {report}");
+        let report = pen_model::train::eval_report(None);
+        let a = alls(&report);
+        assert_eq!(a.len(), 2, "{report}");
+        assert!(a[0][3] >= 95.0, "held-out generator, the app: {report}");
+        assert!(a[1][3] >= 95.0, "another family, the app: {report}");
+        assert!(a[0][3] > a[0][2], "better than the rules alone on varied hands: {report}");
     }
+
+    /// F-41: the test closest to real handwriting: HOMUS writers 81–100, never trained on. Runs where the data was
+    /// downloaded (tools/train-pen/fetch-homus.sh); skipped elsewhere (the data isn't in the repository).
+    #[test]
+    fn real_handwriting_of_writers_never_trained_on() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/train-pen/data/HOMUS");
+        if !dir.exists() {
+            eprintln!("HOMUS not downloaded: skipped");
+            return;
+        }
+        let report = pen_model::train::eval_report(Some(&dir));
+        let a = alls(&report);
+        assert!(a[0][1] >= 90.0, "HOMUS held-out writers, HOMUS+synthetic model: {report}");
+        assert!(a[0][3] >= 90.0, "HOMUS held-out writers, the app: {report}");
+        assert!(a[0][1] > a[0][0] + 20.0, "real data helps a lot over synthetic only: {report}");
+    }
+
+    /// Strokes of a class from the generator (staff spaces) put on the page at `at`.
+    fn drawn_class(class: usize, at: Pos2, sp: f32, seed: u64) -> Vec<Vec<Pos2>> {
+        let mut g = pen_model::train::Rng(seed | 1);
+        pen_model::train::sample(&mut g, class).into_iter().map(|s| s.into_iter().map(|p| pos2(at.x + p.x * sp, at.y + p.y * sp)).collect()).collect()
+    }
+
+
+    #[test]
+    fn staccato_above_the_head_and_the_dot_after_it() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        let g4 = spot(&a, 0, 0, -2);
+        let mut t = write(&mut a, &note_t(g4, sp, 3, 0, false, hands()[0]), 1.0);
+        // the stem goes up: the staccato goes under the head
+        t = write(&mut a, &[dot(pos2(g4.x, g4.y + 1.3 * sp), sp, 4)], t);
+        let a4 = spot(&a, 0, TPQ, -1);
+        t = write(&mut a, &note_t(a4, sp, 2, 0, false, hands()[1]), t);
+        let _ = write(&mut a, &[dot(pos2(a4.x + 1.3 * sp, a4.y - 0.2 * sp), sp, 5)], t);
+        a.pen_transcribe();
+        a.pen_accept();
+        let ev = &a.score.events[0][0];
+        assert_eq!(notes(&a, 0), vec![(0, 3, 0, vec![67]), (TPQ, 2, 1, vec![69])]);
+        assert!(ev[0].marks.contains(&Mark::Staccato), "staccato on the quarter: {:?}", ev[0].marks);
+        assert!(!ev[1].marks.contains(&Mark::Staccato));
+    }
+
+    #[test]
+    fn an_arc_between_equal_notes_ties_them_between_others_it_slurs() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        let mut t = 1.0;
+        let (g1, g2, b3) = (spot(&a, 0, 0, -2), spot(&a, 0, TPQ, -2), spot(&a, 0, 2 * TPQ, 0));
+        for (h, k) in [(g1, 0usize), (g2, 1), (b3, 2)] {
+            t = write(&mut a, &note_t(h, sp, 3, 0, false, hands()[k]), t);
+        }
+        let arc = |p: Pos2, q: Pos2| -> Vec<Pos2> { (0..=16).map(|i| { let u = i as f32 / 16.0; pos2(p.x + (q.x - p.x) * u, p.y + (q.y - p.y) * u + 0.8 * sp * (1.0 - (2.0 * u - 1.0).powi(2))) }).collect() };
+        t = write(&mut a, &[arc(pos2(g1.x + 0.3 * sp, g1.y + 0.9 * sp), pos2(g2.x - 0.3 * sp, g2.y + 0.9 * sp))], t);
+        let _ = write(&mut a, &[arc(pos2(g2.x + 0.3 * sp, g2.y + 0.9 * sp), pos2(b3.x - 0.3 * sp, b3.y + 0.9 * sp))], t);
+        let slurs = a.score.graphics.iter().filter(|g| g.kind == GraphicKind::Slur).count();
+        a.pen_transcribe();
+        a.pen_accept();
+        assert_eq!(notes(&a, 0).len(), 3, "{:?}", notes(&a, 0));
+        assert_eq!(a.score.events[0][0][0].ties, vec![true], "G–G tied");
+        assert_eq!(a.score.graphics.iter().filter(|g| g.kind == GraphicKind::Slur).count(), slurs + 1, "G–B slurred");
+    }
+
+    /// A slur written past the stem tips (four spaces from the heads) still finds its notes.
+    #[test]
+    fn a_slur_over_the_stems_finds_its_notes() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        let mut t = 1.0;
+        let (h1, h2, h3) = (spot(&a, 0, 0, 0), spot(&a, 0, TPQ, 2), spot(&a, 0, 2 * TPQ, 0));
+        for (h, k) in [(h1, 0usize), (h2, 1), (h3, 2)] {
+            t = write(&mut a, &note_t(h, sp, 3, 0, false, hands()[k]), t);
+        }
+        let y = h1.y - 4.2 * sp;
+        let arc: Vec<Pos2> = (0..=20).map(|i| { let u = i as f32 / 20.0; pos2(h1.x - 0.2 * sp + (h3.x - h1.x + 0.6 * sp) * u, y - 0.9 * sp * (1.0 - (2.0 * u - 1.0).powi(2))) }).collect();
+        let _ = write(&mut a, &[arc], t);
+        let slurs = a.score.graphics.iter().filter(|g| g.kind == GraphicKind::Slur).count();
+        a.pen_transcribe();
+        a.pen_accept();
+        assert_eq!(notes(&a, 0).len(), 3, "{:?}", notes(&a, 0));
+        assert_eq!(a.score.graphics.iter().filter(|g| g.kind == GraphicKind::Slur).count(), slurs + 1, "slurred over the stems");
+    }
+
+    #[test]
+    fn a_row_of_sharps_is_a_key_signature() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        // two sharps at the start of bar 2 (F and C positions), then a note
+        let m2 = spot(&a, 1, 0, 0);
+        let mut t = write(&mut a, &sharp(pos2(m2.x - 1.5 * sp, m2.y - 2.0 * sp), sp, 3), 1.0);
+        t = write(&mut a, &sharp(pos2(m2.x - 0.3 * sp, m2.y - 0.5 * sp), sp, 7), t);
+        let n = note_t(spot(&a, 1, TPQ, -2), sp, 3, 0, false, hands()[0]);
+        let _ = write(&mut a, &n, t);
+        a.pen_transcribe();
+        a.pen_accept();
+        assert_eq!(a.score.measures[1].key, 2, "D major from bar 2");
+        assert_eq!(a.score.measures[0].key, 0);
+    }
+
+    #[test]
+    fn time_signature_dynamics_and_hairpin_go_in() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        let mut t = 1.0;
+        // 3/4 at the start of bar 2; a quarter with "mf" under it in bar 1; a crescendo under bar 1
+        let m2 = spot(&a, 1, 0, 0);
+        t = write(&mut a, &drawn_class(24, pos2(m2.x - 1.0 * sp, m2.y), sp, 11), t);
+        let g4 = spot(&a, 0, 0, -2);
+        t = write(&mut a, &note_t(g4, sp, 3, 0, false, hands()[0]), t);
+        t = write(&mut a, &drawn_class(37, pos2(g4.x, g4.y + 3.5 * sp), sp, 12), t);
+        // a crescendo "<" after it, under the bar, in one stroke
+        let y = g4.y + 3.5 * sp;
+        let x0 = g4.x + 2.5 * sp;
+        let x1 = x0 + 6.0 * sp;
+        let hp: Vec<Pos2> = [(x1, y - 0.5 * sp), (x0, y), (x1, y + 0.5 * sp)].windows(2).flat_map(|w| (0..10).map(move |k| pos2(w[0].0 + (w[1].0 - w[0].0) * k as f32 / 10.0, w[0].1 + (w[1].1 - w[0].1) * k as f32 / 10.0))).collect();
+        let _ = write(&mut a, &[hp], t);
+        a.pen_transcribe();
+        let labels: Vec<String> = a.pen.preview.as_ref().unwrap().items.iter().map(|i| format!("{:?}:{:?}", i.strokes, i.cands.iter().take(3).map(|c| (c.0.label(), (c.1 * 100.0) as i32)).collect::<Vec<_>>())).collect();
+        a.pen_accept();
+        assert_eq!((a.score.measures[1].num, a.score.measures[1].den), (3, 4), "read: {labels:?}");
+        assert_eq!(a.score.events[0][0][0].dynamic.as_deref(), Some("mf"), "read: {labels:?}");
+        assert!(a.score.graphics.iter().any(|g| g.kind == GraphicKind::Crescendo), "read: {labels:?}");
+    }
+
 }

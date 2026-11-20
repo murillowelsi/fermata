@@ -24,6 +24,7 @@ mod pdf;
 mod pen;
 mod pen_batch;
 mod pen_model;
+mod pen_symbols;
 mod pen_ui;
 mod platform;
 mod rec;
@@ -579,15 +580,17 @@ fn main() -> eframe::Result<()> {
             return Ok(());
         }
         // F-40: the pen model (assets/pen_model.bin): train it, or measure it on the held-out test sets
+        // (F-41: `--homus <dir>` adds the HOMUS writers 1–80, downloaded by tools/train-pen/fetch-homus.sh)
+        let homus = args.iter().position(|a| a == "--homus").and_then(|k| args.get(k + 1)).map(std::path::PathBuf::from);
         if args[i] == "--train-pen-model" {
-            let path = args.get(i + 1).cloned().unwrap_or_else(|| "assets/pen_model.bin".into());
-            let m = pen_model::train::train_default();
+            let path = args.get(i + 1).filter(|p| !p.starts_with("--")).cloned().unwrap_or_else(|| "assets/pen_model.bin".into());
+            let m = pen_model::train::train_default(homus.as_deref());
             std::fs::write(&path, m.to_bytes()).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
             println!("wrote {path}");
             return Ok(());
         }
         if args[i] == "--eval-pen-model" {
-            print!("{}", pen_model::train::eval_report());
+            print!("{}", pen_model::train::eval_report(homus.as_deref()));
             return Ok(());
         }
         if args[i] == "--keys-selftest" {

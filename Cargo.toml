@@ -4,6 +4,10 @@ version = "0.3.19"
 edition = "2021"
 description = "Fermata - a free music notation editor"
 
+[features]
+# F-41: ship the pen model trained on synthetic ink only (plan B, no HOMUS in the weights)
+pen-synthetic-only = []
+
 [dependencies]
 egui = "0.37"
 serde = { version = "1", features = ["derive"] }

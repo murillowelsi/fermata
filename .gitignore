@@ -6,3 +6,6 @@
 # F-30: the SoundFont is downloaded by tools/fetch_soundfont.sh (32 MB, not kept in git)
 /assets/soundfont/*.sf2
 /target-main/
+
+# F-41: the HOMUS dataset, downloaded for training only (never redistributed)
+/tools/train-pen/data/

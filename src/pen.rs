@@ -93,6 +93,10 @@ pub enum Reading {
     Accidental { alter: i8, at: Pos2, right: f32 },
     /// A dot alone (after an existing note: it dots it).
     Dot { at: Pos2 },
+    /// F-41: anything else the classifier reads (clef, time, dynamic, articulation, hairpin, arc, key signature):
+    /// its class (`pen_model::CLASSES`, or `pen_symbols::KEY_SIG`/`STACCATO`), its box, its ends, an arc bowing up,
+    /// a count (the key signature).
+    Symbol { class: usize, rect: Rect, a: Pos2, b: Pos2, up: bool, n: i8 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,11 +137,15 @@ impl Reading {
     pub fn label(&self) -> String {
         match self {
             Reading::Notes { cols, beamed } if cols.len() == 1 => format!("n{}.{}", cols[0].value, cols[0].dots),
-            Reading::Notes { cols, beamed: true } => format!("g{}x{}", cols.len(), cols[0].value),
+            Reading::Notes { cols, beamed: true } => format!("g{}x{}", cols.len(), cols.iter().map(|c| c.value.to_string()).collect::<Vec<_>>().join("")),
             Reading::Notes { cols, .. } => format!("c{}", cols.len()),
             Reading::Rest { value, dots, .. } => format!("r{value}.{dots}"),
             Reading::Accidental { alter, .. } => format!("a{alter}"),
             Reading::Dot { .. } => "dot".into(),
+            Reading::Symbol { class, n, .. } => match crate::pen_model::CLASSES.get(*class) {
+                Some(c) => (*c).into(),
+                None => format!("s{class}.{n}"),
+            },
         }
     }
 
@@ -150,6 +158,7 @@ impl Reading {
                 (s / n).to_pos2()
             }
             Reading::Rest { at, .. } | Reading::Accidental { at, .. } | Reading::Dot { at } => *at,
+            Reading::Symbol { rect, .. } => rect.center(),
         }
     }
 
@@ -167,6 +176,7 @@ impl Reading {
             Reading::Rest { value, dots, .. } => format!("{}{}", dotted(*dots), rest_name(*value)),
             Reading::Accidental { alter, .. } => alter_name(*alter).into(),
             Reading::Dot { .. } => "dot".into(),
+            Reading::Symbol { class, n, .. } => crate::pen_symbols::name(*class, *n),
         }
     }
 
@@ -772,6 +782,7 @@ fn assemble(pieces: &[Piece]) -> Option<(Vec<Column>, u8, Vec<bool>, f32)> {
     // beams: lines joining the far ends of two or more stems
     let mut beams = 0u8;
     let mut beamed = vec![false; cols.len()];
+    let mut col_beams = vec![0u8; cols.len()];
     for i in 0..n {
         if used[i] || pieces[i].conf(Part::Beam).max(pieces[i].conf(Part::Flag)) < 0.3 || pieces[i].f.chord < 1.0 {
             continue;
@@ -794,6 +805,30 @@ fn assemble(pieces: &[Piece]) -> Option<(Vec<Column>, u8, Vec<bool>, f32)> {
             conf_n += 1.0;
             for c in touches {
                 beamed[c] = true;
+                col_beams[c] += 1;
+            }
+        }
+    }
+    // F-41: a short beam on one stem of the group (a partial beam: a dotted eighth and a sixteenth, a sixteenth
+    // among eighths): a short straight piece at that stem's far part, lying like the beams
+    if beams > 0 {
+        for i in 0..n {
+            let f = pieces[i].f;
+            if used[i] || f.straight < 0.8 || !(0.35..=1.9).contains(&f.chord) || f.from_vertical < 0.85 {
+                continue;
+            }
+            let (a, b) = (pieces[i].pts[0], *pieces[i].pts.last().unwrap());
+            let on: Vec<usize> = (0..cols.len()).filter(|&c| beamed[c] && far_part(&cols[c]).is_some_and(|(fa, g)| (0..=8).any(|k| { let q = fa + (g - fa) * (k as f32 / 8.0); seg_dist(q, a, b) <= 0.5 }))).collect();
+            if on.len() == 1 {
+                used[i] = true;
+                col_beams[on[0]] += 1;
+                conf_sum += 0.6;
+                conf_n += 1.0;
+            }
+        }
+        for (c, col) in cols.iter_mut().enumerate() {
+            if beamed[c] {
+                col.flags = col_beams[c].min(4);
             }
         }
     }
@@ -927,15 +962,30 @@ fn note_candidates(pieces: &[Piece], out: &mut Vec<Candidate>, back: &dyn Fn(Pos
     let filled_of = |c: &Column| c.heads.iter().map(|&h| pieces[h].filled).sum::<f32>() / c.heads.len().max(1) as f32;
     if beams > 0 && cols.len() >= 2 {
         // a beamed group: one beam = eighths, two = sixteenths, three = thirty-seconds
+        // F-41: each note its own number of beams (mixed groups, partial beams); then the whole group one more or one
+        // fewer, and all alike
         let pf = cols.iter().map(filled_of).sum::<f32>() / cols.len() as f32;
         let dots: Vec<u8> = cols.iter().map(|c| c.dots).collect();
-        for k in 1..=4u8 {
-            let fit = match (beams as i32 - k as i32).abs() {
-                0 => 1.0,
-                1 => 0.3,
-                _ => 0.05,
-            };
-            out.push(Candidate { reading: make(3 + k, dots.clone()), score: base * fit * (0.3 + 0.7 * pf.max(0.5)) });
+        let own: Vec<u8> = cols.iter().map(|c| 3 + c.flags.clamp(1, 4)).collect();
+        let shape = 0.3 + 0.7 * pf.max(0.5);
+        let mut variants: Vec<(Vec<u8>, f32)> = vec![(own.clone(), 1.0)];
+        variants.push((own.iter().map(|v| (v + 1).min(7)).collect(), 0.3));
+        variants.push((own.iter().map(|v| (v - 1).max(4)).collect(), 0.3));
+        let most = *own.iter().max().unwrap_or(&4);
+        let least = *own.iter().min().unwrap_or(&4);
+        variants.push((vec![most; own.len()], 0.35));
+        variants.push((vec![least; own.len()], 0.35));
+        let mut seen = std::collections::HashSet::new();
+        for (vals, fit) in variants {
+            if !seen.insert(vals.clone()) {
+                continue;
+            }
+            let cs = cols
+                .iter()
+                .enumerate()
+                .map(|(i, c)| Col { heads: c.heads.iter().map(|&h| back(pieces[h].f.c)).collect(), value: vals[i], dots: dots[i], acc: if i == 0 { acc.map(|a| a.0) } else { None }, acc_head: if i == 0 { acc.map(|a| a.1).unwrap_or(0) } else { 0 } })
+                .collect();
+            out.push(Candidate { reading: Reading::Notes { cols: cs, beamed: true }, score: base * fit * shape });
         }
         return structure;
     }
@@ -1741,6 +1791,48 @@ pub mod samples {
         }
     }
 
+    /// F-41: a beamed group with its own number of beams per note (`beams[i]`, 1–3): the first beam across all,
+    /// the others across the neighbours that have them, a short partial beam on a note alone.
+    pub fn beamed_mixed(at: Pos2, sp: f32, beams: &[usize], h: Hand) -> Vec<Vec<Pos2>> {
+        let n = beams.len();
+        let mut out = vec![];
+        let mut tops = vec![];
+        for i in 0..n {
+            let a = pos2(at.x + i as f32 * 2.4 * sp, at.y);
+            out.push(head_t(a, sp, true, Hand { seed: h.seed + i as u32 * 13, ..h }));
+            let hh = Hand { seed: h.seed + i as u32 * 13, stem_gap: 0.15, stem_tilt: 0.0, ..h };
+            out.push(stem_t(a, sp, true, false, hh));
+            tops.push(stem_top(a, sp, false, hh));
+        }
+        let line = |p: Pos2, q: Pos2, seed: u32| place_amp(densify(&[((p.x - at.x) / sp, (p.y - at.y) / sp), ((q.x - at.x) / sp, (q.y - at.y) / sp)], 10), at, sp, seed, 0.02);
+        out.push(line(tops[0], tops[n - 1], h.seed + 50));
+        for level in 2..=3usize {
+            let off = (level - 1) as f32 * 0.75 * sp;
+            let mut i = 0;
+            while i < n {
+                if beams[i] >= level {
+                    let mut j = i;
+                    while j + 1 < n && beams[j + 1] >= level {
+                        j += 1;
+                    }
+                    let (p, q) = if j > i {
+                        (tops[i], tops[j])
+                    } else if i > 0 {
+                        // a partial beam pointing back to the previous note
+                        (pos2(tops[i].x - 0.9 * sp, tops[i].y), tops[i])
+                    } else {
+                        (tops[i], pos2(tops[i].x + 0.9 * sp, tops[i].y))
+                    };
+                    out.push(line(pos2(p.x, p.y + off), pos2(q.x, q.y + off), h.seed + 60 + (level * 10 + i) as u32));
+                    i = j + 1;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        out
+    }
+
     /// A crooked hooked rest: a slanting line with `hooks` hooks on its left near the top (an eighth in one stroke;
     /// more hooks as separate strokes).
     pub fn hooked_rest_t(at: Pos2, sp: f32, hooks: usize, h: Hand) -> Vec<Vec<Pos2>> {
@@ -2034,6 +2126,22 @@ mod tests {
         assert_eq!(note1(&r).map(|n| n.0), Some(3));
     }
 
+
+    /// F-41: mixed groups (an eighth and two sixteenths) and partial beams (a sixteenth's short beam).
+    #[test]
+    fn mixed_and_partial_beams() {
+        for hand in hands() {
+            for beams in [vec![1usize, 2, 2], vec![2, 2, 1], vec![1, 2], vec![2, 1, 1, 2], vec![1, 3, 3]] {
+                let r = best(&beamed_mixed(at(), SP, &beams, hand));
+                let want: Vec<u8> = beams.iter().map(|b| 3 + *b as u8).collect();
+                let got: Option<Vec<u8>> = match &r {
+                    Some(Reading::Notes { cols, beamed: true }) => Some(cols.iter().map(|c| c.value).collect()),
+                    _ => None,
+                };
+                assert_eq!(got, Some(want), "beams {beams:?}, hand {}: {:?}", hand.seed, r.map(|x| x.label()));
+            }
+        }
+    }
 
     #[test]
     fn strokes_close_in_time_are_one_symbol() {

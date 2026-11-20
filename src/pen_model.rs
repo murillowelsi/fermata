@@ -1,4 +1,13 @@
-//! F-40: a small trained classifier for one handwritten symbol (the ink of one note, rest, accidental or dot).
+//! F-40/F-41: a small trained classifier for one handwritten symbol (a note, rest, accidental, dot, clef, time
+//! signature, dynamic, articulation, hairpin or arc).
+//!
+//! F-41: two sets of weights, the same network:
+//! - `assets/pen_model.bin` (default): trained on the HOMUS pen-stroke dataset (writers 1–80, the classes Fermata
+//!   uses) plus synthetic ink. HOMUS declares no licence; it is used for training with the permission of
+//!   Fermata's maintainer, downloaded by `tools/train-pen/fetch-homus.sh` and never redistributed (only these
+//!   weights ship). See CREDITS.md.
+//! - `assets/pen_model_synthetic.bin` (plan B): synthetic ink only. Build with `--features pen-synthetic-only`
+//!   to ship it instead.
 //!
 //! - **Features** (`features`): the ink scaled into a box, as a 12×12 picture of where the ink is, a 4×4 grid of
 //!   stroke directions (4 directions), and a few numbers about its size and shape (size in staff spaces, how
@@ -17,16 +26,53 @@ use crate::pen::{bbox, path_len, resample};
 use egui::{pos2, vec2, Pos2};
 
 /// What the classifier tells apart. `rblock` is the whole/half rest block (the staff line decides which).
-pub const CLASSES: [&str; 20] = ["n1.0", "n2.0", "n3.0", "n4.0", "n5.0", "n6.0", "n7.0", "rblock", "r3.0", "r4.0", "r5.0", "r6.0", "r7.0", "a1", "a-1", "a0", "a2", "a-2", "dot", "other"];
+pub const CLASSES: [&str; 46] = [
+    "n1.0", "n2.0", "n3.0", "n4.0", "n5.0", "n6.0", "n7.0", "rblock", "r3.0", "r4.0", "r5.0", "r6.0", "r7.0", "a1", "a-1", "a0", "a2", "a-2", "dot", "other",
+    // F-41
+    "clefG", "clefF", "clefC", "t4/4", "t3/4", "t2/4", "t2/2", "t3/8", "t6/8", "t9/8", "t12/8", "tC", "tCut", "barline", "dp", "dpp", "dmp", "dmf", "df", "dff", "accent", "tenuto", "fermata", "cresc", "dim", "arc",
+];
+pub const TIME_FIRST: usize = 23;
+pub const TIME_LAST: usize = 32;
+pub const BARLINE: usize = 33;
+pub const DYN_FIRST: usize = 34;
+pub const DYN_LAST: usize = 39;
+pub const ACCENT: usize = 40;
+pub const TENUTO: usize = 41;
+pub const FERMATA: usize = 42;
+pub const CRESC: usize = 43;
+pub const DIM: usize = 44;
+pub const ARC: usize = 45;
+
+/// The time signature a time class stands for (num, den); C is 4/4 and ₵ 2/2.
+pub fn time_of(class: usize) -> Option<(u8, u8)> {
+    Some(match class {
+        23 => (4, 4),
+        24 => (3, 4),
+        25 => (2, 4),
+        26 => (2, 2),
+        27 => (3, 8),
+        28 => (6, 8),
+        29 => (9, 8),
+        30 => (12, 8),
+        31 => (4, 4),
+        32 => (2, 2),
+        _ => return None,
+    })
+}
+
+/// The dynamic a dynamic class stands for.
+pub fn dynamic_of(class: usize) -> Option<&'static str> {
+    Some(["p", "pp", "mp", "mf", "f", "ff"][class.checked_sub(DYN_FIRST).filter(|k| *k < 6)?])
+}
 pub const OTHER: usize = 19;
 pub const DOT: usize = 18;
 
 const GRID: usize = 12;
 const ZONES: usize = 4;
 const DIRS: usize = 4;
-const N_GLOBAL: usize = 14;
+const N_GLOBAL: usize = 20;
 pub const N_FEAT: usize = GRID * GRID + ZONES * ZONES * DIRS + N_GLOBAL;
-pub const N_HIDDEN: usize = 96;
+pub const N_HIDDEN: usize = 160;
 pub const N_OUT: usize = CLASSES.len();
 
 /// The model's numbers, in this order: feature means, feature spreads, W1 (hidden × features), b1, W2 (out ×
@@ -40,7 +86,11 @@ pub struct Model {
     pub b2: Vec<f32>,
 }
 
+// (plan B: `--features pen-synthetic-only` ships the weights trained on synthetic ink only)
+#[cfg(not(feature = "pen-synthetic-only"))]
 const MODEL_BYTES: &[u8] = include_bytes!("../assets/pen_model.bin");
+#[cfg(feature = "pen-synthetic-only")]
+const MODEL_BYTES: &[u8] = include_bytes!("../assets/pen_model_synthetic.bin");
 
 thread_local! {
     static MODEL: Option<Model> = Model::from_bytes(MODEL_BYTES);
@@ -113,6 +163,7 @@ pub fn classify(strokes_sp: &[Vec<Pos2>]) -> Option<Vec<f32>> {
     MODEL.with(|m| m.as_ref().map(|m| m.predict(strokes_sp)))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn model_loaded() -> bool {
     MODEL.with(|m| m.is_some())
 }
@@ -132,6 +183,8 @@ pub fn class_of(r: &crate::pen::Reading) -> Option<usize> {
             _ => 17,
         },
         Reading::Dot { .. } => DOT,
+        Reading::Symbol { class, .. } if *class < N_OUT => *class,
+        Reading::Symbol { .. } => return None,
     })
 }
 
@@ -241,6 +294,26 @@ pub fn features(strokes: &[Vec<Pos2>]) -> Vec<f32> {
     }
     let m = all.len().max(1) as f32;
     let raw_len: f32 = strokes.iter().map(|s| path_len(s)).sum();
+    let (mut xr, mut yr) = (0usize, 0usize);
+    for st in &strokes {
+        let rs = resample(st, 48);
+        let hy = (0.12 * scale).max(0.08);
+        xr += turns_along(&rs, true, hy);
+        yr += turns_along(&rs, false, hy);
+    }
+    let xrev = (xr as f32 / n as f32).min(10.0) / 4.0;
+    let yrev = (yr as f32 / n as f32).min(10.0) / 4.0;
+    let short = strokes.iter().filter(|s| path_len(s) < 0.25 * scale).count().min(6) as f32 / 3.0;
+    let li = (0..n).max_by(|&a, &b| path_len(strokes[a]).partial_cmp(&path_len(strokes[b])).unwrap()).unwrap_or(0);
+    let longest = path_len(strokes[li]);
+    let (a, b) = (strokes[li][0], *strokes[li].last().unwrap());
+    let chord = a.distance(b).max(1e-3);
+    let sag = strokes[li].iter().map(|p| {
+        let ab = b - a;
+        ((*p - a).x * ab.y - (*p - a).y * ab.x).abs() / chord
+    }).fold(0.0f32, f32::max) / chord.max(0.3);
+    let lr = bbox(strokes[li]);
+    let (lw, lh) = (lr.width().max(0.05), lr.height().max(0.05));
     let glob = [
         (w.max(0.05)).ln(),
         (h.max(0.05)).ln(),
@@ -256,9 +329,36 @@ pub fn features(strokes: &[Vec<Pos2>]) -> Vec<f32> {
         left / m,
         (raw_len.max(0.05)).ln(),
         (n as f32).min(8.0) / 8.0,
+        // F-41: how often the ink turns back across and along, how many short strokes, how curved the longest one
+        xrev,
+        yrev,
+        short,
+        longest / raw_len.max(1e-3),
+        sag,
+        (lw / lh).ln().clamp(-3.0, 3.0),
     ];
     f[g..g + N_GLOBAL].copy_from_slice(&glob);
     f
+}
+
+/// How many times a path turns back along x (or y), ignoring wobbles smaller than `h`.
+fn turns_along(p: &[Pos2], along_x: bool, h: f32) -> usize {
+    let v = |q: &Pos2| if along_x { q.x } else { q.y };
+    let (mut n, mut dir, mut anchor) = (0, 0i8, p.first().map(v).unwrap_or(0.0));
+    for q in p.iter().skip(1) {
+        let d = v(q) - anchor;
+        if d.abs() >= h {
+            let nd = if d > 0.0 { 1 } else { -1 };
+            if dir != 0 && nd != dir {
+                n += 1;
+            }
+            dir = nd;
+            anchor = v(q);
+        } else if (dir > 0 && v(q) > anchor) || (dir < 0 && v(q) < anchor) {
+            anchor = v(q);
+        }
+    }
+    n
 }
 
 fn put(f: &mut [f32], p: Pos2, v: f32) {
@@ -637,9 +737,9 @@ pub mod train {
                 vec![arc((0.0, -0.6), 0.7, 0.6, 0.25, 1.0, 0.0, 12).into_iter().chain(arc((0.0, 0.6), 0.7, 0.6, 0.75, 0.0, 0.0, 12)).collect()]
             }
             4 => {
-                // a stem or a line alone
+                // a slanting line
                 let l = g.r(2.0, 4.0);
-                let a = g.r(-0.25, 0.25);
+                let a = g.r(0.5, 1.1) * if g.chance(0.5) { 1.0 } else { -1.0 };
                 vec![line((0.0, 0.0), (l * a.sin(), -l * a.cos()))]
             }
             5 => {
@@ -658,12 +758,184 @@ pub mod train {
     }
 
     /// One random sample of a class, as a hand draws it: slant, shear, scale, jitter, pen sampling.
+    fn poly(g: &mut Rng, pts: &[(f32, f32)], j: f32) -> S {
+        pts.iter().map(|&(x, y)| (x + g.r(-j, j), y + g.r(-j, j))).collect()
+    }
+
+    fn shift(s: S, dx: f32, dy: f32) -> S {
+        s.into_iter().map(|(x, y)| (x + dx, y + dy)).collect()
+    }
+
+    /// A digit about 1.8 spaces tall, centred on (cx, cy).
+    fn digit(g: &mut Rng, d: u8, cx: f32, cy: f32) -> Vec<S> {
+        let k = g.r(0.85, 1.1);
+        let shapes: Vec<Vec<(f32, f32)>> = match d {
+            1 => vec![vec![(-0.3, -0.5), (0.1, -0.9), (0.0, 0.9)]],
+            2 => vec![vec![(-0.4, -0.5), (-0.1, -0.9), (0.3, -0.85), (0.4, -0.4), (-0.45, 0.9), (0.45, 0.9)]],
+            3 => vec![vec![(-0.4, -0.8), (0.3, -0.85), (0.1, -0.1), (0.4, 0.3), (0.2, 0.85), (-0.4, 0.8)]],
+            4 => if g.chance(0.5) { vec![vec![(0.2, 0.9), (0.2, -0.9), (-0.45, 0.3), (0.45, 0.3)]] } else { vec![vec![(-0.1, -0.9), (-0.45, 0.3), (0.45, 0.3)], vec![(0.2, -0.4), (0.2, 0.9)]] },
+            6 => vec![vec![(0.3, -0.9), (-0.3, -0.2), (-0.35, 0.5), (0.0, 0.9), (0.35, 0.5), (0.2, 0.1), (-0.3, 0.25)]],
+            8 => vec![vec![(0.0, 0.0), (0.35, -0.45), (0.0, -0.9), (-0.35, -0.45), (0.0, 0.0), (0.4, 0.45), (0.0, 0.9), (-0.4, 0.45), (0.0, 0.0)]],
+            _ => vec![vec![(0.35, -0.3), (0.0, 0.0), (-0.35, -0.4), (0.0, -0.9), (0.35, -0.5), (0.3, 0.9)]],
+        };
+        shapes.into_iter().map(|sh| {
+            let sh: Vec<(f32, f32)> = sh.iter().map(|&(x, y)| (cx + x * k, cy + y * k)).collect();
+            poly(g, &sh, 0.06)
+        }).collect()
+    }
+
+    pub fn clef(g: &mut Rng, class: usize) -> Vec<S> {
+        match class {
+            20 => {
+                let pts = [(0.2, 0.3), (0.6, 0.0), (0.5, -0.5), (0.0, -0.6), (-0.6, -0.1), (-0.4, 0.7), (0.4, 1.0), (1.0, 0.3), (0.7, -1.0), (0.1, -2.2), (-0.1, -3.3), (0.3, -3.8), (0.5, -3.0), (-0.2, -1.6), (0.0, 0.8), (0.2, 2.4), (-0.2, 2.8), (-0.6, 2.4)];
+                vec![poly(g, &pts, 0.12)]
+            }
+            21 => {
+                let mut v = vec![poly(g, &[(-0.5, -0.4), (-0.6, -0.7), (-0.3, -0.95), (0.3, -1.0), (0.9, -0.5), (0.8, 0.4), (0.2, 1.2), (-0.6, 1.8)], 0.08)];
+                if g.chance(0.7) {
+                    for y in [-0.6f32, 0.4] {
+                        let c = (1.3 + g.r(-0.1, 0.1), y + g.r(-0.1, 0.1));
+                        v.push(vec![c, (c.0 + 0.08, c.1 + 0.05)]);
+                    }
+                }
+                v
+            }
+            _ => vec![
+                poly(g, &[(-0.6, -2.0), (-0.6, 2.0)], 0.05),
+                poly(g, &[(-0.25, -2.0), (-0.25, 2.0)], 0.05),
+                poly(g, &[(-0.25, 0.0), (0.2, -0.6), (0.6, -1.2), (0.5, -1.8), (0.1, -1.9), (-0.1, -1.6)], 0.07),
+                poly(g, &[(-0.25, 0.0), (0.2, 0.6), (0.6, 1.2), (0.5, 1.8), (0.1, 1.9), (-0.1, 1.6)], 0.07),
+            ],
+        }
+    }
+
+    pub fn time_sig(g: &mut Rng, class: usize) -> Vec<S> {
+        match class {
+            31 | 32 => {
+                let mut v = vec![arc((0.0, 0.0), 0.8, 1.0, 0.12, 0.88, 0.0, 18)];
+                if class == 32 {
+                    v.push(poly(g, &[(0.05, -1.6), (0.05, 1.6)], 0.05));
+                }
+                v
+            }
+            _ => {
+                let (num, den) = time_of(class).unwrap();
+                let mut v = vec![];
+                for (n, cy) in [(num, -1.0f32), (den, 1.0)] {
+                    if n >= 10 {
+                        v.extend(digit(g, 1, -0.5, cy));
+                        v.extend(digit(g, n - 10, 0.45, cy));
+                    } else {
+                        v.extend(digit(g, n, 0.0, cy));
+                    }
+                }
+                v
+            }
+        }
+    }
+
+    fn letter(g: &mut Rng, c: char, dx: f32) -> Vec<S> {
+        let v: Vec<S> = match c {
+            'p' => {
+                if g.chance(0.6) {
+                    vec![poly(g, &[(0.0, -0.4), (0.0, 1.2), (0.0, -0.3), (0.4, -0.5), (0.6, -0.2), (0.4, 0.2), (0.0, 0.15)], 0.05)]
+                } else {
+                    vec![poly(g, &[(0.0, -0.4), (0.0, 1.2)], 0.04), poly(g, &[(0.0, -0.3), (0.4, -0.5), (0.6, -0.2), (0.4, 0.2), (0.0, 0.15)], 0.05)]
+                }
+            }
+            'm' => vec![poly(g, &[(-0.6, 0.4), (-0.6, -0.4), (-0.4, -0.5), (-0.2, -0.3), (-0.2, 0.4), (-0.2, -0.3), (0.0, -0.5), (0.2, -0.3), (0.2, 0.4), (0.2, -0.3), (0.4, -0.5), (0.6, -0.3), (0.6, 0.4)], 0.05)],
+            _ => {
+                let mut v = vec![poly(g, &[(0.5, -1.2), (0.2, -1.4), (0.0, -1.0), (-0.1, 0.0), (-0.2, 1.0), (-0.5, 1.2)], 0.05)];
+                let bar = poly(g, &[(-0.35, -0.3), (0.35, -0.35)], 0.04);
+                if g.chance(0.7) {
+                    v.push(bar);
+                } else {
+                    v[0].extend(bar);
+                }
+                v
+            }
+        };
+        v.into_iter().map(|s| shift(s, dx, 0.0)).collect()
+    }
+
+    pub fn dynamic(g: &mut Rng, class: usize) -> Vec<S> {
+        let word = dynamic_of(class).unwrap();
+        let gap = g.r(0.9, 1.3);
+        let n = word.chars().count() as f32;
+        let mut v = vec![];
+        for (i, c) in word.chars().enumerate() {
+            let dx = (i as f32 - (n - 1.0) / 2.0) * gap;
+            v.extend(letter(g, c, dx));
+        }
+        // italic
+        let sl = g.r(0.1, 0.35);
+        v.into_iter().map(|s| s.into_iter().map(|(x, y)| (x - y * sl, y)).collect()).collect()
+    }
+
+    pub fn mark(g: &mut Rng, class: usize) -> Vec<S> {
+        match class {
+            ACCENT => {
+                let (w, h) = (g.r(0.8, 1.5), g.r(0.45, 0.9));
+                if g.chance(0.7) {
+                    vec![poly(g, &[(-w / 2.0, -h / 2.0), (w / 2.0, 0.0), (-w / 2.0, h / 2.0)], 0.04)]
+                } else {
+                    vec![poly(g, &[(-w / 2.0, -h / 2.0), (w / 2.0, 0.0)], 0.03), poly(g, &[(w / 2.0, 0.0), (-w / 2.0, h / 2.0)], 0.03)]
+                }
+            }
+            TENUTO => {
+                let w = g.r(0.7, 1.3);
+                let mid = g.r(-0.06, 0.06);
+                vec![poly(g, &[(-w / 2.0, 0.0), (0.0, mid), (w / 2.0, 0.0)], 0.02)]
+            }
+            _ => {
+                // fermata: an arch and a dot under it
+                let (w, h) = (g.r(1.6, 2.4), g.r(0.7, 1.2));
+                let mut v = vec![arc((0.0, 0.3), w / 2.0, h, 0.5, 1.0, 0.0, 16)];
+                if g.chance(0.9) {
+                    let c = (g.r(-0.1, 0.1), g.r(0.0, 0.2));
+                    v.push(vec![c, (c.0 + 0.08, c.1 + 0.04)]);
+                }
+                v
+            }
+        }
+    }
+
+    pub fn hairpin(g: &mut Rng, cresc: bool) -> Vec<S> {
+        let (l, o) = (g.r(2.5, 16.0), g.r(0.8, 1.8));
+        let (tip, open) = if cresc { (-l / 2.0, l / 2.0) } else { (l / 2.0, -l / 2.0) };
+        if g.chance(0.6) {
+            vec![poly(g, &[(open, -o / 2.0), (tip, 0.0), (open, o / 2.0)], 0.05)]
+        } else {
+            vec![poly(g, &[(tip, 0.0), (open, -o / 2.0)], 0.04), poly(g, &[(tip, 0.0), (open, o / 2.0)], 0.04)]
+        }
+    }
+
+    pub fn arc_symbol(g: &mut Rng) -> Vec<S> {
+        let l = g.r(1.5, 14.0);
+        let s = g.r(0.3, 1.4).min(l * 0.3) * if g.chance(0.5) { 1.0 } else { -1.0 };
+        let skew = g.r(-0.2, 0.2);
+        vec![(0..=20).map(|i| {
+            let t = i as f32 / 20.0 * 2.0 - 1.0;
+            (t * l / 2.0, s * (1.0 - t * t) + skew * t * s)
+        }).collect()]
+    }
+
     pub fn sample(g: &mut Rng, class: usize) -> Vec<Vec<Pos2>> {
         let raw = match class {
             0..=6 => note(g, class as u8 + 1),
             7..=12 => rest(g, class),
             13..=17 => accidental(g, class),
             DOT => dot(g),
+            20..=22 => clef(g, class),
+            TIME_FIRST..=TIME_LAST => time_sig(g, class),
+            BARLINE => {
+                let (t, x, b) = (-2.0 - g.r(0.0, 0.3), g.r(-0.15, 0.15), 2.0 + g.r(0.0, 0.3));
+                vec![poly(g, &[(0.0, t), (x, b)], 0.03)]
+            }
+            DYN_FIRST..=DYN_LAST => dynamic(g, class),
+            ACCENT | TENUTO | FERMATA => mark(g, class),
+            CRESC | DIM => hairpin(g, class == CRESC),
+            ARC => arc_symbol(g),
             _ => other(g),
         };
         let rot = g.r(-0.18, 0.18);
@@ -703,6 +975,10 @@ pub mod train {
         out
     }
 
+    /// The learning rate and the passes over the data.
+    pub const LR: f32 = 0.05;
+    pub const EPOCHS: usize = 40;
+
     /// Trains a model: SGD with momentum and a softmax cross-entropy.
     pub fn fit(train: &[(Vec<f32>, usize)], epochs: usize, seed: u64) -> Model {
         let n = train.len().max(1) as f32;
@@ -737,7 +1013,7 @@ pub mod train {
         let (mut vw1, mut vb1, mut vw2, mut vb2) = (vec![0.0f32; m.w1.len()], vec![0.0f32; N_HIDDEN], vec![0.0f32; m.w2.len()], vec![0.0f32; N_OUT]);
         let batch = 32;
         for ep in 0..epochs {
-            let lr = 0.05 * (1.0 - ep as f32 / epochs as f32).max(0.05);
+            let lr = LR * (1.0 - ep as f32 / epochs as f32).max(0.05);
             for i in (1..order.len()).rev() {
                 let j = g.pick(i + 1);
                 order.swap(i, j);
@@ -837,47 +1113,153 @@ pub mod train {
         vec![("generator, held-out seeds", a), ("another family (pen::samples)", b)]
     }
 
-    /// Accuracy per class of the model, the rules and both together on the test sets, as a table.
-    pub fn eval_report() -> String {
-        use std::fmt::Write;
-        let mut out = String::new();
-        let ctx = crate::pen::Ctx::default();
-        let _ = writeln!(out, "Fermata pen model: {} features, {} hidden, {} classes; model loaded: {}", N_FEAT, N_HIDDEN, N_OUT, model_loaded());
-        for (name, set) in test_sets() {
-            let mut t = vec![[0usize; 4]; N_OUT]; // model, rules, both, total
-            for (strokes, y) in &set {
-                let pm = classify(strokes).unwrap_or_else(|| vec![0.0; N_OUT]);
-                let cands = crate::pen::recognize(strokes, 1.0, &ctx);
-                let rule = cands.first().and_then(|c| class_of(&c.reading)).unwrap_or(OTHER);
-                let both = ensemble(strokes, &ctx);
-                let arg = |p: &[f32]| (0..N_OUT).max_by(|&a, &b| p[a].partial_cmp(&p[b]).unwrap()).unwrap();
-                t[*y][0] += (arg(&pm) == *y) as usize;
-                t[*y][1] += (rule == *y) as usize;
-                t[*y][2] += (arg(&both) == *y) as usize;
-                t[*y][3] += 1;
-            }
-            let _ = writeln!(out, "\n== {name} ({} samples)", set.len());
-            let _ = writeln!(out, "{:<8} {:>6} {:>8} {:>8} {:>8}", "class", "n", "model", "rules", "both");
-            let mut sum = [0usize; 4];
-            for (k, row) in t.iter().enumerate() {
-                if row[3] == 0 {
-                    continue;
+    /// The class of a HOMUS label (the classes Fermata uses), or None.
+    pub fn homus_class(label: &str) -> Option<usize> {
+        Some(match label.trim() {
+            "Whole-Note" => 0,
+            "Half-Note" => 1,
+            "Quarter-Note" => 2,
+            "Eighth-Note" => 3,
+            "Sixteenth-Note" => 4,
+            "Thirty-Two-Note" => 5,
+            "Sixty-Four-Note" => 6,
+            "Whole-Half-Rest" => 7,
+            "Quarter-Rest" => 8,
+            "Eighth-Rest" => 9,
+            "Sixteenth-Rest" => 10,
+            "Thirty-Two-Rest" => 11,
+            "Sixty-Four-Rest" => 12,
+            "Sharp" => 13,
+            "Flat" => 14,
+            "Natural" => 15,
+            "Double-Sharp" => 16,
+            "Dot" => DOT,
+            "G-Clef" => 20,
+            "F-Clef" => 21,
+            "C-Clef" => 22,
+            "4-4-Time" => 23,
+            "3-4-Time" => 24,
+            "2-4-Time" => 25,
+            "2-2-Time" => 26,
+            "3-8-Time" => 27,
+            "6-8-Time" => 28,
+            "9-8-Time" => 29,
+            "12-8-Time" => 30,
+            "Common-Time" => 31,
+            "Cut-Time" => 32,
+            "Barline" => BARLINE,
+            _ => return None,
+        })
+    }
+
+    /// The HOMUS samples under `dir` (…/HOMUS/<writer>/<writer>-<n>.txt): (writer, class, strokes in staff
+    /// spaces; HOMUS draws on a staff 14 pixels apart), in a fixed order.
+    pub fn load_homus(dir: &std::path::Path) -> Vec<(u32, usize, Vec<Vec<Pos2>>)> {
+        let mut out = vec![];
+        let mut writers: Vec<(u32, std::path::PathBuf)> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok().map(|w| (w, e.path()))).collect();
+        writers.sort();
+        for (w, path) in writers {
+            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&path).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "txt")).collect();
+            files.sort();
+            for f in files {
+                let Ok(text) = std::fs::read_to_string(&f) else { continue };
+                let mut lines = text.lines();
+                let Some(class) = lines.next().and_then(homus_class) else { continue };
+                let strokes: Vec<Vec<Pos2>> = lines
+                    .map(|l| l.split(';').filter_map(|pt| {
+                        let (x, y) = pt.trim().split_once(',')?;
+                        Some(pos2(x.trim().parse::<f32>().ok()? / 14.0, y.trim().parse::<f32>().ok()? / 14.0))
+                    }).collect::<Vec<Pos2>>())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !strokes.is_empty() {
+                    out.push((w, class, strokes));
                 }
-                let pc = |v: usize| format!("{:.0}%", 100.0 * v as f32 / row[3] as f32);
-                let _ = writeln!(out, "{:<8} {:>6} {:>8} {:>8} {:>8}", CLASSES[k], row[3], pc(row[0]), pc(row[1]), pc(row[2]));
-                for i in 0..4 {
-                    sum[i] += row[i];
-                }
             }
-            let pc = |v: usize| format!("{:.1}%", 100.0 * v as f32 / sum[3].max(1) as f32);
-            let _ = writeln!(out, "{:<8} {:>6} {:>8} {:>8} {:>8}", "all", sum[3], pc(sum[0]), pc(sum[1]), pc(sum[2]));
         }
         out
     }
 
-    /// The training run behind `assets/pen_model.bin` (seeds 1… for training; the tests use seeds from 1 000 000).
-    pub fn train_default() -> Model {
-        let data = dataset(1, 1500);
-        fit(&data, 30, 7)
+    /// HOMUS writers kept out of training: the test of handwriting the model never saw.
+    pub const HOMUS_TEST_WRITERS: std::ops::RangeInclusive<u32> = 81..=100;
+
+    /// A sample moved a little (slant, scale), as another take of the same hand.
+    fn jiggle(g: &mut Rng, s: &[Vec<Pos2>]) -> Vec<Vec<Pos2>> {
+        let rot = g.r(-0.12, 0.12);
+        let (sx, sy) = (g.r(0.9, 1.12), g.r(0.9, 1.12));
+        s.iter().map(|st| st.iter().map(|p| {
+            let (x, y) = (p.x * sx, p.y * sy);
+            pos2(x * rot.cos() - y * rot.sin() + g.r(-0.02, 0.02), x * rot.sin() + y * rot.cos() + g.r(-0.02, 0.02))
+        }).collect()).collect()
+    }
+
+    const SYNTH_MODEL: &[u8] = include_bytes!("../assets/pen_model_synthetic.bin");
+    const HOMUS_MODEL: &[u8] = include_bytes!("../assets/pen_model.bin");
+
+    /// Accuracy per class of both models, the rules and the app's combination on the test sets, as a table; with
+    /// HOMUS, also on its held-out writers.
+    pub fn eval_report(homus: Option<&std::path::Path>) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        let ctx = crate::pen::Ctx::default();
+        let synth = Model::from_bytes(SYNTH_MODEL);
+        let hom = Model::from_bytes(HOMUS_MODEL);
+        let _ = writeln!(out, "Fermata pen model: {} features, {} hidden, {} classes; built-in: {}; synthetic-only loaded: {}; HOMUS+synthetic loaded: {}", N_FEAT, N_HIDDEN, N_OUT, if cfg!(feature = "pen-synthetic-only") { "synthetic only" } else { "HOMUS+synthetic" }, synth.is_some(), hom.is_some());
+        let mut sets = test_sets();
+        if let Some(dir) = homus {
+            let test: Vec<(Vec<Vec<Pos2>>, usize)> = load_homus(dir).into_iter().filter(|(w, _, _)| HOMUS_TEST_WRITERS.contains(w)).map(|(_, c, s)| (s, c)).collect();
+            sets.insert(0, ("HOMUS, writers 81-100 (never trained on)", test));
+        }
+        let arg = |p: &[f32]| (0..N_OUT).max_by(|&a, &b| p[a].partial_cmp(&p[b]).unwrap()).unwrap();
+        for (name, set) in sets {
+            let mut t = vec![[0usize; 5]; N_OUT]; // synthetic, HOMUS+synthetic, rules, the app (built-in + rules), total
+            for (strokes, y) in &set {
+                let ps = synth.as_ref().map(|m| m.predict(strokes)).unwrap_or_else(|| vec![0.0; N_OUT]);
+                let ph = hom.as_ref().map(|m| m.predict(strokes)).unwrap_or_else(|| vec![0.0; N_OUT]);
+                let rule = crate::pen::recognize(strokes, 1.0, &ctx).first().and_then(|c| class_of(&c.reading)).unwrap_or(OTHER);
+                let both = ensemble(strokes, &ctx);
+                t[*y][0] += (arg(&ps) == *y) as usize;
+                t[*y][1] += (arg(&ph) == *y) as usize;
+                t[*y][2] += (rule == *y) as usize;
+                t[*y][3] += (arg(&both) == *y) as usize;
+                t[*y][4] += 1;
+            }
+            let _ = writeln!(out, "\n== {name} ({} samples)", set.len());
+            let _ = writeln!(out, "{:<8} {:>6} {:>10} {:>10} {:>8} {:>8}", "class", "n", "synthetic", "HOMUS+syn", "rules", "app");
+            let mut sum = [0usize; 5];
+            for (k, row) in t.iter().enumerate() {
+                if row[4] == 0 {
+                    continue;
+                }
+                let pc = |v: usize| format!("{:.0}%", 100.0 * v as f32 / row[4] as f32);
+                let _ = writeln!(out, "{:<8} {:>6} {:>10} {:>10} {:>8} {:>8}", CLASSES[k], row[4], pc(row[0]), pc(row[1]), pc(row[2]), pc(row[3]));
+                for i in 0..5 {
+                    sum[i] += row[i];
+                }
+            }
+            let pc = |v: usize| format!("{:.1}%", 100.0 * v as f32 / sum[4].max(1) as f32);
+            let _ = writeln!(out, "{:<8} {:>6} {:>10} {:>10} {:>8} {:>8}", "all", sum[4], pc(sum[0]), pc(sum[1]), pc(sum[2]), pc(sum[3]));
+        }
+        out
+    }
+
+    /// The training runs behind the two weight files: synthetic ink (seeds 1…; the tests use seeds from 1 000 000),
+    /// plus, for `pen_model.bin`, the HOMUS writers 1–80 (each sample four times: as written and moved a little).
+    pub fn train_default(homus: Option<&std::path::Path>) -> Model {
+        let mut data = dataset(1, 1200);
+        if let Some(dir) = homus {
+            let mut g = Rng(99);
+            for (w, c, s) in load_homus(dir) {
+                if HOMUS_TEST_WRITERS.contains(&w) {
+                    continue;
+                }
+                data.push((features(&s), c));
+                for _ in 0..3 {
+                    data.push((features(&jiggle(&mut g, &s)), c));
+                }
+            }
+        }
+        fit(&data, EPOCHS, 7)
     }
 }
+

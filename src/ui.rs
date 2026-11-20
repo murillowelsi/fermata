@@ -165,7 +165,7 @@ impl App {
                     self.mi(ui, c);
                 }
                 // F-40: the pen's ink, transcribed at the end (the browser on tablets)
-                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                if (cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop) || self.pen.pen_seen {
                     ui.separator();
                     let has = !self.pen.ink.is_empty();
                     if kit::menu_item(ui, &commands::label(TranscribeInk), "", false, has).clicked() {
@@ -311,7 +311,7 @@ impl App {
                     self.audition = !self.audition;
                 }
                 // F-40: the pen (the browser on tablets)
-                if cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop {
+                if (cfg!(target_arch = "wasm32") && self.device != crate::touch::Device::Desktop) || self.pen.pen_seen {
                     ui.separator();
                     ui.menu_button("Pen", |ui| {
                         let on = self.prefs.pen_immediate;

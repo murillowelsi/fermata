@@ -138,6 +138,9 @@ pub struct PenState {
     pub injected: Vec<(u8, f32, f32)>,
     /// This frame's pen samples that didn't go to the score's ink (the practice staff reads them).
     pub loose: Vec<(u8, Pos2)>,
+    /// F-41: the lasso being drawn with the pen (the Arrow), and a tablet pen down on the desktop.
+    pub lasso: Option<Vec<Pos2>>,
+    pub tablet_down: bool,
     /// F-40: the ink waiting for "Transcribe", and the preview of what it reads as.
     pub ink: Vec<crate::pen_batch::InkStroke>,
     pub preview: Option<crate::pen_batch::Preview>,
@@ -248,6 +251,11 @@ impl App {
 
     pub fn pen_delete_pub(&mut self, hits: &[sv::NoteHit], graphics: &[usize]) {
         self.pen_delete(hits, graphics);
+    }
+
+    /// F-41: a dot written just right of an existing note dots it (the transcription's Accept).
+    pub fn pen_dot_existing_pub(&mut self, at: Pos2) -> bool {
+        self.pen_dot_existing(at)
     }
 
     fn pen_save_personal(&self) {
@@ -805,6 +813,15 @@ impl App {
         for s in &self.pen.pending {
             ink(painter, &s.pts, INK);
         }
+        // F-41: the lasso
+        if let Some(l) = &self.pen.lasso {
+            if l.len() > 1 {
+                let mut pts = l.clone();
+                pts.push(l[0]);
+                painter.extend(egui::Shape::dashed_line(&pts, EStroke::new(1.5, INK), 6.0, 4.0));
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
+            }
+        }
         if let Some(s) = &self.pen.cur {
             ink(painter, &s.pts, INK);
         }
@@ -1278,6 +1295,7 @@ fn reading_figure(p: &egui::Painter, r: Rect, reading: &Reading, col: Color32) {
         Reading::Dot { .. } => {
             p.circle_filled(c, 2.5, col);
         }
+        Reading::Symbol { class, n, .. } => crate::pen_symbols::figure(p, r, *class, *n, col),
     }
 }
 
@@ -1695,6 +1713,117 @@ mod toolbar_tests {
         rs.dedup_by(|a, b| (a.left() - b.left()).abs() < 1.0);
         rs.truncate(3);
         rs
+    }
+
+    /// A note written into the score and laid out (a few frames).
+    fn with_notes(ctx: &egui::Context, a: &mut App, t: &mut f64, notes: &[(u32, i32)]) {
+        for &(tick, step) in notes {
+            a.enter_clicked(0, 0, tick, Some(Pitch { step, alter: 0 }), 3, 0);
+        }
+        a.selected.clear();
+        for _ in 0..3 {
+            frame(ctx, a, &[], *t);
+            *t += 0.05;
+        }
+    }
+
+    /// F-41: with the Arrow, the pen drags a note up and down (its pitch), as the mouse does.
+    #[test]
+    fn the_pen_drags_a_note_to_another_pitch() {
+        crate::kit::set_touch(true);
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx, Some(egui::Theme::Light));
+        let mut a = App::new(true);
+        a.device = crate::touch::Device::Touch;
+        a.voice = 1;
+        a.tool = Tool::Arrow;
+        let mut t = 1.0;
+        with_notes(&ctx, &mut a, &mut t, &[(0, 4 * 7 + 4)]); // G4
+        let step0 = a.score.events[0][0][0].pitches[0].step;
+        let h = a.geo.notes.iter().find(|h| h.pitch.is_some()).unwrap().rect.center();
+        let sp = a.geo.sp;
+        frame(&ctx, &mut a, &[(0, h)], t);
+        let ys = [0.3f32, 0.6, 0.8, 1.0, 1.0, 1.0, 1.0];
+        for (k, dy) in ys.iter().enumerate() {
+            frame(&ctx, &mut a, &[(1, h - vec2(0.0, sp * dy))], t + 0.03 * (k + 1) as f64);
+        }
+        frame(&ctx, &mut a, &[(2, h - vec2(0.0, sp))], t + 0.3);
+        frame(&ctx, &mut a, &[], t + 0.4);
+        assert_eq!(a.score.events[0][0][0].pitches[0].step, step0 + 2, "a space up = a third higher");
+        crate::kit::set_touch(false);
+    }
+
+    /// F-41: with the Arrow, a loop drawn with the pen around notes selects them.
+    #[test]
+    fn a_lasso_selects_the_notes_inside() {
+        crate::kit::set_touch(true);
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx, Some(egui::Theme::Light));
+        let mut a = App::new(true);
+        a.device = crate::touch::Device::Touch;
+        a.voice = 1;
+        a.tool = Tool::Arrow;
+        let mut t = 1.0;
+        with_notes(&ctx, &mut a, &mut t, &[(0, 32), (TPQ, 34), (3 * TPQ, 33)]);
+        let hs: Vec<Rect> = a.geo.notes.iter().filter(|h| h.pitch.is_some()).map(|h| h.rect).collect();
+        // around the first two only
+        let r = hs[0].union(hs[1]).expand(a.geo.sp * 1.2);
+        let c = r.center();
+        let loop_pts: Vec<Pos2> = (0..=24).map(|i| {
+            let u = i as f32 / 24.0 * std::f32::consts::TAU;
+            pos2(c.x + r.width() / 2.0 * u.cos(), c.y + r.height() / 2.0 * u.sin())
+        }).collect();
+        let samples: Vec<(u8, Pos2)> = loop_pts.iter().enumerate().map(|(i, p)| (if i == 0 { 0 } else { 1 }, *p)).collect();
+        frame(&ctx, &mut a, &samples, t);
+        frame(&ctx, &mut a, &[(2, loop_pts[0])], t + 0.1);
+        frame(&ctx, &mut a, &[], t + 0.2);
+        assert_eq!(a.selected.len(), 2, "{}", a.status);
+        crate::kit::set_touch(false);
+    }
+
+    /// F-41: the desktop: the mouse works as before (a Pencil click writes a note, no ink); a tablet pen (a touch
+    /// with pressure, as winit reports a Windows pen) writes ink.
+    #[test]
+    fn on_the_desktop_the_mouse_is_unchanged_and_a_tablet_pen_writes_ink() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx, Some(egui::Theme::Light));
+        let mut a = App::new(true);
+        a.device = crate::touch::Device::Desktop;
+        a.voice = 1;
+        a.tool = Tool::Pencil;
+        let mut t = 1.0;
+        for _ in 0..3 {
+            frame(&ctx, &mut a, &[], t);
+            t += 0.05;
+        }
+        let sys = &a.geo.systems[0];
+        let p = pos2(sys.measures[0].x0 + (sys.measures[0].x1 - sys.measures[0].x0) * 0.5, sys.staves[0].1);
+        // the mouse: press and release (no touch events)
+        let raw = |events: Vec<egui::Event>, t: f64| egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1180.0, 820.0))), events, time: Some(t), ..Default::default() };
+        let run = |a: &mut App, events: Vec<egui::Event>, t: f64| {
+            let mut out = ctx.run_ui(raw(events, t), |ui| {
+                egui::Panel::top("score_toolbar").exact_size(44.0).show(ui, |ui| a.score_toolbar(ui));
+                egui::CentralPanel::default().show(ui, |ui| a.score_area(ui));
+            });
+            out.textures_delta.clear();
+        };
+        run(&mut a, vec![egui::Event::PointerMoved(p), egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }], t);
+        run(&mut a, vec![egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }], t + 0.05);
+        run(&mut a, vec![], t + 0.1);
+        assert_eq!(a.score.events[0][0].len(), 1, "the mouse click wrote a note");
+        assert!(a.pen.ink.is_empty() && !a.pen.pen_seen, "no ink, no pen");
+        // a tablet pen: touches with pressure
+        let q = p + vec2(a.geo.sp * 4.0, 0.0);
+        let touch = |phase: egui::TouchPhase, pos: Pos2| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos, force: Some(0.6) };
+        let mut evs = vec![touch(egui::TouchPhase::Start, q)];
+        for k in 1..6 {
+            evs.push(touch(egui::TouchPhase::Move, q + vec2(k as f32 * 2.0, k as f32)));
+        }
+        run(&mut a, evs, t + 0.5);
+        run(&mut a, vec![touch(egui::TouchPhase::End, q + vec2(12.0, 6.0))], t + 0.6);
+        run(&mut a, vec![], t + 0.7);
+        assert!(a.pen.pen_seen, "the pen was recognized");
+        assert_eq!(a.pen.ink.len(), 1, "one stroke of ink");
     }
 
     #[test]

@@ -637,9 +637,36 @@ impl App {
         };
         #[cfg(not(target_arch = "wasm32"))]
         let (samples, recent) = {
-            let s: Vec<(u8, egui::Pos2)> = std::mem::take(&mut self.pen.injected).into_iter().map(|(ph, x, y)| (ph, pos2(x, y))).collect();
-            let down = s.last().map(|x| x.0 != 2).unwrap_or(false);
-            let r = down || !s.is_empty() || self.pen.cur.is_some();
+            let mut s: Vec<(u8, egui::Pos2)> = std::mem::take(&mut self.pen.injected).into_iter().map(|(ph, x, y)| (ph, pos2(x, y))).collect();
+            // F-41: a tablet pen on the desktop. On Windows, winit reports the pen (WM_POINTER, PT_PEN) as a touch
+            // with pressure; a mouse never sends touches, and a touch screen sends them without pressure. macOS
+            // reports a tablet pen as a plain mouse (no way to tell), so there the pen stays a mouse.
+            if self.device == crate::touch::Device::Desktop {
+                let down = self.pen.tablet_down;
+                let mut now_down = down;
+                ui.input(|i| {
+                    for e in &i.events {
+                        if let egui::Event::Touch { phase, pos, force, .. } = e {
+                            let pressed = force.is_some_and(|f| f > 0.0);
+                            match phase {
+                                egui::TouchPhase::Start if pressed => {
+                                    s.push((0, *pos));
+                                    now_down = true;
+                                }
+                                egui::TouchPhase::Move if now_down => s.push((1, *pos)),
+                                egui::TouchPhase::End | egui::TouchPhase::Cancel if now_down => {
+                                    s.push((2, *pos));
+                                    now_down = false;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                });
+                self.pen.tablet_down = now_down;
+            }
+            let down = s.last().map(|x| x.0 != 2).unwrap_or(false) || self.pen.tablet_down;
+            let r = down || !s.is_empty() || self.pen.cur.is_some() || self.pen.lasso.is_some();
             (s, r)
         };
         if !samples.is_empty() {
@@ -647,22 +674,45 @@ impl App {
         }
         self.pen.pen_active = recent || !samples.is_empty();
         self.pen.loose.clear();
+        // F-41: with the Arrow, a pen stroke that starts on empty page space draws a lasso (on a note it drags it,
+        // as the mouse does: up or down changes the pitch)
+        let arrow = self.tool == Tool::Arrow && self.dialog.is_none() && self.pen.preview.is_none();
+        let mut lasso_done = false;
         for (ph, p) in samples {
             match ph {
                 0 => {
                     self.pen.ink_down = writes && self.pen_can_ink(ui, p);
                     if self.pen.ink_down {
                         self.pen_feed(0, p, now);
+                    } else if arrow && self.pen_on_free_page(ui, p) {
+                        self.pen.lasso = Some(vec![p]);
                     } else {
                         self.pen.loose.push((ph, p));
                     }
                 }
                 1 | 2 if self.pen.ink_down => self.pen_feed(ph, p, now),
+                1 if self.pen.lasso.is_some() => {
+                    if let Some(l) = self.pen.lasso.as_mut() {
+                        if l.last().is_none_or(|q| q.distance(p) >= 1.0) {
+                            l.push(p);
+                        }
+                    }
+                }
+                2 if self.pen.lasso.is_some() => {
+                    let mut l = self.pen.lasso.take().unwrap_or_default();
+                    l.push(p);
+                    lasso_done = self.pen_lasso_select(&l);
+                }
                 // (not ink: the practice staff of "Teach Fermata your handwriting" may read them)
                 _ => self.pen.loose.push((ph, p)),
             }
         }
         if self.pen.ink_down && (self.pen.cur.is_some() || recent) {
+            return true;
+        }
+        // a lasso being drawn (longer than a tap) owns the pointer: no rubber band, no click
+        let drawing = self.pen.lasso.as_ref().is_some_and(|l| crate::pen::path_len(l) >= self.geo.sp);
+        if drawing || lasso_done {
             return true;
         }
         if writes && self.prefs.pen_mode && self.device == crate::touch::Device::Touch {
@@ -684,6 +734,46 @@ impl App {
             return self.pen.cur.is_some();
         }
         false
+    }
+
+    /// F-41: `p` is on the page, nothing over it, and not on a note or a symbol (where a lasso may start).
+    fn pen_on_free_page(&self, ui: &Ui, p: egui::Pos2) -> bool {
+        let on_page = self.geo.pages.iter().any(|r| r.contains(p));
+        let uncovered = ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id());
+        on_page && ui.clip_rect().contains(p) && uncovered && self.hit_note(p).is_none() && self.hit_graphic(p).is_none()
+    }
+
+    /// F-41: selects the notes inside a lasso; false when the loop is too small to be one (a tap).
+    pub fn pen_lasso_select(&mut self, l: &[egui::Pos2]) -> bool {
+        let sp = self.geo.sp;
+        let mut r = Rect::NOTHING;
+        for p in l {
+            r.extend_with(*p);
+        }
+        if l.len() < 3 || crate::pen::path_len(l) < 2.0 * sp || r.width().min(r.height()) < 0.6 * sp {
+            return false;
+        }
+        let inside = |p: egui::Pos2| {
+            let mut c = false;
+            let n = l.len();
+            for i in 0..n {
+                let (a, b) = (l[i], l[(i + 1) % n]);
+                if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+                    c = !c;
+                }
+            }
+            c
+        };
+        let picked: Vec<NoteRef> = self.geo.notes.iter().filter(|h| inside(h.rect.center())).map(|h| h.r).collect();
+        self.selected.clear();
+        self.sel_graphics.clear();
+        self.sel_measures = None;
+        for r in &picked {
+            self.selected.insert(*r);
+        }
+        let n = self.selected.len();
+        self.status = if n == 0 { "The lasso caught no notes.".into() } else { format!("Selected {n} {} with the lasso.", if n == 1 { "note" } else { "notes" }) };
+        true
     }
 
     /// F-39: ink may start at `p`: on a page, inside the visible score, and nothing drawn over it there.
@@ -725,6 +815,9 @@ impl App {
         }
         if resp.drag_started() {
             let Some(p) = resp.interact_pointer_pos() else { return };
+            // F-41: a pen moves further than a mouse before the drag starts: it starts where the pen touched
+            // (the mouse keeps its position exactly as before)
+            let p = if self.pen.pen_active { ui.input(|i| i.pointer.press_origin()).unwrap_or(p) } else { p };
             match (&self.tool, self.item.clone()) {
                 (Tool::Pencil, Item::Graphic(k)) if k != GraphicKind::Text => {
                     self.drag = Some(Drag::NewGraphic { kind: k, start: p });
