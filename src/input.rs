@@ -480,8 +480,9 @@ impl App {
         if blocked {
             return;
         }
-        // F-38: once a pen is in use (Pen Mode off), the finger scrolls; its long press is still the right click
-        if self.pen.pen_seen && !self.prefs.pen_mode {
+        // F-38: once a pen is in use (Pen Mode off), the finger scrolls; its long press is still the right click.
+        // F-39: the pen itself (down, or just lifted) works the tool as a mouse: the Arrow selects, the Eraser erases
+        if self.pen.pen_seen && !self.prefs.pen_mode && !self.pen.pen_active {
             let d = resp.drag_delta();
             if d != vec2(0.0, 0.0) {
                 ui.scroll_with_delta(d);
@@ -603,26 +604,48 @@ impl App {
         }
     }
 
-    /// F-38: the pen's samples this frame (the browser's `pointerType == "pen"`), and a single finger on the staff
-    /// in Pen Mode. True while the pen owns the pointer (so its taps don't also work the tool).
+    /// F-38/F-39: the pen's samples this frame (the browser's `pointerType == "pen"`), and a single finger in Pen
+    /// Mode. Ink only starts **on the page**, where nothing (a menu, a palette, the alternatives, a dialog) is over
+    /// it, with the Pencil chosen; anywhere else the pen is a finger and a mouse (egui gets its touches as usual), so
+    /// it taps the toolbar, menus, palettes and dialogs. True while the ink owns the pointer (its taps and drags
+    /// don't also work the tool).
     fn pen_frame(&mut self, ui: &mut Ui, resp: &egui::Response, now: f64) -> bool {
-        // (never under a dialog: its window has the pointer)
         let writes = self.tool == Tool::Pencil && matches!(self.item, Item::Note(_) | Item::Rest(_)) && self.dialog.is_none();
         #[cfg(target_arch = "wasm32")]
-        {
+        let (samples, recent) = {
             let z = ui.ctx().zoom_factor();
-            let samples = crate::web::pen_take();
-            if !samples.is_empty() {
-                self.pen.pen_seen = true;
-            }
-            if writes {
-                for (ph, x, y) in samples {
-                    self.pen_feed(ph, pos2(x / z, y / z), now);
+            let s: Vec<(u8, egui::Pos2)> = crate::web::pen_take().into_iter().map(|(ph, x, y)| (ph, pos2(x / z, y / z))).collect();
+            (s, crate::web::pen_recent())
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let (samples, recent) = {
+            let s: Vec<(u8, egui::Pos2)> = std::mem::take(&mut self.pen.injected).into_iter().map(|(ph, x, y)| (ph, pos2(x, y))).collect();
+            let down = s.last().map(|x| x.0 != 2).unwrap_or(false);
+            let r = down || !s.is_empty() || self.pen.cur.is_some();
+            (s, r)
+        };
+        if !samples.is_empty() {
+            self.pen.pen_seen = true;
+        }
+        self.pen.pen_active = recent || !samples.is_empty();
+        self.pen.loose.clear();
+        for (ph, p) in samples {
+            match ph {
+                0 => {
+                    self.pen.ink_down = writes && self.pen_can_ink(ui, p);
+                    if self.pen.ink_down {
+                        self.pen_feed(0, p, now);
+                    } else {
+                        self.pen.loose.push((ph, p));
+                    }
                 }
-                if self.pen.cur.is_some() || crate::web::pen_recent() {
-                    return true;
-                }
+                1 | 2 if self.pen.ink_down => self.pen_feed(ph, p, now),
+                // (not ink: the practice staff of "Teach Fermata your handwriting" may read them)
+                _ => self.pen.loose.push((ph, p)),
             }
+        }
+        if self.pen.ink_down && (self.pen.cur.is_some() || recent) {
+            return true;
         }
         if writes && self.prefs.pen_mode && self.device == crate::touch::Device::Touch {
             if self.pen.max_fingers >= 2 {
@@ -631,7 +654,7 @@ impl App {
             }
             let (pressed, down, released, pos) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.latest_pos()));
             if let Some(p) = pos {
-                if pressed && resp.rect.contains(p) {
+                if pressed && resp.rect.contains(p) && self.pen_can_ink(ui, p) {
                     self.pen_feed(0, p, now);
                 } else if down && self.pen.cur.is_some() {
                     self.pen_feed(1, p, now);
@@ -643,6 +666,15 @@ impl App {
             return self.pen.cur.is_some();
         }
         false
+    }
+
+    /// F-39: ink may start at `p`: on a page, inside the visible score, and nothing drawn over it there.
+    fn pen_can_ink(&self, ui: &Ui, p: egui::Pos2) -> bool {
+        let on_page = self.geo.pages.iter().any(|r| r.contains(p));
+        let top = ui.ctx().layer_id_at(p);
+        let uncovered = top.is_none_or(|l| l == ui.layer_id());
+        let on_alts = self.pen.alts.is_some() && self.pen.alts_rect.is_some_and(|r| r.contains(p));
+        on_page && ui.clip_rect().contains(p) && uncovered && !on_alts
     }
 
     fn mouse(&mut self, ui: &mut Ui, resp: &egui::Response) {

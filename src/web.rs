@@ -333,6 +333,9 @@ if (typeof window !== "undefined") {
   on("pointerdown", 0); on("pointermove", 1); on("pointerup", 2); on("pointercancel", 2);
 }
 export function pen_take() { const a = new Float32Array(penQ); penQ.length = 0; return a; }
+// F-39: the writer's pen models and recent samples, kept in this browser only
+export function pen_store_get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+export function pen_store_set(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} }
 export function pen_recent() { return penDown || performance.now() - penUp < 400; }
 export function open_tab(u) { window.open(new URL(u, location.href).href, "_blank", "noopener"); }
 if (typeof window !== "undefined") {
@@ -382,6 +385,8 @@ extern "C" {
     fn pen_take_js() -> js_sys::Float32Array;
     #[wasm_bindgen(js_name = pen_recent)]
     fn pen_recent_js() -> bool;
+    pub fn pen_store_get(k: &str) -> String;
+    pub fn pen_store_set(k: &str, v: &str);
     fn open_pdf_tab(name: &str, bytes: &[u8]);
     fn forget_doc();
 }
