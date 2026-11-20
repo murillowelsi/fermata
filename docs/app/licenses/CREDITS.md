@@ -79,6 +79,19 @@ also uses `getrandom` (MIT OR Apache-2.0) for new keys.
 
 Their own dependencies carry their licences in `Cargo.lock`'s packages (`cargo metadata` lists them).
 
+## Training data for the pen recognizer (F-40, F-41)
+
+The pen model in `assets/pen_model.bin` (weights only) was trained on synthetic ink drawn by Fermata's own code and
+on the **HOMUS** dataset (Handwritten Online Musical Symbols): Jorge Calvo-Zaragoza and Jose Oncina, "Recognition of
+Pen-Based Music Notation: The HOMUS Dataset", 22nd International Conference on Pattern Recognition (ICPR), Stockholm,
+2014, pp. 3038–3043, doi:10.1109/ICPR.2014.524. Source: https://grfia.dlsi.ua.es/homus/ (revised version:
+https://github.com/apacha/Homus).
+
+The dataset declares no licence; it is used for training with the authorization of Fermata's maintainer; the data
+are not redistributed (Fermata ships only the trained weights; `tools/train-pen/fetch-homus.sh` downloads the data
+for training, outside the repository). `assets/pen_model_synthetic.bin` is trained on synthetic ink only and can be
+shipped instead (`--features pen-synthetic-only`).
+
 ## File formats
 
 The MusicXML reader (`src/musicxml.rs`), its XML parser and its ZIP reader are Fermata's own code, written from the
