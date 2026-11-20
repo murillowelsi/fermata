@@ -106,8 +106,11 @@ jobs:
           WB=$(awk '/^name = "wasm-bindgen"$/{getline; sub(/version = "/,""); sub(/"/,""); print; exit}' Cargo.lock)
           echo "wasm-bindgen $WB"
           cargo install --locked wasm-bindgen-cli --version "$WB"
-          sudo rm -f /var/lib/man-db/auto-update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends binaryen
+          # wasm-opt from binaryen's own release (the same version as the release Mac): Ubuntu's old binaryen broke
+          # the wasm ("WebAssembly.Table.set(): Argument 1 is invalid for table", 0.3.16 and 0.3.17)
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_133/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/binaryen-version_133/bin/wasm-opt" --version
       - name: Build the web version
         run: ./make_web.sh
       - uses: actions/upload-artifact@v4
