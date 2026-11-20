@@ -298,14 +298,23 @@ pub fn import_midi(b: &[u8]) -> Result<Score, String> {
     sc.text.title = "Imported MIDI".into();
     let q = TPQ / 4; // quantize to 16ths
     for (si, (_, _, notes)) in tracks.iter().enumerate() {
+        // F-20: the beats played in triplets are written as 3:2 groups; everything else as before
+        let groups = crate::quant::triplet_groups(&notes.iter().map(|n| scale(n.0)).collect::<Vec<_>>(), mt, end);
+        let mut in_group: Vec<Vec<(u32, u8, u8)>> = vec![vec![]; groups.len()];
         for &(st, len, key_n, vel) in notes {
+            if let Some(g) = groups.iter().position(|g| g.takes(scale(st))) {
+                in_group[g].push((groups[g].slot(scale(st)), key_n, vel));
+                continue;
+            }
             let st = ((scale(st) + q / 2) / q) * q;
             let m = (st / mt) as usize;
             if m >= nmeas {
                 continue;
             }
             let start = st % mt;
-            let len = scale(len).max(q).min(mt - start);
+            // (never into a triplet group later in the measure)
+            let room = groups.iter().filter(|g| g.start > st && g.start / mt == m as u32).map(|g| g.start - st).min().unwrap_or(mt - start);
+            let len = scale(len).max(q).min(mt - start).min(room.max(1));
             let (value, dots) = guess_value(len);
             let p = Pitch::from_midi(key_n as i32, key < 0);
             let evs = &mut sc.events[si][m];
@@ -320,6 +329,13 @@ pub fn import_midi(b: &[u8]) -> Result<Score, String> {
                 e.velocity = vel;
                 evs.push(e);
             }
+        }
+        for (g, members) in groups.iter().zip(&in_group) {
+            let m = (g.start / mt) as usize;
+            if m >= nmeas || members.is_empty() {
+                continue;
+            }
+            sc.events[si][m].extend(crate::quant::group_events(g, members, key < 0, mt));
         }
     }
     for s in 0..sc.staves.len() {
@@ -781,3 +797,7 @@ mod open_any_file_tests {
         assert!(open_error("", "x").starts_with("This file isn't a score Fermata can open."));
     }
 }
+
+#[cfg(test)]
+#[path = "midi_import_tests.rs"]
+mod midi_import_tests;

@@ -87,6 +87,40 @@ impl App {
         }
     }
 
+    /// F-20: rewrites the beats of staff `s` that this take played in triplets (`crate::quant`) as 3:2 groups,
+    /// from the notes as played; the take's measures must share one length (otherwise nothing changes).
+    fn rec_triplets(&mut self, rs: &RecState, s: usize, last: usize) {
+        let first = rs.start_measure;
+        let last = last.min(self.score.measures.len().saturating_sub(1));
+        let mt = self.score.measures[first].ticks();
+        if (first..=last).any(|m| self.score.measures[m].ticks() != mt) {
+            return;
+        }
+        let raw: Vec<(u32, u8, u8)> = self.rec_raw.iter().filter(|r| r.0 == s).map(|r| (r.1 as u32, r.2, r.3)).collect();
+        let end = (last - first + 1) as u32 * mt;
+        let groups = crate::quant::triplet_groups(&raw.iter().map(|r| r.0).collect::<Vec<_>>(), mt, end);
+        for g in &groups {
+            let members: Vec<(u32, u8, u8)> = raw.iter().filter(|r| g.takes(r.0)).map(|r| (g.slot(r.0), r.1, r.2)).collect();
+            let m = first + (g.start / mt) as usize;
+            if members.is_empty() || m > last {
+                continue;
+            }
+            let (a, b) = (g.start % mt, g.start % mt + 3 * g.unit);
+            let flats = self.score.measures[m].key < 0;
+            let evs = &mut self.score.events[s][m];
+            evs.retain(|e| !(e.voice == 1 && !e.grace && e.start >= a && e.start < b));
+            // a note before the group ends where the group starts
+            for e in evs.iter_mut().filter(|e| e.voice == 1 && !e.grace && e.start < a && e.end() > a) {
+                let (v, d) = crate::io::nearest_value(a - e.start, a - e.start);
+                e.value = v;
+                e.dots = d;
+                e.tuplet = None;
+            }
+            evs.extend(crate::quant::group_events(g, &members, flats, mt));
+            self.score.sort_measure(s, m);
+        }
+    }
+
     /// Fill the gaps in voice 1 of a measure with rests, each on its own beat grid (largest that fits first).
     /// Measures with no notes are left empty (they show a whole-measure rest).
     pub fn fill_rests(&mut self, s: usize, m: usize) {
@@ -165,6 +199,7 @@ impl App {
         let now = Instant::now();
         self.rec_new.clear();
         self.rec_cleared = 0;
+        self.rec_raw.clear();
         self.rec = Some(RecState {
             t0: now + std::time::Duration::from_secs_f64(count_secs),
             start_measure: m,
@@ -203,6 +238,11 @@ impl App {
             // rests fill the gaps in the measures this take wrote into (e.g. dotted half + quarter rest)
             let last = self.rec_locate(rs.start_measure, self.quant(self.rec_abs_now(&rs, now))).0;
             let staves: Vec<usize> = std::iter::once(rs.upper).chain(rs.lower).collect();
+            // F-20: the beats played in triplets become 3:2 groups (the rest of the take stays as it was written)
+            for &s in &staves {
+                self.rec_triplets(&rs, s, last);
+            }
+            self.rec_raw.clear();
             for s in staves {
                 for m in rs.start_measure..=last.min(self.score.measures.len() - 1) {
                     self.fill_rests(s, m);
@@ -282,12 +322,14 @@ impl App {
 
     fn handle_midi_rec(&mut self, rs: &RecState, msg: MidiMsg) {
         let grid = self.rec_grid();
-        let abs = self.quant(self.rec_abs_now(rs, msg.at));
+        let raw = self.rec_abs_now(rs, msg.at);
+        let abs = self.quant(raw);
         let staff = match rs.lower {
             Some(lo) if msg.note < self.rec_settings.split => lo,
             _ => rs.upper,
         };
         if msg.on {
+            self.rec_raw.push((staff, raw, msg.note, msg.vel.max(1)));
             let (m, local) = self.rec_locate(rs.start_measure, abs);
             // old notes up to here give way to the new take (never added to)
             self.rec_clear(rs, abs);
@@ -360,5 +402,57 @@ impl App {
 
     pub fn _rec_ref(&self) -> Option<NoteRef> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A take at 120 per minute (a quarter = 0.5 s) without a keyboard: notes (seconds after beat 1, length, key).
+    fn take(notes: &[(f64, f64, u8)]) -> App {
+        let mut a = App::new(true);
+        a.rec_settings.count_in = 0;
+        a.rec_settings.click = false;
+        a.score.measures[0].tempo = Some(120);
+        a.start_recording();
+        let t0 = a.rec.as_ref().unwrap().t0;
+        let at = |s: f64| t0 + Duration::from_secs_f64(s);
+        let mut evs: Vec<(f64, bool, u8)> = notes.iter().flat_map(|&(t, l, k)| [(t, true, k), (t + l, false, k)]).collect();
+        evs.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap().then(x.1.cmp(&y.1)));
+        for (t, on, k) in evs {
+            a.handle_midi(MidiMsg { at: at(t), on, note: k, vel: 80, pedal: None });
+            a.rec_tick();
+        }
+        a.stop_recording();
+        a
+    }
+
+    fn bar(a: &App) -> Vec<(u32, u8, u8, bool, usize)> {
+        a.score.events[0][0].iter().map(|e| (e.start, e.value, e.dots, e.tuplet.is_some(), e.pitches.len())).collect()
+    }
+
+    /// Played triplets (±20 ms) become 3:2 groups when the take stops.
+    #[test]
+    fn a_take_played_in_triplets_is_written_in_triplets() {
+        let tri = 0.5 / 3.0;
+        let wob = [0.012, -0.018, 0.02, -0.01, 0.015, -0.02];
+        let notes: Vec<(f64, f64, u8)> = (0..6).map(|i| ((i as f64) * tri + wob[i], 0.14, 60 + i as u8)).collect();
+        let a = take(&notes);
+        let b = bar(&a);
+        assert_eq!(&b[..6].iter().map(|e| (e.0, e.1, e.3)).collect::<Vec<_>>(), &[(0, 4, true), (160, 4, true), (320, 4, true), (480, 4, true), (640, 4, true), (800, 4, true)], "{b:?}");
+        // the rest of the measure is filled as before
+        assert_eq!(a.score.events[0][0].iter().map(|e| e.ticks()).sum::<u32>(), 4 * TPQ);
+    }
+
+    /// A take without triplets is written as before: straight eighths stay eighths.
+    #[test]
+    fn a_straight_take_is_unchanged() {
+        let notes: Vec<(f64, f64, u8)> = (0..4).map(|i| (i as f64 * 0.25 + if i % 2 == 1 { 0.015 } else { 0.008 }, 0.2, 60 + i as u8)).collect();
+        let a = take(&notes);
+        let b = bar(&a);
+        assert!(b.iter().all(|e| !e.3), "{b:?}");
+        assert_eq!(b.iter().filter(|e| e.4 > 0).map(|e| (e.0, e.1)).collect::<Vec<_>>(), vec![(0, 4), (240, 4), (480, 4), (720, 4)]);
     }
 }

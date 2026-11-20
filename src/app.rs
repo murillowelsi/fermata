@@ -253,6 +253,8 @@ pub struct App {
     pub rec_settings: crate::rec::RecSettings,
     pub last_step: Option<(crate::clock::Instant, NoteRef)>,
     pub pending_open: Vec<(u8, usize, u64, bool)>,
+    /// F-20: the take's notes as played (staff, ticks from the start measure, key, velocity), for its triplets.
+    pub rec_raw: Vec<(usize, u64, u8, u8)>,
     /// The original-format file the score came from, used as the model when saving back to .enc.
     pub enc_model: Option<Vec<u8>>,
     pub midi_out: Option<crate::midi_out::MidiOut>,
@@ -355,6 +357,7 @@ impl App {
             rec_settings: crate::rec::RecSettings::default(),
             last_step: None,
             pending_open: vec![],
+            rec_raw: vec![],
             enc_model: None,
             midi_out: None,
             rec_new: std::collections::HashSet::new(),

@@ -260,6 +260,12 @@ fn staff_ext(score: &Score, s: usize, m0: usize, m1: usize) -> Ext {
                 // marks above stack from a space over the top line or the stem, whichever is higher
                 top = (top + 0.5).max(3.0) + 1.6 * e.marks.len() as f32;
             }
+            // F-20: a tuplet's number over the group (as drawn: clear of the heads, the stems and the top line), so
+            // the tempo and the other rows above stay clear of it
+            if e.tuplet.is_some() && !(multi && e.voice % 2 == 0) {
+                let clear = (hi + 0.6).max(if up { hi + stem } else { 0.0 }).max(2.0);
+                top = top.max(clear + 1.6 + 0.9);
+            }
             na = na.max(top - 2.0);
             nb = nb.max(-bot - 2.0);
         }
@@ -1064,10 +1070,12 @@ pub fn draw(p: &Painter, score: &Score, geo: &Geometry, st: &DrawState, out_hits
                         if let Some((a, _)) = ve[k].1.tuplet {
                             let mut j = k;
                             let mut sum = 0;
-                            let full = ve[k].1.tuplet.map(|(a2, n2)| base_ticks(ve[k].1.value) * n2 as u32 * a2 as u32 / a2 as u32).unwrap_or(0);
-                            let group_len = base_ticks(ve[k].1.value) * ve[k].1.tuplet.unwrap().1 as u32;
-                            let _ = full;
-                            while j < ve.len() && ve[j].1.tuplet.is_some() && sum < group_len {
+                            // the group spans `normal` of its smallest value (F-20: a triplet quarter and a triplet
+                            // eighth are one group of a beat)
+                            let normal = ve[k].1.tuplet.map(|t| t.1).unwrap_or(2) as u32;
+                            let mut unit = base_ticks(ve[k].1.value);
+                            while j < ve.len() && ve[j].1.tuplet.is_some() && sum < unit * normal {
+                                unit = unit.min(base_ticks(ve[j].1.value));
                                 sum += ve[j].1.ticks();
                                 j += 1;
                             }

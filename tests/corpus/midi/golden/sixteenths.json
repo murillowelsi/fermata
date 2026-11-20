@@ -1,0 +1,1422 @@
+{
+  "format": "fermata-score/1",
+  "text": {
+    "title": "Imported MIDI",
+    "subtitle": "",
+    "composer": "",
+    "lyricist": "",
+    "copyright": "",
+    "instructions": "",
+    "header": "",
+    "footer": "",
+    "show_page_numbers": true
+  },
+  "staves": [
+    {
+      "name": "Acoustic Grand Piano",
+      "abbrev": "Aco.",
+      "clefs": [
+        [
+          0,
+          "Treble"
+        ]
+      ],
+      "program": 0,
+      "channel": 0,
+      "volume": 100,
+      "pan": 0,
+      "transpose": 0,
+      "hidden": false,
+      "muted": false,
+      "solo": false,
+      "brace_with_next": false,
+      "bracket_with_next": false,
+      "barline_to_next": false,
+      "tab": false,
+      "drum": false,
+      "lines": 5,
+      "port": 0
+    }
+  ],
+  "measures": [
+    {
+      "num": 4,
+      "den": 4,
+      "key": 0,
+      "tempo": 100,
+      "barline": "Single",
+      "ending": null,
+      "coda_phrase": null,
+      "repeat_times": 2,
+      "system_break": false,
+      "rehearsal": null
+    },
+    {
+      "num": 4,
+      "den": 4,
+      "key": 0,
+      "tempo": null,
+      "barline": "Single",
+      "ending": null,
+      "coda_phrase": null,
+      "repeat_times": 2,
+      "system_break": false,
+      "rehearsal": null
+    }
+  ],
+  "events": [
+    [
+      [
+        {
+          "voice": 1,
+          "start": 0,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 28,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 120,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 29,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 240,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 30,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 360,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 31,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 480,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 32,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 600,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 33,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 720,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 34,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 840,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 35,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 960,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 28,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1080,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 29,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1200,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 30,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1320,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 31,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1440,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 32,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1560,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 33,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1680,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 34,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1800,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 35,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        }
+      ],
+      [
+        {
+          "voice": 1,
+          "start": 0,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 28,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 120,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 29,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 240,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 30,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 360,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 31,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 480,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 32,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 600,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 33,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 720,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 34,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 840,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 35,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 960,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 28,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1080,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 29,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1200,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 30,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1320,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 31,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1440,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 32,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1560,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 33,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1680,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 34,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        },
+        {
+          "voice": 1,
+          "start": 1800,
+          "value": 5,
+          "dots": 0,
+          "tuplet": null,
+          "pitches": [
+            {
+              "step": 35,
+              "alter": 0
+            }
+          ],
+          "courtesy": [
+            false
+          ],
+          "ties": [
+            false
+          ],
+          "tie_flip": false,
+          "stem": "Auto",
+          "beam": "Auto",
+          "flat_beam": false,
+          "marks": [],
+          "velocity": 80,
+          "play_len": null,
+          "grace": false,
+          "color": [
+            0,
+            0,
+            0
+          ],
+          "lyric": [],
+          "chord_symbol": null,
+          "dynamic": null,
+          "expression": null,
+          "hidden": false,
+          "dx": 0.0
+        }
+      ]
+    ]
+  ],
+  "graphics": [],
+  "layout": {
+    "measures_per_system": 4,
+    "systems_per_page": 5,
+    "staff_space": 7.0,
+    "page_w": 612.0,
+    "page_h": 792.0,
+    "margin": 48.0,
+    "show_measure_numbers": "EverySystem",
+    "handwritten": false,
+    "c_score": false,
+    "compress_rests": false,
+    "staff_gap": 9.0,
+    "system_gap": 10.0,
+    "system_sizes": [],
+    "stem_len_hs": 7,
+    "beam_thick_pct": 100,
+    "tie_h_qs": 0,
+    "tie_v_qs": 3,
+    "measure_space_hs": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "print_scale": 100
+  },
+  "playback": {
+    "swing": 50,
+    "click": false,
+    "count_in": 0,
+    "follow": true,
+    "default_tempo": 120,
+    "master_volume": 0.7,
+    "swing_note": 4,
+    "dyn_ranges": [
+      [
+        42,
+        56
+      ],
+      [
+        30,
+        42
+      ],
+      [
+        20,
+        30
+      ],
+      [
+        14,
+        20
+      ],
+      [
+        9,
+        14
+      ],
+      [
+        5,
+        9
+      ],
+      [
+        88,
+        104
+      ],
+      [
+        104,
+        116
+      ],
+      [
+        116,
+        124
+      ],
+      [
+        120,
+        126
+      ],
+      [
+        123,
+        127
+      ],
+      [
+        125,
+        127
+      ],
+      [
+        56,
+        72
+      ],
+      [
+        72,
+        88
+      ],
+      [
+        104,
+        120
+      ],
+      [
+        100,
+        116
+      ],
+      [
+        96,
+        112
+      ],
+      [
+        88,
+        104
+      ],
+      [
+        96,
+        112
+      ],
+      [
+        100,
+        116
+      ],
+      [
+        104,
+        120
+      ],
+      [
+        112,
+        127
+      ],
+      [
+        100,
+        116
+      ]
+    ],
+    "humanize": false
+  }
+}

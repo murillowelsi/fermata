@@ -29,6 +29,7 @@ mod pen_model;
 mod pen_symbols;
 mod pen_ui;
 mod platform;
+mod quant;
 mod rec;
 mod soundfont;
 mod score_view;
