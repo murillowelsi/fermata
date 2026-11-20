@@ -1226,6 +1226,33 @@ mod tests {
         assert_eq!(fit_bar(&[vec![(2 * q, 0.9)], vec![(4 * q, 0.55), (2 * q, 0.45)]], 4 * q), vec![0, 1]);
         // nothing fills: the most likely ones stay
         assert_eq!(fit_bar(&[vec![(q, 0.6), (2 * q, 0.4)]], 4 * q), vec![0]);
+        // F-42: a flag too few or too many: eight notes read as sixteenths (0.55) or 32nds (0.45) in the last quarter
+        // of the bar → the 32nds fill it
+        let items: Vec<Vec<(u32, f32)>> = (0..8).map(|_| vec![(q / 4, 0.55), (q / 8, 0.45)]).collect();
+        assert_eq!(fit_bar(&items, q), vec![1; 8]);
+    }
+
+    /// F-42: the handwriting gives only "a block"; the staff says which: hanging from the 4th line, a whole rest;
+    /// sitting on the 3rd, a half rest (the first reading; the bar may still choose the other, to fill it).
+    #[test]
+    fn a_block_rest_is_whole_or_half_by_where_it_sits_on_the_staff() {
+        let mut a = app();
+        let sp = a.geo.sp;
+        let fourth = spot(&a, 0, 0, 2);
+        let t = write(&mut a, &[block_rest(pos2(fourth.x + 2.0 * sp, fourth.y + 0.25 * sp), sp, 3)], 1.0);
+        let third = spot(&a, 1, 0, 0);
+        let _ = write(&mut a, &[block_rest(pos2(third.x + 2.0 * sp, third.y - 0.25 * sp), sp, 5)], t);
+        a.pen_transcribe();
+        let first = |m: usize| {
+            let p = a.pen.preview.as_ref().unwrap();
+            let it = p.items.iter().find(|i| i.measure == m).expect("the block was read");
+            match &it.cands[0].0 {
+                Reading::Rest { value, .. } => *value,
+                r => panic!("bar {m}: read as {r:?}"),
+            }
+        };
+        assert_eq!(first(0), 1, "hanging from the 4th line");
+        assert_eq!(first(1), 2, "sitting on the 3rd line");
     }
 
     #[test]

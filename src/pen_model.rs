@@ -70,20 +70,28 @@ pub const DOT: usize = 18;
 const GRID: usize = 12;
 const ZONES: usize = 4;
 const DIRS: usize = 4;
-const N_GLOBAL: usize = 20;
+const N_GLOBAL: usize = 20 + 2 * SCAN + 4 + 13;
 pub const N_FEAT: usize = GRID * GRID + ZONES * ZONES * DIRS + N_GLOBAL;
+/// The hidden layer of each network of the built-in ensemble.
 pub const N_HIDDEN: usize = 160;
 pub const N_OUT: usize = CLASSES.len();
 
-/// The model's numbers, in this order: feature means, feature spreads, W1 (hidden × features), b1, W2 (out ×
+/// One network's numbers, in this order: feature means, feature spreads, W1 (hidden × features), b1, W2 (out ×
 /// hidden), b2.
 pub struct Model {
+    pub hidden: usize,
     pub mean: Vec<f32>,
     pub std: Vec<f32>,
     pub w1: Vec<f32>,
     pub b1: Vec<f32>,
     pub w2: Vec<f32>,
     pub b2: Vec<f32>,
+}
+
+/// F-42: the built-in recognizer: a few networks trained from different seeds, whose probabilities are averaged,
+/// over the symbol as written and a few slightly turned and stretched views of it.
+pub struct Ensemble {
+    pub models: Vec<Model>,
 }
 
 // (plan B: `--features pen-synthetic-only` ships the weights trained on synthetic ink only)
@@ -93,38 +101,19 @@ const MODEL_BYTES: &[u8] = include_bytes!("../assets/pen_model.bin");
 const MODEL_BYTES: &[u8] = include_bytes!("../assets/pen_model_synthetic.bin");
 
 thread_local! {
-    static MODEL: Option<Model> = Model::from_bytes(MODEL_BYTES);
+    static MODEL: Option<Ensemble> = Ensemble::from_bytes(MODEL_BYTES);
 }
 
+/// The weight file: "FPM3", the number of networks (u32), then each network: its hidden size (u32); the feature
+/// means and spreads and the biases as f32; W1 and W2 a row at a time, as a scale (f32) and 8-bit steps of it (a
+/// quarter of the size, and no reading changes).
+const MAGIC: &[u8; 4] = b"FPM3";
+
 impl Model {
-    fn sizes() -> [usize; 6] {
-        [N_FEAT, N_FEAT, N_HIDDEN * N_FEAT, N_HIDDEN, N_OUT * N_HIDDEN, N_OUT]
-    }
-
-    pub fn from_bytes(b: &[u8]) -> Option<Model> {
-        let total: usize = Self::sizes().iter().sum();
-        if b.len() != total * 4 {
-            return None;
-        }
-        let f: Vec<f32> = b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
-        let mut at = 0;
-        let mut take = |n: usize| {
-            let v = f[at..at + n].to_vec();
-            at += n;
-            v
-        };
-        let s = Self::sizes();
-        Some(Model { mean: take(s[0]), std: take(s[1]), w1: take(s[2]), b1: take(s[3]), w2: take(s[4]), b2: take(s[5]) })
-    }
-
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        [&self.mean, &self.std, &self.w1, &self.b1, &self.w2, &self.b2].iter().flat_map(|v| v.iter().flat_map(|x| x.to_le_bytes())).collect()
-    }
-
     /// The hidden layer and the class probabilities for (already standardized) features.
     fn forward(&self, x: &[f32]) -> (Vec<f32>, Vec<f32>) {
-        let mut h = vec![0.0f32; N_HIDDEN];
+        let nh = self.hidden;
+        let mut h = vec![0.0f32; nh];
         for (j, hj) in h.iter_mut().enumerate() {
             let row = &self.w1[j * N_FEAT..(j + 1) * N_FEAT];
             let s: f32 = row.iter().zip(x).map(|(w, v)| w * v).sum::<f32>() + self.b1[j];
@@ -132,7 +121,7 @@ impl Model {
         }
         let mut o = vec![0.0f32; N_OUT];
         for (k, ok) in o.iter_mut().enumerate() {
-            let row = &self.w2[k * N_HIDDEN..(k + 1) * N_HIDDEN];
+            let row = &self.w2[k * nh..(k + 1) * nh];
             *ok = row.iter().zip(&h).map(|(w, v)| w * v).sum::<f32>() + self.b2[k];
         }
         (h, softmax(&o))
@@ -141,10 +130,92 @@ impl Model {
     fn standardize(&self, f: &[f32]) -> Vec<f32> {
         f.iter().zip(self.mean.iter().zip(&self.std)).map(|(v, (m, s))| (v - m) / s.max(1e-4)).collect()
     }
+}
 
+/// The views of a symbol the ensemble looks at: as written, and turned and stretched a little (radians, x, y).
+const VIEWS: [(f32, f32, f32); 5] = [(0.0, 1.0, 1.0), (0.08, 1.05, 0.95), (-0.08, 0.95, 1.05), (0.04, 1.1, 1.0), (-0.04, 1.0, 1.1)];
+
+pub fn view(strokes: &[Vec<Pos2>], v: (f32, f32, f32)) -> Vec<Vec<Pos2>> {
+    let (rot, sx, sy) = v;
+    let (c, s) = (rot.cos(), rot.sin());
+    strokes.iter().map(|st| st.iter().map(|p| {
+        let (x, y) = (p.x * sx, p.y * sy);
+        pos2(x * c - y * s, x * s + y * c)
+    }).collect()).collect()
+}
+
+impl Ensemble {
+    pub fn from_bytes(b: &[u8]) -> Option<Ensemble> {
+        if b.len() < 8 || &b[..4] != MAGIC {
+            return None;
+        }
+        struct Reader<'a>(&'a [u8], usize);
+        impl Reader<'_> {
+            fn take(&mut self, n: usize) -> Option<&[u8]> {
+                let v = self.0.get(self.1..self.1 + n)?;
+                self.1 += n;
+                Some(v)
+            }
+            fn u32(&mut self) -> Option<usize> {
+                Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?) as usize)
+            }
+            fn f32s(&mut self, n: usize) -> Option<Vec<f32>> {
+                Some(self.take(4 * n)?.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
+            }
+            fn rows(&mut self, count: usize, len: usize) -> Option<Vec<f32>> {
+                let mut out = Vec::with_capacity(count * len);
+                for _ in 0..count {
+                    let scale = f32::from_le_bytes(self.take(4)?.try_into().ok()?);
+                    out.extend(self.take(len)?.iter().map(|&q| q as i8 as f32 * scale));
+                }
+                Some(out)
+            }
+        }
+        let mut r = Reader(b, 4);
+        let n = r.u32()?;
+        let mut models = vec![];
+        for _ in 0..n {
+            let h = r.u32()?;
+            let (mean, std, b1, b2) = (r.f32s(N_FEAT)?, r.f32s(N_FEAT)?, r.f32s(h)?, r.f32s(N_OUT)?);
+            let (w1, w2) = (r.rows(h, N_FEAT)?, r.rows(N_OUT, h)?);
+            models.push(Model { hidden: h, mean, std, w1, b1, w2, b2 });
+        }
+        (r.1 == b.len() && !models.is_empty()).then_some(Ensemble { models })
+    }
+
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = MAGIC.to_vec();
+        out.extend((self.models.len() as u32).to_le_bytes());
+        for m in &self.models {
+            out.extend((m.hidden as u32).to_le_bytes());
+            for v in [&m.mean, &m.std, &m.b1, &m.b2] {
+                out.extend(v.iter().flat_map(|x| x.to_le_bytes()));
+            }
+            for (w, len) in [(&m.w1, N_FEAT), (&m.w2, m.hidden)] {
+                for row in w.chunks(len) {
+                    let scale = row.iter().fold(0.0f32, |a, v| a.max(v.abs())).max(1e-8) / 127.0;
+                    out.extend(scale.to_le_bytes());
+                    out.extend(row.iter().map(|v| (v / scale).round().clamp(-127.0, 127.0) as i8 as u8));
+                }
+            }
+        }
+        out
+    }
+
+    /// The class probabilities, averaged over the networks and the views.
     pub fn predict(&self, strokes_sp: &[Vec<Pos2>]) -> Vec<f32> {
-        let x = self.standardize(&features(strokes_sp));
-        self.forward(&x).1
+        let mut acc = [0.0f32; N_OUT];
+        for v in VIEWS {
+            let x = features(&view(strokes_sp, v));
+            for m in &self.models {
+                for (a, b) in acc.iter_mut().zip(m.forward(&m.standardize(&x)).1) {
+                    *a += b;
+                }
+            }
+        }
+        let n = (VIEWS.len() * self.models.len()) as f32;
+        acc.iter().map(|v| v / n).collect()
     }
 }
 
@@ -218,7 +289,12 @@ pub fn ensemble(strokes_sp: &[Vec<Pos2>], ctx: &crate::pen::Ctx) -> Vec<f32> {
             _ => false,
         }
     };
-    match classify(strokes_sp) {
+    ensemble_with(pr, personal_hit, classify(strokes_sp))
+}
+
+/// The rules' probabilities `pr` and the model's `pm` together (`personal_hit`: the writer's own figures decided).
+pub fn ensemble_with(pr: Vec<f32>, personal_hit: bool, pm: Option<Vec<f32>>) -> Vec<f32> {
+    match pm {
         Some(pm) if !personal_hit => pm.iter().zip(&pr).map(|(a, b)| MODEL_WEIGHT * a + (1.0 - MODEL_WEIGHT) * b).collect(),
         Some(pm) => pm.iter().zip(&pr).map(|(a, b)| 0.25 * a + 0.75 * b).collect(),
         None => pr,
@@ -337,9 +413,147 @@ pub fn features(strokes: &[Vec<Pos2>]) -> Vec<f32> {
         sag,
         (lw / lh).ln().clamp(-3.0, 3.0),
     ];
-    f[g..g + N_GLOBAL].copy_from_slice(&glob);
+    f[g..g + glob.len()].copy_from_slice(&glob);
+    // F-42: how many times the ink crosses lines across the symbol (stacked flags and hooks are counted, where the
+    // picture blurs them together), and what kinds of strokes it has: compact loops (heads), straight lines (stems),
+    // open curves (flags, hooks), and the open curves that start at the stem
+    let mut at = g + glob.len();
+    for vertical in [true, false] {
+        for k in 0..SCAN {
+            let t = (k as f32 + 0.5) / SCAN as f32;
+            let v = if vertical { r.left() + t * w } else { r.top() + t * h };
+            let mut n = 0usize;
+            for s in &strokes {
+                for p in s.windows(2) {
+                    let (a, b) = if vertical { (p[0].x, p[1].x) } else { (p[0].y, p[1].y) };
+                    if (a - v) * (b - v) < 0.0 {
+                        n += 1;
+                    }
+                }
+            }
+            f[at] = (n as f32).min(8.0) / 4.0;
+            at += 1;
+        }
+    }
+    let kinds: Vec<u8> = strokes.iter().map(|s| stroke_kind(s, scale)).collect();
+    let stem = (0..n).filter(|&i| kinds[i] == 1).max_by(|&a, &b| path_len(strokes[a]).partial_cmp(&path_len(strokes[b])).unwrap());
+    let from_stem = stem.map(|si| {
+        let (sa, sb) = (strokes[si][0], *strokes[si].last().unwrap());
+        let d = |p: Pos2| {
+            let ab = sb - sa;
+            let t = ((p - sa).dot(ab) / ab.length_sq().max(1e-6)).clamp(0.0, 1.0);
+            p.distance(sa + ab * t)
+        };
+        (0..n).filter(|&i| kinds[i] == 2 && (d(strokes[i][0]) <= 0.12 * scale || d(*strokes[i].last().unwrap()) <= 0.12 * scale)).count()
+    });
+    for (k, v) in [
+        kinds.iter().filter(|&&k| k == 0).count() as f32,
+        kinds.iter().filter(|&&k| k == 1).count() as f32,
+        kinds.iter().filter(|&&k| k == 2).count() as f32,
+        from_stem.map(|c| c as f32).unwrap_or(-1.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        f[at + k] = v.min(6.0) / 3.0;
+    }
+    at += 4;
+    // (two counts: one leaves out the scribbled heads, so a note counts its flags; one keeps every blob, so a rest
+    // counts its hooks, each a blob on a curve)
+    let (count, side) = excursions(&strokes, 3.5 * std::f32::consts::PI);
+    f[at + count.min(5)] = 1.0;
+    f[at + 6] = side;
+    let (all_blobs, _) = excursions(&strokes, f32::MAX);
+    f[at + 7 + all_blobs.min(5)] = 1.0;
     f
 }
+
+/// F-42: a stroke as a straight line (1: a stem), a loop (0: a filled or open head) or an open curve (2: a flag, a
+/// hook), for a symbol `scale` long.
+fn stroke_kind(s: &[Pos2], scale: f32) -> u8 {
+    let l = path_len(s);
+    let sr = bbox(s);
+    let ends = s[0].distance(*s.last().unwrap());
+    if l > 1e-4 && ends / l >= 0.9 && l >= 0.35 * scale {
+        1
+    } else if net_turn(s).abs() >= 4.0 || (l > 1e-4 && ends <= 0.3 * l && sr.width().max(sr.height()) <= 0.6 * scale) {
+        0
+    } else {
+        2
+    }
+}
+
+/// F-42: the flags of a note, or the hooks of a rest: from the stem (the longest straight run of ink), how many times
+/// the ink goes out to the side and comes back. A flag drawn on its own is one, a zigzag of three flags in one stroke
+/// is three, a stem that runs on into its first flag counts it too; the loops (a filled head) don't count. Also on
+/// which side they go (+1 right, −1 left).
+pub fn excursions(strokes: &[&Vec<Pos2>], head_turn: f32) -> (usize, f32) {
+    let (straight, hi_k, lo_k) = (0.95, 0.12, 0.05);
+    // the stem: the longest nearly straight run of any stroke (stroke, from, to in its 32 resampled points)
+    let mut best: Option<(f32, usize, usize, usize)> = None;
+    let rss: Vec<Vec<Pos2>> = strokes.iter().map(|s| resample(s, 32)).collect();
+    for (si, rs) in rss.iter().enumerate() {
+        let mut acc = vec![0.0f32; rs.len()];
+        for i in 1..rs.len() {
+            acc[i] = acc[i - 1] + rs[i].distance(rs[i - 1]);
+        }
+        for i in 0..rs.len() {
+            for j in (i + 3)..rs.len() {
+                let (l, c) = (acc[j] - acc[i], rs[i].distance(rs[j]));
+                if l > 1e-4 && c / l >= straight && best.is_none_or(|b| c > b.0) {
+                    best = Some((c, si, i, j));
+                }
+            }
+        }
+    }
+    let Some((len, si, i, j)) = best else { return (0, 0.0) };
+    if len < 1e-3 {
+        return (0, 0.0);
+    }
+    let (a, b) = (rss[si][i], rss[si][j]);
+    let u = (b - a) / len;
+    // the pieces that may hold flags: the stem's stroke before and after the stem (a scribbled head drawn in the same
+    // stroke is left out), and the other strokes but the loops
+    let turning = |p: &[Pos2]| if p.len() >= 3 { net_turn(p).abs() } else { 0.0 };
+    let mut pieces: Vec<Vec<Pos2>> = vec![];
+    for (n, s) in strokes.iter().enumerate() {
+        if n == si {
+            for part in [&rss[si][..=i], &rss[si][j..]] {
+                if part.len() >= 2 && turning(part) < head_turn {
+                    pieces.push(resample(part, 24));
+                }
+            }
+        } else if turning(s) < head_turn {
+            pieces.push(resample(s, 48));
+        }
+    }
+    let (hi, lo) = (hi_k * len, lo_k * len);
+    let (mut count, mut side) = (0usize, 0.0f32);
+    for piece in &pieces {
+        let mut out = false;
+        for p in piece {
+            let q = *p - a;
+            let along = q.dot(u);
+            if along < -0.15 * len || along > 1.15 * len {
+                continue;
+            }
+            let d = q.x * u.y - q.y * u.x;
+            if !out && d.abs() > hi {
+                out = true;
+                count += 1;
+                side += d.signum();
+            } else if out && d.abs() < lo {
+                out = false;
+            }
+        }
+    }
+    // (with the stem drawn downward the sides swap: say them as seen on the page)
+    let flip = if u.y < 0.0 { 1.0 } else { -1.0 };
+    (count, if count > 0 { flip * side / count as f32 } else { 0.0 })
+}
+
+/// F-42: the scan lines across and along a symbol.
+const SCAN: usize = 9;
 
 /// How many times a path turns back along x (or y), ignoring wobbles smaller than `h`.
 fn turns_along(p: &[Pos2], along_x: bool, h: f32) -> usize {
@@ -914,9 +1128,11 @@ pub mod train {
         let l = g.r(1.5, 14.0);
         let s = g.r(0.3, 1.4).min(l * 0.3) * if g.chance(0.5) { 1.0 } else { -1.0 };
         let skew = g.r(-0.2, 0.2);
+        // (F-42: a slur between two pitches climbs or falls: up to about a third of its length)
+        let rise = if g.chance(0.6) { g.r(-0.35, 0.35) * l } else { 0.0 };
         vec![(0..=20).map(|i| {
             let t = i as f32 / 20.0 * 2.0 - 1.0;
-            (t * l / 2.0, s * (1.0 - t * t) + skew * t * s)
+            (t * l / 2.0, s * (1.0 - t * t) + skew * t * s + rise * t / 2.0)
         }).collect()]
     }
 
@@ -979,8 +1195,8 @@ pub mod train {
     pub const LR: f32 = 0.05;
     pub const EPOCHS: usize = 40;
 
-    /// Trains a model: SGD with momentum and a softmax cross-entropy.
-    pub fn fit(train: &[(Vec<f32>, usize)], epochs: usize, seed: u64) -> Model {
+    /// Trains one network (`nh` hidden): SGD with momentum and a softmax cross-entropy.
+    pub fn fit_lr(train: &[(Vec<f32>, usize)], epochs: usize, seed: u64, lr0: f32, nh: usize) -> Model {
         let n = train.len().max(1) as f32;
         let mut mean = vec![0.0f32; N_FEAT];
         let mut std = vec![0.0f32; N_FEAT];
@@ -999,42 +1215,43 @@ pub mod train {
         }
         let mut g = Rng(seed | 1);
         let r1 = (2.0 / N_FEAT as f32).sqrt();
-        let r2 = (2.0 / N_HIDDEN as f32).sqrt();
+        let r2 = (2.0 / nh as f32).sqrt();
         let mut m = Model {
+            hidden: nh,
             mean,
             std,
-            w1: (0..N_HIDDEN * N_FEAT).map(|_| g.r(-r1, r1)).collect(),
-            b1: vec![0.0; N_HIDDEN],
-            w2: (0..N_OUT * N_HIDDEN).map(|_| g.r(-r2, r2)).collect(),
+            w1: (0..nh * N_FEAT).map(|_| g.r(-r1, r1)).collect(),
+            b1: vec![0.0; nh],
+            w2: (0..N_OUT * nh).map(|_| g.r(-r2, r2)).collect(),
             b2: vec![0.0; N_OUT],
         };
         let xs: Vec<Vec<f32>> = train.iter().map(|(x, _)| m.standardize(x)).collect();
         let mut order: Vec<usize> = (0..xs.len()).collect();
-        let (mut vw1, mut vb1, mut vw2, mut vb2) = (vec![0.0f32; m.w1.len()], vec![0.0f32; N_HIDDEN], vec![0.0f32; m.w2.len()], vec![0.0f32; N_OUT]);
+        let (mut vw1, mut vb1, mut vw2, mut vb2) = (vec![0.0f32; m.w1.len()], vec![0.0f32; nh], vec![0.0f32; m.w2.len()], vec![0.0f32; N_OUT]);
         let batch = 32;
         for ep in 0..epochs {
-            let lr = LR * (1.0 - ep as f32 / epochs as f32).max(0.05);
+            let lr = lr0 * (1.0 - ep as f32 / epochs as f32).max(0.05);
             for i in (1..order.len()).rev() {
                 let j = g.pick(i + 1);
                 order.swap(i, j);
             }
             for chunk in order.chunks(batch) {
-                let (mut gw1, mut gb1, mut gw2, mut gb2) = (vec![0.0f32; m.w1.len()], vec![0.0f32; N_HIDDEN], vec![0.0f32; m.w2.len()], vec![0.0f32; N_OUT]);
+                let (mut gw1, mut gb1, mut gw2, mut gb2) = (vec![0.0f32; m.w1.len()], vec![0.0f32; nh], vec![0.0f32; m.w2.len()], vec![0.0f32; N_OUT]);
                 for &i in chunk {
                     let x = &xs[i];
                     let y = train[i].1;
                     let (h, p) = m.forward(x);
                     let mut d2 = p.clone();
                     d2[y] -= 1.0;
-                    let mut dh = vec![0.0f32; N_HIDDEN];
+                    let mut dh = vec![0.0f32; nh];
                     for k in 0..N_OUT {
                         gb2[k] += d2[k];
-                        for j in 0..N_HIDDEN {
-                            gw2[k * N_HIDDEN + j] += d2[k] * h[j];
-                            dh[j] += d2[k] * m.w2[k * N_HIDDEN + j];
+                        for j in 0..nh {
+                            gw2[k * nh + j] += d2[k] * h[j];
+                            dh[j] += d2[k] * m.w2[k * nh + j];
                         }
                     }
-                    for j in 0..N_HIDDEN {
+                    for j in 0..nh {
                         if h[j] <= 0.0 {
                             continue;
                         }
@@ -1187,10 +1404,30 @@ pub mod train {
     fn jiggle(g: &mut Rng, s: &[Vec<Pos2>]) -> Vec<Vec<Pos2>> {
         let rot = g.r(-0.12, 0.12);
         let (sx, sy) = (g.r(0.9, 1.12), g.r(0.9, 1.12));
-        s.iter().map(|st| st.iter().map(|p| {
+        let moved: Vec<Vec<Pos2>> = s.iter().map(|st| st.iter().map(|p| {
             let (x, y) = (p.x * sx, p.y * sy);
             pos2(x * rot.cos() - y * rot.sin() + g.r(-0.02, 0.02), x * rot.sin() + y * rot.cos() + g.r(-0.02, 0.02))
-        }).collect()).collect()
+        }).collect()).collect();
+        let aug = HOMUS_AUG;
+        // F-42: each stroke a little off on its own, and the whole bent gently (another hand)
+        let all: Vec<Pos2> = moved.iter().flatten().copied().collect();
+        let r = bbox(&all);
+        let size = r.width().max(r.height()).max(0.3);
+        // (a random phase; 6.28 is what the shipped weights were trained with: kept so training reproduces them)
+        #[allow(clippy::approx_constant)]
+        let (fx, fy, px, py) = (g.r(0.5, 1.5), g.r(0.5, 1.5), g.r(0.0, 6.28), g.r(0.0, 6.28));
+        let amp = 0.03 * aug * size;
+        moved.into_iter().map(|st| {
+            let c = bbox(&st).center();
+            let (dx, dy, a) = (g.r(-0.04, 0.04) * aug * size, g.r(-0.04, 0.04) * aug * size, g.r(-0.1, 0.1) * aug);
+            st.into_iter().map(|p| {
+                let q = p - c;
+                let q = vec2(q.x * a.cos() - q.y * a.sin(), q.x * a.sin() + q.y * a.cos());
+                let p = c + q + vec2(dx, dy);
+                let (u, v) = ((p.y - r.top()) / size, (p.x - r.left()) / size);
+                pos2(p.x + amp * (std::f32::consts::TAU * fx * u + px).sin(), p.y + amp * (std::f32::consts::TAU * fy * v + py).sin())
+            }).collect()
+        }).collect()
     }
 
     const SYNTH_MODEL: &[u8] = include_bytes!("../assets/pen_model_synthetic.bin");
@@ -1202,9 +1439,10 @@ pub mod train {
         use std::fmt::Write;
         let mut out = String::new();
         let ctx = crate::pen::Ctx::default();
-        let synth = Model::from_bytes(SYNTH_MODEL);
-        let hom = Model::from_bytes(HOMUS_MODEL);
-        let _ = writeln!(out, "Fermata pen model: {} features, {} hidden, {} classes; built-in: {}; synthetic-only loaded: {}; HOMUS+synthetic loaded: {}", N_FEAT, N_HIDDEN, N_OUT, if cfg!(feature = "pen-synthetic-only") { "synthetic only" } else { "HOMUS+synthetic" }, synth.is_some(), hom.is_some());
+        let synth = Ensemble::from_bytes(SYNTH_MODEL);
+        let hom = Ensemble::from_bytes(HOMUS_MODEL);
+        let nets = |e: &Option<Ensemble>| e.as_ref().map(|e| e.models.iter().map(|m| m.hidden.to_string()).collect::<Vec<_>>().join("+")).unwrap_or_else(|| "none".into());
+        let _ = writeln!(out, "Fermata pen model: {} features, {} classes, {} views; built-in: {}; synthetic-only networks (hidden): {}; HOMUS+synthetic networks (hidden): {}", N_FEAT, N_OUT, VIEWS.len(), if cfg!(feature = "pen-synthetic-only") { "synthetic only" } else { "HOMUS+synthetic" }, nets(&synth), nets(&hom));
         let mut sets = test_sets();
         if let Some(dir) = homus {
             let test: Vec<(Vec<Vec<Pos2>>, usize)> = load_homus(dir).into_iter().filter(|(w, _, _)| HOMUS_TEST_WRITERS.contains(w)).map(|(_, c, s)| (s, c)).collect();
@@ -1213,6 +1451,8 @@ pub mod train {
         let arg = |p: &[f32]| (0..N_OUT).max_by(|&a, &b| p[a].partial_cmp(&p[b]).unwrap()).unwrap();
         for (name, set) in sets {
             let mut t = vec![[0usize; 5]; N_OUT]; // synthetic, HOMUS+synthetic, rules, the app (built-in + rules), total
+            // F-42: what the flagged notes and the rests are taken for (the app), rows = true class
+            let mut conf = vec![vec![0usize; N_OUT]; N_OUT];
             for (strokes, y) in &set {
                 let ps = synth.as_ref().map(|m| m.predict(strokes)).unwrap_or_else(|| vec![0.0; N_OUT]);
                 let ph = hom.as_ref().map(|m| m.predict(strokes)).unwrap_or_else(|| vec![0.0; N_OUT]);
@@ -1223,6 +1463,23 @@ pub mod train {
                 t[*y][2] += (rule == *y) as usize;
                 t[*y][3] += (arg(&both) == *y) as usize;
                 t[*y][4] += 1;
+                conf[*y][arg(&both)] += 1;
+            }
+            if name.starts_with("HOMUS") {
+                let _ = writeln!(out, "\n== {name}: flagged notes and rests, what the app read (rows: written)");
+                let _ = write!(out, "{:<8}", "");
+                for c in &CLASSES[2..=12] {
+                    let _ = write!(out, "{c:>7}");
+                }
+                let _ = writeln!(out, "{:>7}", "else");
+                for (y, row) in conf.iter().enumerate().take(13).skip(2) {
+                    let _ = write!(out, "{:<8}", CLASSES[y]);
+                    for v in &row[2..=12] {
+                        let _ = write!(out, "{v:>7}");
+                    }
+                    let rest: usize = (0..N_OUT).filter(|k| !(2..=12).contains(k)).map(|k| row[k]).sum();
+                    let _ = writeln!(out, "{:>7}", rest);
+                }
             }
             let _ = writeln!(out, "\n== {name} ({} samples)", set.len());
             let _ = writeln!(out, "{:<8} {:>6} {:>10} {:>10} {:>8} {:>8}", "class", "n", "synthetic", "HOMUS+syn", "rules", "app");
@@ -1243,23 +1500,44 @@ pub mod train {
         out
     }
 
-    /// The training runs behind the two weight files: synthetic ink (seeds 1…; the tests use seeds from 1 000 000),
-    /// plus, for `pen_model.bin`, the HOMUS writers 1–80 (each sample four times: as written and moved a little).
-    pub fn train_default(homus: Option<&std::path::Path>) -> Model {
-        let mut data = dataset(1, 1200);
+    /// The networks in each weight file.
+    pub const NETWORKS: usize = 4;
+    /// Each HOMUS sample is trained on as written and this many times moved a little (`jiggle`, with each stroke
+    /// a little off on its own and the whole bent this much: F-42).
+    pub const HOMUS_REPS: usize = 9;
+    pub const HOMUS_AUG: f32 = 2.0;
+
+    /// The training data: synthetic ink (seeds 1…; the tests use seeds from 1 000 000), plus, with `homus`, the
+    /// HOMUS writers 1–80 (each sample as written and moved a little).
+    pub fn training_data(homus: Option<&std::path::Path>, synthetic_per_class: usize, reps: usize, held_out: &std::ops::RangeInclusive<u32>) -> Vec<(Vec<f32>, usize)> {
+        let mut data = dataset(1, synthetic_per_class);
         if let Some(dir) = homus {
             let mut g = Rng(99);
             for (w, c, s) in load_homus(dir) {
-                if HOMUS_TEST_WRITERS.contains(&w) {
+                if held_out.contains(&w) {
                     continue;
                 }
                 data.push((features(&s), c));
-                for _ in 0..3 {
+                for _ in 0..reps {
                     data.push((features(&jiggle(&mut g, &s)), c));
                 }
             }
         }
-        fit(&data, EPOCHS, 7)
+        data
+    }
+
+    /// Trains `hidden.len()` networks at once (one thread each), from seeds 7, 1007, 2007…
+    pub fn fit_ensemble(data: &[(Vec<f32>, usize)], hidden: &[usize], epochs: usize, lr: f32) -> Ensemble {
+        let models = std::thread::scope(|sc| {
+            let hs: Vec<_> = hidden.iter().enumerate().map(|(i, &nh)| sc.spawn(move || fit_lr(data, epochs, 7 + 1000 * i as u64, lr, nh))).collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        Ensemble { models }
+    }
+
+    /// The training runs behind the two weight files (`pen_model_synthetic.bin` without HOMUS, `pen_model.bin` with).
+    pub fn train_default(homus: Option<&std::path::Path>) -> Ensemble {
+        let data = training_data(homus, 1200, HOMUS_REPS, &HOMUS_TEST_WRITERS);
+        fit_ensemble(&data, &[N_HIDDEN; NETWORKS], EPOCHS, LR)
     }
 }
-

@@ -639,8 +639,7 @@ impl App {
         let (samples, recent) = {
             let mut s: Vec<(u8, egui::Pos2)> = std::mem::take(&mut self.pen.injected).into_iter().map(|(ph, x, y)| (ph, pos2(x, y))).collect();
             // F-41: a tablet pen on the desktop. On Windows, winit reports the pen (WM_POINTER, PT_PEN) as a touch
-            // with pressure; a mouse never sends touches, and a touch screen sends them without pressure. macOS
-            // reports a tablet pen as a plain mouse (no way to tell), so there the pen stays a mouse.
+            // with pressure; a mouse never sends touches, and a touch screen sends them without pressure.
             if self.device == crate::touch::Device::Desktop {
                 let down = self.pen.tablet_down;
                 let mut now_down = down;
@@ -663,7 +662,32 @@ impl App {
                         }
                     }
                 });
+                // F-42: on the Mac, the pen comes as the mouse, and AppKit's tablet marks (read in mac_tablet) say
+                // which press was the pen's: that press and its drag are the pen
+                #[cfg(target_os = "macos")]
+                ui.input(|i| {
+                    for e in &i.events {
+                        match e {
+                            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } if crate::mac_tablet::press_is_pen() => {
+                                s.push((0, *pos));
+                                now_down = true;
+                            }
+                            egui::Event::PointerMoved(pos) if now_down => s.push((1, *pos)),
+                            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, .. } if now_down => {
+                                s.push((2, *pos));
+                                now_down = false;
+                            }
+                            _ => {}
+                        }
+                    }
+                });
                 self.pen.tablet_down = now_down;
+                #[cfg(target_os = "macos")]
+                crate::mac_tablet::selftest_tick(now);
+                #[cfg(target_os = "macos")]
+                if crate::mac_tablet::seen() {
+                    self.pen.pen_seen = true;
+                }
             }
             let down = s.last().map(|x| x.0 != 2).unwrap_or(false) || self.pen.tablet_down;
             let r = down || !s.is_empty() || self.pen.cur.is_some() || self.pen.lasso.is_some();

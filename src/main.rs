@@ -14,6 +14,8 @@ mod icon;
 mod input;
 mod io;
 mod kit;
+#[cfg(target_os = "macos")]
+mod mac_tablet;
 mod midi_in;
 mod midi_out;
 mod prefs;
@@ -921,6 +923,9 @@ fn main() -> eframe::Result<()> {
             theme::install(&cc.egui_ctx, force_theme);
             // F-30: start reading the SoundFont now, so it is ready by the first note
             soundfont::preload();
+            // F-42: a tablet pen on the Mac (AppKit marks its events; winit doesn't)
+            #[cfg(target_os = "macos")]
+            mac_tablet::install();
             // the saved View ▸ Appearance, from the first frame (screenshots keep the system look or --theme)
             if force_theme.is_none() && !screenshot_mode {
                 cc.egui_ctx.set_theme(prefs::load().appearance.preference());
