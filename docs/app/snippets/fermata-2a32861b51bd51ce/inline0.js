@@ -306,6 +306,23 @@ export function open_pdf_tab(name, bytes) {
   if (!w) download(name, bytes.slice());
   setTimeout(() => URL.revokeObjectURL(url), 120000);
 }
+// F-38: the pen (Apple Pencil, S Pen, USI arrive as pointerType "pen"): its samples, in CSS pixels from the canvas'
+// corner, for the app to read each frame (egui sees the pen as a finger and can't tell)
+const penQ = []; let penDown = false, penUp = -1e9;
+if (typeof window !== "undefined") {
+  const penAt = (e) => { const c = document.getElementById("fermata_canvas"); const r = c ? c.getBoundingClientRect() : { left: 0, top: 0 }; return [e.clientX - r.left, e.clientY - r.top]; };
+  const on = (type, ph) => document.addEventListener(type, (e) => {
+    if (e.pointerType !== "pen") return;
+    if (ph === 1 && !penDown) return;
+    const list = ph === 1 && e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const x of (list.length ? list : [e])) { const [px, py] = penAt(x); penQ.push(ph, px, py); }
+    if (ph === 0) penDown = true;
+    if (ph === 2) { penDown = false; penUp = performance.now(); }
+  }, true);
+  on("pointerdown", 0); on("pointermove", 1); on("pointerup", 2); on("pointercancel", 2);
+}
+export function pen_take() { const a = new Float32Array(penQ); penQ.length = 0; return a; }
+export function pen_recent() { return penDown || performance.now() - penUp < 400; }
 export function open_tab(u) { window.open(new URL(u, location.href).href, "_blank", "noopener"); }
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", (e) => { if (unsaved) { e.preventDefault(); e.returnValue = ""; } });
